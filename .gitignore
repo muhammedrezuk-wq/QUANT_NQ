@@ -1,0 +1,19 @@
+venv/
+**/node_modules/
+**/__pycache__/
+.pytest_cache/
+*.pyc
+var/
+quant_nq_core.egg-info/
+governance/ui/built/
+*.db
+*.db-shm
+*.db-wal
+*.zip
+*.tar.gz
+
+# --- خزنة الأسرار: لا تُرفع أبداً (المفتاح والخزنة ونسخهما المؤرشفة) ---
+runtime/device.key
+runtime/device.key.*
+runtime/secrets.enc
+runtime/secrets.enc.*
