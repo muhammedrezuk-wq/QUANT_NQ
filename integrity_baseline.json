@@ -1281,6 +1281,7 @@
     "dir:atoms/::قسم 851-900/870_عقل_المعايرة/الشرح.md": "ac6a4b1a0178e924e03de68141b674ad67e71047f05f35a92f9385a1a2ac2da4",
     "dir:atoms/::قسم 551-600/576_المحرك_الدائم/naked_leg.py": "9bb519e32ed2936630ddfec90d0e1af3809021aedda9ac286cda27588eb35ea8",
     "dir:atoms/::قسم 551-600/578_منفذ_التحوط/health_view.py": "bd8c502f0e75f4724fb6fe5f8a7c6e69a228e4e8934c50419c7c348010c66592",
-    "dir:governance/::ui/src/sections/Mexc.tsx": "e3678852a0a559b37effc9f93b97505bd8ad7a8b76e191870362631dd83cd2b1"
+    "dir:governance/::ui/src/sections/Mexc.tsx": "e3678852a0a559b37effc9f93b97505bd8ad7a8b76e191870362631dd83cd2b1",
+    "dir:tools/::set_scalp_weights.py": "8821ef20e157dff67af0e9df23f222e1371370ff07e5c7a5f13197e208551de2"
   }
 }
