@@ -272,7 +272,14 @@ async def drive(closes: list[float]) -> tuple[Bus, list]:
             "event_id": "guard-%d" % index, "account_id": ACCOUNT, "symbol": SYMBOL,
             "event_type": "CLOSED", "side": "BUY", "volume": 0.1, "profit": profit,
             "reason": "SYSTEM", "ticket": 900000 + index, "close_time": 1000.0 + index})
-        steps.append((profit, bus.events("risk.asset_ledger.state")[-1],
+        _ev = bus.events("risk.asset_ledger.state")
+        if not _ev:
+            # م-58 (2026-08-28): كان انهيارًا IndexError — صار فشلًا مُشخَّصًا:
+            # 518 لم تنشر حالة الدفتر لهذه الحمولة (تقادم عقد ضدّ الذرّة الحالية)
+            print("  ✗ 518 لم تنشر risk.asset_ledger.state للخطوة %d — تقادم عقد (م-58)" % index)
+            print("\nالاختلافات = 1 (تقادم عقد — ترحيل لاحق)")
+            raise SystemExit(1)
+        steps.append((profit, _ev[-1],
                       bus.events("asset.portfolio.state")[-1],
                       bus.events("perpetual.target.state")[-1]
                       if bus.events("perpetual.target.state") else None))

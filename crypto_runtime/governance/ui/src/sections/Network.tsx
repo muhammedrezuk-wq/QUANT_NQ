@@ -279,5 +279,5 @@ export default function Network() {
     }
   }, [])
 
-  return <div className="network" ref={wrapRef} style={{ position: 'relative', overflow: 'hidden' }} />
+  return <div className="network" ref={wrapRef} style={{ position: 'relative', overflow: 'hidden', margin: '26px 0 16px', height: 'calc(100% - 42px)' }} />
 }

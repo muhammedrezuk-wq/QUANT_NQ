@@ -6,7 +6,9 @@ import { labelOf } from './i18n'
 
 // أحداث مهمّة للمراقبة (بلا ضجيج التكّات/الساعة/الحالات المستمرّة)
 // system.alert = تنبيه المُنذِر (831) لحظة صدور، بلا .state (الحالة ليست حدث مراقبة)
-const IMPORTANT = /crypto\.(universe|feed)|provider_down|provider_recovered|feed_interrupted|feed_recovered|halt|order\.|execution\.|trade\.|\.rejected|hot_loaded|hot_unloaded|reloaded|system\.alert(?!\.state)|atom\.(started|stopped|failed|restarted|unhealthy)/i
+// إصلاح م-6 (ورقة ٤١، أمر المالك 2026-08-28): تصعيد المالك واستنفاد زوج التحوّط
+// كانا يُنشران ولا يظهران بأي مكان — النظام «يصرخ» واللوحة لا تسمعه.
+const IMPORTANT = /crypto\.(universe|feed)|provider_down|provider_recovered|feed_interrupted|feed_recovered|halt|order\.|execution\.|trade\.|\.rejected|hot_loaded|hot_unloaded|reloaded|system\.alert(?!\.state)|atom\.(started|stopped|failed|restarted|unhealthy)|perpetual\.owner\.escalation|perpetual\.pair\.state/i
 
 // حزمة ج (ختم 22): سلسلة القرار + التنفيذ الدائم + تفعيل الأصل — أحداث تحمل `symbol`
 // وتحتاج مفتاحًا مستقلًا لكل رمز (لا "آخر قيمة عامّة" مثل streams). عقود الأحداث

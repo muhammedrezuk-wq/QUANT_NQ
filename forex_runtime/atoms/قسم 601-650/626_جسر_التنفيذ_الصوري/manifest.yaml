@@ -8,7 +8,7 @@ entrypoint: "atom:Atom"
 dependencies: []
 
 publishes:
-  - "platform.trade_event"
+  - "platform.trade_event.simulated"
   - "sim.execution.state"
 
 subscribes:

@@ -232,4 +232,7 @@ NQ المشرفة).** متوافقة خلفيًا بالكامل (< 2.0.0، لا
 # fingerprints every file in each atom directory and hashes manifests/source
 # files, so same-size version changes and immediate code deletion cannot be
 # skipped by filesystem timestamp granularity. No atom contract changed.
-CORE_VERSION = "1.27.0"
+# 1.27.1 (bootloader journal fix, 2026-08-28, owner order «حلها وفك تجميد»):
+# _mark_failed recorded start_failed twice per real failure (journal + metrics
+# doubled). Duplicate calls removed; no behavioral contract changed.
+CORE_VERSION = "1.27.1"

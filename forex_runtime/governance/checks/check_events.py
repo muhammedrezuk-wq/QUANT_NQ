@@ -101,6 +101,19 @@ def main() -> int:
         if subscribers.get(event):
             problems.append(f"{event}: مُصنّف {classification} لكن له مستمعون {sorted(subscribers[event])}")
 
+    # م-55 (ورقة ٤١، 2026-08-28): قائمة مغلقة — ناشر platform.trade_event
+    # الحقيقي الوحيد هو 611 (قارئ صفقات الوسيط). أي ناشر إضافي (جسر محاكاة،
+    # أداة، ذرّة جديدة) على هذا الحدث تحديدًا = حقن محتمل بمسار المخاطر
+    # والمحاسبة — يُرفض صراحة هنا مهما كانت نيّته.
+    TRADE_EVENT_PUBLISHERS_CLOSED = {611}
+    trade_publishers = publishers.get("platform.trade_event", set())
+    rogue = sorted(trade_publishers - TRADE_EVENT_PUBLISHERS_CLOSED)
+    if rogue:
+        problems.append("ناشر غير مصرّح لـplatform.trade_event (خطر حقن بمسار المخاطر): " + ", ".join(map(str, rogue)))
+    missing_real = TRADE_EVENT_PUBLISHERS_CLOSED - trade_publishers
+    if missing_real:
+        problems.append("القارئ الحقيقي 611 لم يعد ينشر platform.trade_event: " + ", ".join(map(str, sorted(missing_real))))
+
     no_publisher = sorted(event for event in subscribers if not publishers[event])
     unexpected_no_publisher = [
         event for event in no_publisher if event not in OPTIONAL_EXTERNAL_INPUTS

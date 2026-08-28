@@ -382,5 +382,6 @@ class Bootloader:
         log.error("فشل بدء الذرة %s: %s", atom_id, exc)
         self._journal.record(atom_id, "start_failed", {"error": str(exc)})
         self._metrics.increment(atom_id, "lifecycle.start.failure")
-        self._journal.record(atom_id, "start_failed", {"error": str(exc)})
-        self._metrics.increment(atom_id, "lifecycle.start.failure")
+        # إصلاح م-25 (ورقة ٤١، بأمر المالك «حلها وفك تجميد» 2026-08-28): كان
+        # الاستدعاءان أعلاه مكرّرين حرفيًا فيضخّم عدّاد فشل الإقلاع مرّتين لكل
+        # فشل حقيقي — تسجيل خاطئ لا خطر تنفيذ. أُزيل التكرار فقط.

@@ -56,7 +56,8 @@ A552 = "552_مدقق_الأمر"
 # for problem 58 (measurement only) and 2.8.0 for problem 63 (the request id
 # carries the snapshot and the official time).  Its send and retry lines stay
 # frozen line by line by check_delta_visibility_contract.
-UNTOUCHED = {"581_محرك_فرق_المركز": "2.9.0", "578_منفذ_التحوط": "3.0.0"}
+# م-43 (ورقة ٤١، 2026-08-28): أُعيد التثبيت على إصدارات ما بعد الدمج الموثّق (RC4/RC5)
+UNTOUCHED = {"581_محرك_فرق_المركز": "3.4.1", "578_منفذ_التحوط": "5.4.0"}
 
 CHILD = r'''
 import asyncio, json, sys
@@ -141,9 +142,12 @@ def structural() -> int:
     bad = 0
     for folder, label in ((A552, "552"), (A550, "550"), (A519, "519")):
         src = (ATOMS / folder / "atom.py").read_text(encoding="utf-8")
-        has_snap = "async def snapshot" in src
-        has_rest = "async def restore" in src
-        fail_closed = "FAIL_CLOSED" in src
+        # م-43: الذرّات المدموجة متعدّدة الملفات — snapshot/restore قد تسكن
+        # وحدة شقيقة؛ يُفحص كود الذرّة كاملًا لا atom.py وحده.
+        src_all = "\n".join(f.read_text(encoding="utf-8") for f in (ATOMS / folder).glob("*.py"))
+        has_snap = "async def snapshot" in src_all
+        has_rest = "async def restore" in src_all
+        fail_closed = "FAIL_CLOSED" in src_all
         for name, ok in ((f"{label} يحفظ", has_snap), (f"{label} يستعيد", has_rest),
                          (f"{label} مغلق عند فشل الاستعادة", fail_closed)):
             bad += 0 if ok else 1
@@ -258,6 +262,12 @@ def finish(bad: int, tmp) -> int:
         print("سليم: إيقاف المالك وتجميده وتحريره تنجو من موت العمليّة، والفساد يُبقيها مغلقة.")
     return 1 if bad else 0
 
+
+
+# ⏳ م-47 (ورقة ٤١، 2026-08-28): ما تبقّى من فروق هذا الفحص انحرافُ عقودٍ بعد
+# الدمج (لاخطّاط لقطة الذرّات المدموجة/سلوك إشارات ويندوز) — يُرحَّل بنافذة
+# خاصة ويبقى أحمرَ صادقًا. إصلاحات م-43 الميكانيكية (تثبيتات UNTOUCHED،
+# فحص snapshot بكل ملفات الذرّة) مثبّة أعلاه وتعمل.
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")

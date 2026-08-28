@@ -13,7 +13,18 @@ const _host = window.location.host || '127.0.0.1:8090'
 // المرشِد يستعمل host (مع المنفذ) لأنّه على أصل الصفحة؛ والنواة تستعمل hostname لأنّ منفذها 8010 يُلحق.
 const _hostname = window.location.hostname || '127.0.0.1'
 const RELAY_WS = `${_secure ? 'wss' : 'ws'}://${_host}/gov/ws/core`
-const CORE_WS = `${_secure ? 'wss' : 'ws'}://${_hostname}:8010/ws/events`
+
+// منفذ النواة يتبع السوق المختار (كوكي QUANT_MARKET الذي يضبطه الهبّ عند التبديل):
+// فوركس 8010 · كريبتو 8020. كان مثبّتًا على 8010، فالمسار المباشر (كل محاولة
+// فردية بالتناوب) كان يجلب ذرّات الفوركس ولو كانت اللوحة على الكريبتو —
+// فتختلط 226 ذرّة فوركس بـ33 ذرّة كريبتو تناوبًا (عطل مقاس 2026-08-29).
+// يُحسب عند كل محاولة اتصال لا مرّة واحدة، كي يتبع التبديل فورًا.
+const CORE_PORTS: Record<string, number> = { forex: 8010, crypto: 8020 }
+const _coreWs = (): string => {
+  const m = /(?:^|;\s*)QUANT_MARKET=(forex|crypto)/.exec(document.cookie)
+  const port = CORE_PORTS[m ? m[1] : 'forex'] ?? 8010
+  return `${_secure ? 'wss' : 'ws'}://${_hostname}:${port}/ws/events`
+}
 
 export type WsMsg =
   | { type: 'snapshot'; atoms: unknown[]; metrics: unknown }
@@ -39,7 +50,8 @@ export function connectWs(
       } else {
         const key = getApiKey()
         const encoded = key ? btoa(unescape(encodeURIComponent(key))).replace(/=+$/g, '').replace(/\+/g, '-').replace(/\//g, '_') : ''
-        next = encoded ? new WebSocket(CORE_WS, ['quant-nq', `quant-nq-key.${encoded}`]) : new WebSocket(CORE_WS)
+        const coreUrl = _coreWs()
+        next = encoded ? new WebSocket(coreUrl, ['quant-nq', `quant-nq-key.${encoded}`]) : new WebSocket(coreUrl)
       }
     } catch {
       attempt += 1

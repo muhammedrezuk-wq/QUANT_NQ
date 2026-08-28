@@ -50,6 +50,19 @@ def _numbers(text: str) -> list[int]:
 
 def main() -> int:
     registry = BuildRegistry(ROOT).refresh()
+    # إصلاح م-28 (ورقة ٤١، بأمر المالك 2026-08-28): عاد التوقع **المستقل الثابت**
+    # إلى جانب توقّع Registry — فلو عُبث بالمانيفستات صمتًا (حذف ذرّة أو قلب
+    # startup_mode) اكتشفه الفحص حتى لو ظل السجلّ متسقًا مع نفسه.
+    EXPECTED_FOREX_ROOT = 233
+    EXPECTED_CRYPTO_ROOT = 77  # 2026-08-28: دمج الشريك أدخل 2622 (Binance)
+    MIN_STARTED_FLOOR = 220
+    # م-44 (ورقة ٤١، 2026-08-28): تثبيت أوضاع الذرّات الحرجة — انقلاب startup_mode
+    # صمتًا (مثل تحويل 901 أو 2901) كان يمرّ ما دام العدد الكلي مطابقًا.
+    CRITICAL_PINNED = {
+        901: "auto", 516: "auto", 550: "auto", 552: "auto", 576: "auto",
+        578: "auto", 601: "auto", 613: "auto", 701: "auto", 703: "auto",
+        2901: "manual", 625: "manual", 626: "manual",
+    }
     expected_auto = {
         record.atom_id
         for record in registry.forex_all
@@ -57,6 +70,16 @@ def main() -> int:
     }
     if registry.integrity.missing_roots or registry.integrity.discovery_failures:
         print("❌ Registry discovery غير صالح قبل فحص الإقلاع")
+        return 1
+    by_id = {r.atom_id: r for r in (*registry.forex_all, *registry.crypto_all) if r.atom_id is not None}
+    flipped = {aid: (by_id[aid].startup_mode, want) for aid, want in CRITICAL_PINNED.items()
+               if aid in by_id and by_id[aid].startup_mode != want}
+    if flipped:
+        print(f"❌ انقلاب وضع ذرّة حرجة صمتًا: {flipped} — قرار مالك مطلوب")
+        return 1
+    if len(registry.forex_all) != EXPECTED_FOREX_ROOT or len(registry.crypto_all) != EXPECTED_CRYPTO_ROOT:
+        print(f"❌ توقع مستقل مخالف: forex={len(registry.forex_all)} (المتوقع {EXPECTED_FOREX_ROOT}) · "
+              f"crypto={len(registry.crypto_all)} (المتوقع {EXPECTED_CRYPTO_ROOT}) — تغيير صامت بالمانيفستات؟")
         return 1
 
     temp = tempfile.TemporaryDirectory(prefix="quant_nq_boot_")
@@ -121,10 +144,13 @@ def main() -> int:
     print(f"بدأت فعليًا: {len(started)}")
     print(f"فشلت: {failed or 'لا شيء'}")
     print(f"استُبعدت: {excluded or 'لا شيء'}")
+    if len(started) < MIN_STARTED_FLOOR:
+        print(f"❌ أرضية مستقلة: بدأت {len(started)} < {MIN_STARTED_FLOOR} — انكماش صامت في الإقلاع")
+        return 1
     if missing or unexpected or failed:
         print(f"❌ اختلاف الإقلاع: missing={missing or 'لا شيء'} unexpected={unexpected or 'لا شيء'}")
         return 1
-    print("✅ Atom Boot يطابق مجموعة auto المكتشفة؛ Core Boot منفصل عن العدد الثابت.")
+    print("✅ Atom Boot يطابق auto المكتشفة + التوقع المستقل 233/77 + أوضاع الذرّات الحرجة مثبّتة (م-44).")
     return 0
 
 
