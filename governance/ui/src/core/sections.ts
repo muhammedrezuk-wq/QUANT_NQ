@@ -39,3 +39,22 @@ export const SECTIONS: [string, string, boolean][] = [
   // قسم أسمر — تنفيذ MEXC البشري (كريبتو فقط): النظام يقترح وهو يكبس الزر
   ['mexc', 'MEXC', true],
 ]
+
+// ═══ أقسام أسمر (كريبتو) — الطريقة الرسمية من الخريطة الهندسية (م-53) ═══
+// نفس المحرك والترتيب، بأسماء طبقات المشروع: كون · حواس · حكم · تنفيذ بشري.
+// لا صفحات فارغة: كل تبويب هنا حيّ موصول أو أداة تشغيل رسمية.
+export const CRYPTO_SECTIONS: [string, string, boolean][] = [
+  ['universe', 'الكون', true],
+  ['senses', 'الحواس', true],
+  ['judgement', 'الحكم والقرار', true],
+  ['charts', 'الشارت', true],
+  ['mexc', 'MEXC — تنفيذ بشري', true],
+  ['network', 'الشبكة', true],
+  ['atoms', 'الذرات', true],
+  ['scripts', 'فحوصات الحوكمة', true],
+  ['log', 'السجل', true],
+  ['alerts', 'التنبيهات', true],
+  ['monitor', 'المراقبة', true],
+  ['settings', 'الإعدادات', true],
+  ['diag', 'التشخيص', true],
+]

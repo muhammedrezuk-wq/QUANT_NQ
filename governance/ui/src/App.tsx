@@ -35,11 +35,14 @@ import Control from './sections/Control'
 import NQ from './sections/NQ'
 import News from './sections/News'
 import Mexc from './sections/Mexc'
+import Universe from './sections/Universe'
+import Senses from './sections/Senses'
+import Judgement from './sections/Judgement'
 import { applyColors, loadColors, CRYPTO_PRESET } from './core/appearance'
 
 // أقسام اللوحة — القائمة القانونية انتقلت لـ core/sections.ts (يقرأها محرّر
 // ترتيب التبويبات بالإعدادات كمان — بند ١٥ج بورقة ٩٩). «الشبكة» = النظام العام.
-import { SECTIONS } from './core/sections'
+import { SECTIONS, CRYPTO_SECTIONS } from './core/sections'
 
 const pad = (n: number, l: number) => String(n).padStart(l, '0')
 
@@ -52,6 +55,7 @@ type MarketInfo = {
 
 export default function App() {
   const [active, setActive] = useState('dashboard')
+  const [cryptoEntered, setCryptoEntered] = useState(false)
   const [marketInfo, setMarketInfo] = useState<MarketInfo | null>(() => (
     window.location.port === '8091'
       ? { market: 'crypto', label: 'كريبتو', alternate_port: 8090, alternate_label: 'فوركس' }
@@ -89,12 +93,16 @@ export default function App() {
     window.addEventListener(TAB_ORDER_EVENT, onChange)
     return () => window.removeEventListener(TAB_ORDER_EVENT, onChange)
   }, [])
+  const cryptoMode = marketInfo?.market === 'crypto'
+  useEffect(() => { if (cryptoMode && !cryptoEntered) { setCryptoEntered(true); setActive('universe') } }, [cryptoMode])
   const orderedSections = useMemo(
-    () => tabOrder
-      .map((id) => SECTIONS.find((s) => s[0] === id))
-      .filter((s): s is [string, string, boolean] => s != null)
-      .filter(([id]) => id !== 'mexc' || marketInfo?.market === 'crypto'),
-    [tabOrder, marketInfo?.market],
+    () => (cryptoMode
+      ? CRYPTO_SECTIONS
+      : tabOrder
+        .map((id) => SECTIONS.find((s) => s[0] === id))
+        .filter((s): s is [string, string, boolean] => s != null)
+        .filter(([id]) => !['mexc', 'universe', 'senses', 'judgement'].includes(id))),
+    [tabOrder, cryptoMode],
   )
   const isCrypto = marketInfo?.market === 'crypto'
   useEffect(() => {
@@ -208,6 +216,12 @@ export default function App() {
       <main className="workspace">
         {active === 'mexc' ? (
           <Mexc />
+        ) : active === 'universe' ? (
+          <Universe />
+        ) : active === 'senses' ? (
+          <Senses />
+        ) : active === 'judgement' ? (
+          <Judgement />
         ) : active === 'dashboard' ? (
           <NewDashboard />
         ) : active === 'home' ? (

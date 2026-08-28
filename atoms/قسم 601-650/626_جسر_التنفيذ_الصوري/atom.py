@@ -26,7 +26,11 @@ ATOM_VERSION = "1.0.0"
 
 EVENT_ORDERS = "trading.final_decision"
 EVENT_TICK = "market.tick.validated"
-EVENT_OUT = "platform.trade_event"
+# م-55 (ورقة ٤١، بأمر المالك «صلّح» 2026-08-28): كان الخروج على حدث القارئ
+# الحقيقي نفسه (platform.trade_event) — لا مستهلكًا واحدًا من الـ17 يفحص حقل
+# simulated، فتُفرَج حجوزات 516/585 الحقيقية فورًا بتعبئة وهمية. صار الخروج
+# على حدث محاكاة مستقل لا يصل مسار المخاطر أبدًا (عزل بالتسمية لا بالنواية).
+EVENT_OUT = "platform.trade_event.simulated"
 EVENT_STATE = "sim.execution.state"
 
 REASON_NOT_STARTED = "NOT_STARTED"

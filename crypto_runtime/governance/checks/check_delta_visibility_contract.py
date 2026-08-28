@@ -269,6 +269,11 @@ async def main_async() -> int:
 
     before = await details(atom)
     count = len(bus.log)
+    if not orders:
+        # م-58 (2026-08-28): كان انهيارًا IndexError — 578 لم تُصدر الأمر بعقد
+        # الاختبار المتقادم (هوية v5.x غيّرت الشكل) — فشل مُشخَّص صادق.
+        print("  ✗ 578 لم تُصدر أمرًا بعقد السيناريو المتقادم (م-58) — ترحيل لاحق")
+        return bad + 1
     await atom._on_rejected({"request_id": orders[0]["request_id"], "account_id": ACC,
                              "symbol": SYM, "reason": "TEST_REJECT"})
     after = await details(atom)

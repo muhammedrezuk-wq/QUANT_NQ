@@ -16,6 +16,7 @@ const btn = (extra?: React.CSSProperties): React.CSSProperties => ({ padding: '7
 const input: React.CSSProperties = { width: '100%', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--glassb)', background: 'transparent', color: 'var(--ink)', fontSize: 13, boxSizing: 'border-box' }
 
 export default function Mexc() {
+  const [marketOk, setMarketOk] = useState<boolean | null>(null)
   const [universe, setUniverse] = useState<{ core: string[]; outer: string[] }>({ core: [], outer: [] })
   const [symbol, setSymbol] = useState('BTC_USDT')
   const [iv, setIv] = useState('Min5')
@@ -33,6 +34,8 @@ export default function Mexc() {
   const refreshStatus = () => { fetch('/gov/mexc/status', { cache: 'no-store' }).then(r => r.json()).then(setStatus).catch(() => {}) }
 
   useEffect(() => {
+    fetch('/gov/market', { cache: 'no-store' }).then(r => r.json())
+      .then((m: { market?: string }) => setMarketOk(m.market === 'crypto')).catch(() => setMarketOk(false))
     refreshStatus()
     fetch('/gov/mexc/universe', { cache: 'no-store' }).then(r => r.json()).then((u: { core?: string[] }) => {
       setUniverse({ core: u.core || [], outer: u.outer || [] })
@@ -42,6 +45,7 @@ export default function Mexc() {
   useEffect(() => {
     if (!chartEl.current) return
     const chart = createChart(chartEl.current, {
+      autoSize: true,
       height: 430,
       layout: { background: { color: 'transparent' }, textColor: 'rgba(130,170,155,.9)' },
       grid: { vertLines: { color: 'rgba(120,130,150,.10)' }, horzLines: { color: 'rgba(120,130,150,.10)' } },
@@ -117,6 +121,16 @@ export default function Mexc() {
 
   const syms = Array.from(new Set(['BTC_USDT', 'ETH_USDT', 'SOL_USDT', ...universe.core, ...universe.outer]))
 
+  if (marketOk === false) {
+    return (
+      <div style={{ ...card, display: 'grid', gap: 8, justifyItems: 'center', padding: 40 }}>
+        <div style={{ fontSize: 40 }}>🔐</div>
+        <div style={{ fontWeight: 700 }}>هذه الصفحة لقسم أسمر (الكريبتو)</div>
+        <div style={{ color: 'var(--dim)', fontSize: 13 }}>بدّل إلى لوحة الكريبتو من الزر «فوركس ⇄ كريبتو» بالأعلى ثم افتح تبويب MEXC.</div>
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
@@ -135,7 +149,7 @@ export default function Mexc() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 14, alignItems: 'start' }}>
         <div style={card}>
-          <div ref={chartEl} />
+          <div ref={chartEl} style={{ minHeight: 430 }} />
         </div>
 
         <div style={{ display: 'grid', gap: 14 }}>
@@ -169,8 +183,8 @@ export default function Mexc() {
             <input style={{ ...input, marginBottom: 6 }} placeholder="API Key" value={keys.api_key} onChange={e => setKeys(k => ({ ...k, api_key: e.target.value }))} />
             <input style={{ ...input, marginBottom: 8 }} placeholder="Secret" type="password" value={keys.secret} onChange={e => setKeys(k => ({ ...k, secret: e.target.value }))} />
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button style={btn} onClick={() => void saveKeys()}>حفظ (تدريب)</button>
-              <button style={btn} onClick={() => void testConn()} disabled={!status?.configured}>اختبار الاتصال</button>
+              <button style={btn()} onClick={() => void saveKeys()}>حفظ (تدريب)</button>
+              <button style={btn()} onClick={() => void testConn()} disabled={!status?.configured}>اختبار الاتصال</button>
               <button style={btn(status?.dry_run === false ? { borderColor: 'var(--red)', color: 'var(--red)' } : {})} onClick={() => void toggleLive()} disabled={!status?.configured}>
                 {status?.dry_run === false ? 'إيقاف التنفيذ الحقيقي' : 'تفعيل التنفيذ الحقيقي'}
               </button>

@@ -35,6 +35,15 @@ const tsec = (ts?: number) => (ts && ts > 1e9 ? (ts > 1e12 ? ts / 1000 : ts) : n
 
 interface Candle { time: number; open: number; high: number; low: number; close: number }
 
+// قسم أسمر: الشموع الرسمية لمكّن MEXC مباشرة (الخريطة الهندسية — المصدر الحي الثاني)
+let __marketCache: string | null = null
+const marketNow = async (): Promise<string> => {
+  if (__marketCache) return __marketCache
+  try { const r = await fetch('/gov/market', { cache: 'no-store' }); const j = await r.json(); __marketCache = j.market || 'forex' } catch { __marketCache = 'forex' }
+  return __marketCache
+}
+const IV_BY_TF: Record<number, string> = { 60: 'Min1', 300: 'Min5', 900: 'Min15', 1800: 'Min30', 3600: 'Min60', 14400: '4h', 86400: '1d' }
+
 export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number; tfLabel?: string }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -65,6 +74,7 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
     chartRef.current = chart; seriesRef.current = series
 
     let disposed = false
+    const cleanup2: Array<() => void> = []
     let cur: Candle | null = null
     let lastTime = 0
 
@@ -85,9 +95,14 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
       setLast(price)
     }
 
-    // ① تاريخ حقيقي من الخادم
-    fetch(`/gov/candles?symbol=${encodeURIComponent(symbol)}&tf=${tf}&limit=400`)
-      .then((r) => r.json())
+    // ① تاريخ حقيقي من الخادم — قسم أسمر: من MEXC مباشرة، الفوركس من المخزن
+    void marketNow().then((mkt) => {
+      const url = mkt === 'crypto'
+        ? `/gov/mexc/klines?symbol=${encodeURIComponent(symbol)}&interval=${IV_BY_TF[tf] || 'Min5'}`
+        : `/gov/candles?symbol=${encodeURIComponent(symbol)}&tf=${tf}&limit=400`
+      return fetch(url, { cache: 'no-store' })
+    })
+      .then((r) => r?.json())
       .then((d: { candles?: Candle[] }) => {
         if (disposed) return
         const cs = d.candles ?? []
@@ -97,7 +112,19 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
           cur = { ...cs[cs.length - 1] }; lastTime = cur.time
           setNc(cs.length); setHist('ok'); chart.timeScale().fitContent()
         } else { setHist('empty') }
-        // ② ثم نكمّل حيًّا (بعد تحميل التاريخ لتفادي التضارب الزمني)
+        // ② قسم أسمر: تكّة حيّة من MEXC كل ١٥ث (الفوركس يكمل من المتجر أسفل)
+        void marketNow().then((mkt) => {
+          if (mkt !== 'crypto' || disposed) return
+          const poll = () => fetch(`/gov/mexc/ticker?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((t: { bid?: string; ask?: string }) => {
+              if (disposed || t.bid == null || t.ask == null) return
+              applyTick(parseFloat(t.bid), parseFloat(t.ask))
+            }).catch(() => {})
+          poll(); const th = setInterval(poll, 15000)
+          cleanup2.push(() => clearInterval(th))
+        })
+        // ٣) الفوركس يكمل من المتجر (كما كان)
         const t0 = useStore.getState().market[symbol]; if (t0) applyTick(t0.bid, t0.ask, t0.ts)
       })
       .catch(() => { if (!disposed) setHist('empty') })
@@ -107,7 +134,7 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
       if (t && t !== prev.market[symbol]) applyTick(t.bid, t.ask, t.ts)
     })
 
-    return () => { disposed = true; unsub(); chart.remove(); chartRef.current = null; seriesRef.current = null; linesRef.current = [] }
+    return () => { disposed = true; unsub(); chart.remove(); chartRef.current = null; seriesRef.current = null; linesRef.current = []; cleanup2.forEach((f) => f()) }
   }, [symbol, tf])
 
   // خطوط الصفقات المفتوحة: دخول + وقف + هدف (حقيقية من المنصّة) — وأمر النظام الأخير (متقطّع)

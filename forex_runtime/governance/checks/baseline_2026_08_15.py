@@ -19,7 +19,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from build_registry.paths import RegistryAtomRoot
 ATOMS = RegistryAtomRoot(ROOT)
-PY = str(ROOT / "venv" / "Scripts" / "python.exe")
+# م-58 (2026-08-28): كان مثبتًا على venv/Scripts/python.exe (ويندوز حصرًا) فانهار
+# بـFileNotFoundError على أي بيئة أخرى — صار sys.executable مع تفضيل venv إن وُجد.
+_candidate = ROOT / "venv" / "Scripts" / "python.exe"
+PY = str(_candidate) if _candidate.exists() else sys.executable
 sys.stdout.reconfigure(encoding="utf-8")
 
 # 552 انتقلت 2.8.1 → 2.8.2 بإغلاق البوّابة بأمره (ع٢)، لا بتعديل كود.

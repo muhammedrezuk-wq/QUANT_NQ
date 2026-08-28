@@ -114,7 +114,12 @@ def main() -> int:
     print("Database path on each side:")
     paths: dict[int, str] = {}
     for atom_id, role in BRIDGE_ATOMS.items():
-        value = manifests[atom_id]["config"]["db_path"]
+        # م-58 (ورقة ٤١، 2026-08-28): مانيفست بلا db_path كان ينهار بـKeyError —
+        # يُتخطّى بتشخيص صريح (ذرّات المحاكاة والجسور الجديدة).
+        value = manifests[atom_id]["config"].get("db_path")
+        if value is None:
+            print(f"تخطّي {atom_id}: لا db_path بالمانيفست")
+            continue
         paths[atom_id] = value
         print(f"  {atom_id}  {role}")
         print(f"       db_path = {value!r}")
