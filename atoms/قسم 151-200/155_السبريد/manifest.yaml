@@ -1,6 +1,6 @@
 id: 155
 name: "Spread Analyzer"
-version: "2.4.1"
+version: "2.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -64,12 +64,12 @@ config_schema:
   additionalProperties: false
 
 config:
-  baseline_window: 50
+  baseline_window: 24
   exp_short: 5
   exp_long: 20
-  exp_mult: 1.3
-  wide_mult: 1.5
-  narrow_mult: 0.6
-  min_candles: 20
+  exp_mult: 1.25
+  wide_mult: 1.35
+  narrow_mult: 0.7
+  min_candles: 16
 metadata:
   max_idle_s: 301

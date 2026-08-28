@@ -1,6 +1,6 @@
 id: 152
 name: "Momentum Analyzer"
-version: "2.4.1"
+version: "2.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -66,13 +66,13 @@ config_schema:
   additionalProperties: false
 
 config:
-  roc_period: 10
-  impulse_window: 14
-  persistence_window: 10
-  roc_flat_pct: 0.05
-  persistence_min: 0.6
+  roc_period: 5
+  impulse_window: 8
+  persistence_window: 12
+  roc_flat_pct: 0.04
+  persistence_min: 0.55
   strong_score: 70
   medium_score: 40
-  min_candles: 20
+  min_candles: 16
 metadata:
   max_idle_s: 301
