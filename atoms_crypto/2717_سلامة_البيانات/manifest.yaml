@@ -9,7 +9,7 @@ publishes:
 - storage.trading_data_integrity_checked
 subscribes:
 - storage.trading_data_cleaned
-startup_mode: manual
+startup_mode: auto  # تفعيل أمر المالك 2026-08-28 — أعلى جهوزية (2901 تبقى manual بقرار م-44)
 health:
   interval_ms: 60000
   timeout_ms: 10000

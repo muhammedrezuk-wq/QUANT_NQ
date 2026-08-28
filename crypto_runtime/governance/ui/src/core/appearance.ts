@@ -134,11 +134,3 @@ export function initAppearance(): void {
   applyColors(loadColors())
   applyZoom(loadZoom())
 }
-
-// قسم أسمر (كريبتو) — «نفس اللوحة بلمسة تميّز» (أمر المالك 2026-08-28):
-// يُطبَّق تلقائيًا في وضع الكريبتو ما لم يكن للمالك تخصيص ألوان محفوظ.
-export const CRYPTO_PRESET: ColorsMap = {
-  '--bg1': '#0a1420', '--bg2': '#0c1a15', 'glass': '#10362b',
-  '--ink': '#e8fff6', '--dim': '#82aa9b', '--accent': '#14b8a6',
-  '--green': '#22c55e', '--amber': '#f59e0b', '--red': '#f43f5e',
-}

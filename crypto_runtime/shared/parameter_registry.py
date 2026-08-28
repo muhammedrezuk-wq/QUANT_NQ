@@ -223,7 +223,6 @@ _gate_cache: list[str] | None = None
 #:    يصل عمليّة النواة أبدًا. الآن تُفحص بصمة الملفّ كل `_GATE_RECHECK_S`
 #:    على الأكثر — فتصل الاعتمادات عبر العمليّات خلال ثوانٍ بلا إقلاع بارد.
 _gate_mtime: float = -1.0
-_gate_path: str | None = None
 _gate_checked_monotonic: float = -1.0
 _GATE_RECHECK_S = 2.0
 
@@ -237,10 +236,9 @@ def _registry_mtime() -> float:
 
 def refresh_gate() -> None:
     """يُبطل الذاكرة المؤقّتة — يُستدعى بعد كلّ اعتماد."""
-    global _gate_cache, _gate_path
+    global _gate_cache
     with _gate_lock:
         _gate_cache = None
-        _gate_path = None
         _approved_cache.clear()
 
 
@@ -250,25 +248,17 @@ def unapproved_parameters() -> list[str]:
     ⛔ لا تُقرأ القاعدة في كلّ نشرة: `stamp_section` مسار ساخن — الفحص
        الدوريّ بصمةُ ملفّ (stat) لا استعلام، ومرّة كل ثانيتين كحدّ أقصى.
     """
-    global _gate_cache, _gate_mtime, _gate_path, _gate_checked_monotonic
+    global _gate_cache, _gate_mtime, _gate_checked_monotonic
     import time as _time
     now = _time.monotonic()
-    # م-27 (ورقة ٤١، أمر المالك 2026-08-28): مفتاح الحداثة صار (المسار، mtime)
-    # لا mtime وحده — سجلّان مختلفان (فوركس/كريبتو) بختم ثانيةٍ واحد كانا
-    # يقدّمان اعتمادات أحدهما للآخر عبر عملية واحدة تخدم السوقين.
-    try:
-        reg_path = str(ParameterRegistry().path)
-    except Exception:  # noqa: BLE001
-        reg_path = ""
     with _gate_lock:
-        if _gate_cache is not None and _gate_path == reg_path:
+        if _gate_cache is not None:
             if now - _gate_checked_monotonic < _GATE_RECHECK_S:
                 return list(_gate_cache)
     mtime = _registry_mtime()
     with _gate_lock:
         _gate_checked_monotonic = now
-        if (_gate_cache is not None and _gate_path == reg_path
-                and mtime == _gate_mtime):
+        if _gate_cache is not None and mtime == _gate_mtime:
             return list(_gate_cache)
     try:
         names = ParameterRegistry().unapproved()
@@ -278,7 +268,6 @@ def unapproved_parameters() -> list[str]:
     with _gate_lock:
         _gate_cache = list(names)
         _gate_mtime = mtime
-        _gate_path = reg_path
     return list(names)
 
 
@@ -291,16 +280,9 @@ def approved_value(name: str, fallback: float,
     (لا استعلام على المسار الساخن إلا عند تغيّر القاعدة فعلًا)."""
     global _approved_cache
     unapproved_parameters()  # يُحدّث بصمة الحداثة ويُبطل ما يلزم
-    stamp = (_gate_path, _gate_mtime)  # م-27: الختم بالمسار أيضًا
-    # م-38 (ورقة ٤١، أمر المالك «صلّح الباقي» 2026-08-28): الذاكرة كانت تُسقط
-    # قيمة المانيفست من مفتاحها — أول مستدعيٍّ (ذرّة/اختبار بمانيفست 1) يسمّم
-    # كل من بعده بقميته مهما اختلف مانيفسته (مقيس: 463 بcap=2 يعمل بـ1 بعد
-    # أي اختبار سابق). القيمة المخزّنة صارت تحمل الـfallback وتقارن به.
-    fallback_key = float(fallback)
     with _gate_lock:
         cached = _approved_cache.get((name, scope))
-        if (cached is not None and cached[0] == stamp
-                and cached[2] == fallback_key):
+        if cached is not None and cached[0] == _gate_mtime:
             return cached[1]
     try:
         row = ParameterRegistry().get(name, scope)
@@ -310,7 +292,7 @@ def approved_value(name: str, fallback: float,
              if row is not None and str(row.get("status")) == STATUS_APPROVED
              else float(fallback))
     with _gate_lock:
-        _approved_cache[(name, scope)] = (stamp, value, fallback_key)
+        _approved_cache[(name, scope)] = (_gate_mtime, value)
     return value
 
 

@@ -10,7 +10,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.2.0"
+ATOM_VERSION = "1.0.0"
 PROVIDER = "MEXC"
 TICKER_URL = "https://contract.mexc.com/api/v1/contract/ticker"
 DETAIL_URL = "https://contract.mexc.com/api/v1/contract/detail"
@@ -35,33 +35,14 @@ REASON_RANGE_UNKNOWN = "DAILY_RANGE_UNKNOWN"
 REASON_RANGE_TOO_WIDE = "RANGE_TOO_WIDE"
 REASON_MANUAL_DENY = "MANUAL_DENY"
 
-# v1.2.0: kept ONLY as a defensive fallback for when a provider's detail
-# row carries no conceptPlate/tag data at all (see _classify). "SPX" and
-# "MSTR" were removed -- verified live against MEXC 2026-08-27: SPX_USDT
-# is SPX6900, a real meme coin (conceptPlate=["mc-trade-zone-MEME"]), and
-# HMSTR_USDT (Hamster Kombat, a real token) matched "MSTR" as a bare
-# substring. Neither belongs in a NON-crypto marker list.
 _NON_CRYPTO_MARKERS = (
-    "GOLD", "SILVER", "XAU", "XAG", "OIL", "NDX", "US500",
-    "US30", "NAS100", "DJI", "TSLA", "AAPL", "NVDA",
+    "GOLD", "SILVER", "XAU", "XAG", "OIL", "SPX", "NDX", "US500",
+    "US30", "NAS100", "DJI", "TSLA", "AAPL", "NVDA", "MSTR",
 )
 _NON_CRYPTO_CLASSES = {
     "INDEX", "EQUITY", "STOCK", "COMMODITY", "TOKENIZED_EQUITY",
     "TOKENIZED_COMMODITY", "FOREX",
 }
-# MEXC's own explicit categorization (contract/detail's `conceptPlate`
-# list) is authoritative where the symbol-marker list above is a fragile
-# guess. Verified live against all 1024 real USDT/USDT MEXC contracts
-# 2026-08-27: "mc-trade-zone-tradfi" is the complete umbrella tag -- every
-# item also tagged Stock/ETF/Commodities/Forex/stockindex/metals/
-# metalsfutures/koreanstocks/preipo/OIL carries tradfi too, with zero
-# exceptions either direction (no real crypto token wrongly caught, no
-# wrapped tradfi instrument left uncaught among ~400 found). Before this
-# fix, the marker list alone caught 12 of those ~400 non-crypto
-# contracts -- roughly 390 tokenized stocks/ETFs/forex/commodity wrappers
-# (AAPL, TSLA, SPY, QQQ, EUR, GBP, copper, silver...) were silently
-# admitted as "NATIVE_CRYPTO".
-_NON_CRYPTO_CONCEPT_TAGS = frozenset({"mc-trade-zone-tradfi"})
 
 
 def _float(value: Any) -> float | None:
@@ -105,21 +86,14 @@ def _detail_value(detail: dict[str, Any], *names: str) -> Any:
     return None
 
 
-def _concept_plates(detail: dict[str, Any]) -> list[str]:
-    raw = _detail_value(detail, "conceptPlate", "concept_plate")
-    return [str(p) for p in raw] if isinstance(raw, list) else []
-
-
 def _classify(symbol: str, detail: dict[str, Any]) -> tuple[str, str]:
     explicit = str(_detail_value(
         detail, "assetClass", "asset_class", "instrumentType", "instrument_type",
         "category", "contractCategory", "contract_category",
     ) or "").strip().upper()
+    upper = symbol.upper()
     if explicit in _NON_CRYPTO_CLASSES:
         return "NON_CRYPTO", explicit
-    if any(plate in _NON_CRYPTO_CONCEPT_TAGS for plate in _concept_plates(detail)):
-        return "NON_CRYPTO", "CONCEPT_PLATE_TRADFI"
-    upper = symbol.upper()
     if any(marker in upper for marker in _NON_CRYPTO_MARKERS):
         return "NON_CRYPTO", "SYMBOL_MARKER"
     base = str(_detail_value(detail, "baseCoin", "base_coin", "baseAsset", "base_asset") or "").strip()
@@ -150,8 +124,8 @@ class Atom(AtomBase):
         self._max_range_pct = 20.0
         self._core_target = 12
         self._outer_target = 15
-        self._entry_resilience_s = 0.25 * 86400.0
-        self._exit_failure_s = 1 * 86400.0
+        self._entry_resilience_s = 2 * 86400.0
+        self._exit_failure_s = 3 * 86400.0
         self._overrides_path = Path("var/universe_overrides.json")
         self._membership_path = Path("var/universe_membership.json")
         self._open_positions_path = Path("var/open_positions.json")
@@ -175,8 +149,8 @@ class Atom(AtomBase):
         self._max_range_pct = float(cfg.get("max_daily_range_pct", 20.0))
         self._core_target = int(cfg.get("core_target_count", 12))
         self._outer_target = int(cfg.get("outer_target_count", 15))
-        self._entry_resilience_s = float(cfg.get("entry_resilience_days", 0.25)) * 86400.0
-        self._exit_failure_s = float(cfg.get("exit_failure_days", 1)) * 86400.0
+        self._entry_resilience_s = float(cfg.get("entry_resilience_days", 2)) * 86400.0
+        self._exit_failure_s = float(cfg.get("exit_failure_days", 3)) * 86400.0
         self._overrides_path = Path(str(cfg.get("overrides_path", "var/universe_overrides.json")))
         self._membership_path = Path(str(cfg.get("membership_state_path", "var/universe_membership.json")))
         self._open_positions_path = Path(str(cfg.get("open_positions_path", "var/open_positions.json")))
@@ -461,15 +435,6 @@ class Atom(AtomBase):
             candidates.sort(key=lambda r: (-float(r.get("amount24_usd") or 0), float(r.get("spread_ticks") or 0), r["symbol"]))
             core = candidates[:self._core_target]
             outer = candidates[self._core_target:self._core_target + self._outer_target]
-            # v1.1.0: _rotate() below reads row["ring"] to decide CORE_ACTIVE
-            # vs OUTER_ACTIVE -- _normalize() never sets this key, so every
-            # row (core slice included) silently defaulted to "outer" and
-            # the Core tier never existed in the published output. Tag each
-            # row with the ring its own slice already decided.
-            for row in core:
-                row["ring"] = "core"
-            for row in outer:
-                row["ring"] = "outer"
             # Qualified but not selected is visible, never silently discarded.
             selected_names = {row["symbol"] for row in core + outer}
             for row in candidates:

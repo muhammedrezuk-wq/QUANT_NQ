@@ -110,8 +110,11 @@ async def test_615_and_616_row_id_collision_is_not_a_false_duplicate():
     import importlib.util as ilu
     import sqlite3
     import tempfile
-    root615 = _Path(__file__).resolve().parents[2] / "615_جسر_مصدر_الأخبار"
-    root616 = _Path(__file__).resolve().parents[2] / "616_جسر_الأخبار"
+    # م-36 (ورقة ٤١، 2026-08-28): المساران كانا من عهد التخطيط المسطح — بعد
+    # التقسيم أقسامًا صارا بقسم آخر؛ يُوجدان بالبحث من جذر المستودع.
+    _root = _Path(__file__).resolve().parents[4]
+    root615 = next(_root.rglob("615_*/atom.py")).parent
+    root616 = next(_root.rglob("616_*/atom.py")).parent
 
     def load(name, folder):
         spec = ilu.spec_from_file_location(name, folder / "atom.py")

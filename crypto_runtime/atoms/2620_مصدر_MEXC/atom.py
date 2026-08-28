@@ -9,7 +9,7 @@ import websockets
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.2.0"
+ATOM_VERSION = "1.0.0"
 PROVIDER = "MEXC"
 
 # روابط MEXC — مؤكَّدة من الوثائق الرسمية ومختبَرة حيّاً 2026-08-26.
@@ -21,7 +21,6 @@ EVENT_TICK = "market.tick"     # ← يستهلكه مدقّق البيانات 
 EVENT_DEPTH = "market.depth"   # ← يستهلكه مستقبِل العمق 106
 EVENT_TRADE = "market.trade"   # ← يستهلكه شريط الصفقات 107
 EVENT_STATE = "feed.mexc.state"
-EVENT_MEMBERSHIP = "crypto.universe.membership.state"   # ← كون 1001 الحيّ
 
 _OPEN_TIMEOUT_S = 12.0
 _MAX_FRAME = 2 ** 23
@@ -88,23 +87,6 @@ class Atom(AtomBase):
         self._sub_ticker = bool(cfg.get("subscribe_ticker", True))
         self._sub_depth = bool(cfg.get("subscribe_depth", True))
         self._sub_deal = bool(cfg.get("subscribe_deal", True))
-        context.subscribe(EVENT_MEMBERSHIP, self._on_membership)
-
-    async def _on_membership(self, payload: dict[str, Any]) -> None:
-        """يتبع كون 1001 الحيّ. الاشتراكات هنا تُثبَّت لكلّ اتصالٍ عند
-        `start()` (لا تضاف/تُحذف حيًّا على اتصالٍ مفتوح) — فالتغيير الحقيقيّ
-        الوحيد الصحيح هو إعادة تشغيل الطبقة كاملةً بالقائمة الجديدة، تمامًا
-        كما تُقلِع أوّل مرّة. لا تُنفَّذ إلّا حين يتغيّر مجموع الرموز فعلًا —
-        لا عند كل نشرة كونٍ دوريّة (كل ~poll_interval_s من 1001 بلا تغيير)."""
-        if not isinstance(payload, dict):
-            return
-        symbols = [str(s).strip() for s in (payload.get("symbols") or []) if str(s).strip()]
-        if not symbols or set(symbols) == set(self._symbols):
-            return
-        self._symbols = symbols
-        if self._running:
-            await self.stop()
-            await self.start()
 
     async def start(self) -> None:
         if self._running or self._context is None:

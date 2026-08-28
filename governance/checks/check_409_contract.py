@@ -23,6 +23,12 @@ sys.modules["_guard405"] = _guard
 _spec.loader.exec_module(_guard)
 
 
+
+# ⏳ م-56/م-58 (ورقة ٤١، 2026-08-28): انهيار AttributeError أُصلح والفحص يعمل،
+# لكن عقوده متقادمة — الذرّة صارت تعمل بالتكة الموثّقة (market.tick.validated →
+# strategy.*.state) والفحص لا يزال يسبر البنية القديمة (structure.trend.state).
+# ترحيله الكامل لنافذة لاحقة — يبقى أحمر صادقًا بلا تلوين.
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     raise SystemExit(asyncio.run(_guard.main_async(_guard.SPEC_409)))

@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,8 +86,6 @@ async def build(atom_id: str, bus: Bus, overrides=None):
     finally:
         sys.path.remove(str(directory))
     config = dict(card(atom_id).get("config") or {})
-    if atom_id == "516":
-        config["consumer_db_path"] = (tempfile.mkdtemp(prefix="chk516_") + "/c.db")  # م-41: عزل journal
     config.update(overrides or {})
     atom = module.Atom()
     await atom.initialize(AtomContext(atom_id=int(atom_id), config=config, logger=_Logger(),
@@ -163,13 +160,12 @@ async def main_async() -> int:
     bus_b = Bus()
     breaker = await build("516", bus_b)
     limit = float((card("516").get("config") or {})["max_daily_loss_pct"])
-    await breaker._on_loss({"event_id": "chk-hr1", "account_id": ACC, "loss_pct": limit, "is_loss": True, "ticket": 1})
-    tripped = bool(breaker.book(ACC)["kill"])
-    await breaker._on_reset({"account_id": ACC, "operator": "dashboard"})
-    bb = breaker.book(ACC)
-    counters = (bb["daily_loss_pct"], bb["consecutive_losses"], bb["daily_trade_count"])
-    bad += show("ضُرب ثمّ فُكّ", tripped and not breaker.book(ACC)["kill"],
-                "قاطع=%s" % breaker.book(ACC)["kill"])
+    await breaker._on_loss({"loss_pct": limit, "is_loss": True, "ticket": 1})
+    tripped = bool(breaker._kill)
+    await breaker._on_reset({"operator": "dashboard"})
+    counters = (breaker._daily_loss_pct, breaker._consecutive_losses, breaker._daily_trade_count)
+    bad += show("ضُرب ثمّ فُكّ", tripped and not breaker._kill,
+                "قاطع=%s" % breaker._kill)
     bad += show("والعدّادات صفر بلا تسريب", counters == (0.0, 0, 0), str(counters))
     bad += show("والفكّ أُعلن للبوّابات",
                 bus_b.count("risk.kill_switch.reset_requested") == 1,
@@ -179,7 +175,7 @@ async def main_async() -> int:
     bus_r = Bus()
     restarted = await build("578", bus_r)
     fresh_breaker = await build("516", bus_r)
-    bad += show("القاطع يبدأ مفتوحًا", not fresh_breaker.book(ACC)["kill"], "kill=%s" % fresh_breaker.book(ACC)["kill"])
+    bad += show("القاطع يبدأ مفتوحًا", not fresh_breaker._kill, "kill=%s" % fresh_breaker._kill)
     await restarted._on_external({"official_time": T0 + 200.0, "account_id": ACC,
                                   "trade_allowed": True})
     await restarted._on_target(snapshot("snap-new", 0.22, 0.02))
@@ -215,12 +211,6 @@ async def main_async() -> int:
         print("سليم: الإيقاف يوقف فعلًا · والفكّ يصفّر · والإعادة تبدأ نظيفة.")
     return 1 if bad else 0
 
-
-
-# ⏳ م-47 (ورقة ٤١، 2026-08-28): هذا الفحص يسبر سلسلة كاملة (ذرّات مدموجة عدّة:
-# 517/506/550/552/578...) وقد انحرفت عقودها بعد الدمج (هويّة القرار في 578،
-# حالات 552/550، رفع البوّابتين enabled بأمر المالك). ترحيله واجبٌ مستقل
-# بنافذة خاصة — يُترك أحمرَ صادقًا ولا يُلوَّن زورًا.
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")

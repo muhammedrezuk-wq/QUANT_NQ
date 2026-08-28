@@ -134,45 +134,13 @@ async def test_spot_mode_flags_protobuf():
     print("OK — سبوت: يشترك بالصيغة الصحيحة ويُعلن صراحةً حاجة protobuf")
 
 
-async def test_membership_restarts_only_on_real_change():
-    atom, _ = await _make()
-    calls = []
-    async def fake_stop(): calls.append("stop")
-    async def fake_start(): calls.append("start")
-    atom.stop, atom.start = fake_stop, fake_start   # يعزل الشبكة عن الاختبار
-
-    # لم تُقلع بعد ⇒ تحديث القائمة بلا إعادة تشغيل (لا شيء يُعاد تشغيله).
-    atom._running = False
-    await atom._on_membership({"symbols": ["BTC_USDT", "ETH_USDT", "SOL_USDT"]})
-    assert atom._symbols == ["BTC_USDT", "ETH_USDT", "SOL_USDT"]
-    assert calls == []
-
-    # تعمل + مجموعة مطابقة (ولو بترتيبٍ مختلف) ⇒ لا إعادة تشغيل (لا تغيّر فعليّ).
-    atom._running = True
-    await atom._on_membership({"symbols": ["SOL_USDT", "ETH_USDT", "BTC_USDT"]})
-    assert calls == [], "نفس المجموعة بترتيبٍ مختلف لا تستحقّ إعادة اتصال"
-
-    # تعمل + مجموعةٌ مختلفة فعلًا ⇒ إعادة تشغيلٍ كاملة (stop ثم start).
-    await atom._on_membership({"symbols": ["BTC_USDT", "XRP_USDT"]})
-    assert atom._symbols == ["BTC_USDT", "XRP_USDT"]
-    assert calls == ["stop", "start"]
-
-    # حمولةٌ فارغة/فاسدة ⇒ تُتجاهَل بأمان (لا تُفرِغ القائمة الحالية).
-    calls.clear()
-    await atom._on_membership({"symbols": []})
-    await atom._on_membership({})
-    assert atom._symbols == ["BTC_USDT", "XRP_USDT"] and calls == []
-    print("OK — تتبُّع كون 1001 الحيّ: تحديثٌ بلا اتصالٍ زائد، وإعادة اتصالٍ فقط عند تغيّرٍ حقيقيّ")
-
-
 async def main():
     for test in (test_subscribe_futures_sends_correct_channels,
                  test_ticker_becomes_market_tick,
                  test_depth_becomes_market_depth_truncated,
                  test_deal_list_becomes_market_trades_with_side,
                  test_health_reflects_real_receipt,
-                 test_spot_mode_flags_protobuf,
-                 test_membership_restarts_only_on_real_change):
+                 test_spot_mode_flags_protobuf):
         await test()
     print("\n✅ كل الاختبارات نجحت")
 

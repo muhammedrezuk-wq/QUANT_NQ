@@ -34,8 +34,7 @@ import Scripts from './sections/Scripts'
 import Control from './sections/Control'
 import NQ from './sections/NQ'
 import News from './sections/News'
-import Mexc from './sections/Mexc'
-import { applyColors, loadColors, CRYPTO_PRESET } from './core/appearance'
+import CryptoDashboard from './sections/CryptoDashboard'
 
 // أقسام اللوحة — القائمة القانونية انتقلت لـ core/sections.ts (يقرأها محرّر
 // ترتيب التبويبات بالإعدادات كمان — بند ١٥ج بورقة ٩٩). «الشبكة» = النظام العام.
@@ -92,17 +91,10 @@ export default function App() {
   const orderedSections = useMemo(
     () => tabOrder
       .map((id) => SECTIONS.find((s) => s[0] === id))
-      .filter((s): s is [string, string, boolean] => s != null)
-      .filter(([id]) => id !== 'mexc' || marketInfo?.market === 'crypto'),
-    [tabOrder, marketInfo?.market],
+      .filter((s): s is [string, string, boolean] => s != null),
+    [tabOrder],
   )
   const isCrypto = marketInfo?.market === 'crypto'
-  useEffect(() => {
-    // قسم أسمر: نفس اللوحة بلمسة لون — بلا طغيان على تخصيص المالك المحفوظ
-    const custom = loadColors()
-    if (marketInfo?.market === 'crypto' && Object.keys(custom).length === 0) applyColors(CRYPTO_PRESET)
-    else applyColors(custom)
-  }, [marketInfo?.market])
   const clockRef = useRef<HTMLDivElement>(null)
   const staleRef = useRef<HTMLDivElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
@@ -196,18 +188,24 @@ export default function App() {
         <div className="clock num" ref={clockRef}>--:--:--.---</div>
       </header>
 
-      <nav className="nav">
-        {isCrypto ? <span style={{ alignSelf: 'center', padding: '0 10px', color: 'var(--accent)', fontWeight: 700, fontSize: 12 }}>قسم أسمر · كريبتو</span> : null}
-        {orderedSections.map(([id, label, on]) => (
-          <button key={id} className={active === id ? 'active' : ''} disabled={!on} onClick={() => on && setActive(id)}>
-            {on ? label : `${label} · قريبًا`}
-          </button>
-        ))}
-      </nav>
+      {isCrypto ? (
+        <nav className="nav crypto-nav-label">
+          <span>لوحة الكريبتو المستقلة</span>
+          <span>MEXC · Phase A · Feed Only</span>
+        </nav>
+      ) : (
+        <nav className="nav">
+          {orderedSections.map(([id, label, on]) => (
+            <button key={id} className={active === id ? 'active' : ''} disabled={!on} onClick={() => on && setActive(id)}>
+              {on ? label : `${label} · قريبًا`}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <main className="workspace">
-        {active === 'mexc' ? (
-          <Mexc />
+        {isCrypto ? (
+          <CryptoDashboard />
         ) : active === 'dashboard' ? (
           <NewDashboard />
         ) : active === 'home' ? (

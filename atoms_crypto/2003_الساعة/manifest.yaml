@@ -16,7 +16,7 @@ publishes:
 - kernel.clock.minute_elapsed
 subscribes:
 - time.ntp.samples.state
-startup_mode: manual
+startup_mode: manual  # م-50: تعتمد على 608 الغائبة بنطاق الكريبتو
 health:
   interval_ms: 2000
   timeout_ms: 1000

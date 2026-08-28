@@ -76,19 +76,44 @@ def _run_one(directory: Path) -> Result:
     )
     output = proc.stdout + proc.stderr
     counts = {kind: int(number) for number, kind in _COUNT.findall(output)}
+    rc = proc.returncode
     no_tests = proc.returncode == 5 or "no tests ran" in output
-    if no_tests:
-        direct = directory / "tests" / "test_atom.py"
-        if direct.is_file():
-            proc = subprocess.run([sys.executable, str(direct)], cwd=PROJECT_ROOT,
-                                  env=env, capture_output=True, text=True, timeout=300)
-            output = proc.stdout + proc.stderr
-            counts = {kind: int(number) for number, kind in _COUNT.findall(output)}
-            if proc.returncode == 0 and not counts:
-                counts["passed"] = 1
+    direct = directory / "tests" / "test_atom.py"
+    # م-54 (ورقة ٤١، بأمر المالك «صلّح» 2026-08-28): test_atom.py بسلوك السكربت
+    # (بلا def test_) كان يُتجاهل صامتًا متى وُجِد أخٌ شقيق يكتشفه pytest
+    # (مقيس: 578 محجوبة بtest_pair_durability · 581 بtest_risk_dial) فتمرّ الذرّة
+    # «ناجحة» بلا تنفيذ سيناريوهاتها. الآن يُشغَّل السكربت دائمًا وتُدمج نتيجته.
+    direct_is_script = False
+    if direct.is_file():
+        src = direct.read_text(encoding="utf-8", errors="replace")
+        direct_is_script = re.search(r"^\s*def test_", src, re.M) is None
+    if no_tests and direct.is_file() and not direct_is_script:
+        proc = subprocess.run([sys.executable, str(direct)], cwd=PROJECT_ROOT,
+                              env=env, capture_output=True, text=True, timeout=300)
+        output = proc.stdout + proc.stderr
+        counts = {kind: int(number) for number, kind in _COUNT.findall(output)}
+        if proc.returncode == 0 and not counts:
+            counts["passed"] = 1
+        rc = proc.returncode
+    if direct_is_script:
+        proc2 = subprocess.run([sys.executable, str(direct)], cwd=PROJECT_ROOT,
+                               env=env, capture_output=True, text=True, timeout=300)
+        counts2 = {kind: int(number) for number, kind in _COUNT.findall(proc2.stdout + proc2.stderr)}
+        if proc2.returncode == 0 and not counts2:
+            counts2["passed"] = 1
+        for kind, number in counts2.items():
+            counts[kind] = counts.get(kind, 0) + number
+        if proc2.returncode != 0:
+            # السكربب فشل فعلًا — يحكم إلا إذا كانت هناك فشول pytest أشد
+            rc = proc2.returncode if rc in (0, 5) else rc
+            counts["failed"] = counts.get("failed", 0) or 1
+        elif rc in (0, 5) and not counts.get("failed") and not counts.get("error"):
+            # م-54 تصحيح: السكربت نجح — يُمحى رمز 5 (لا اختبارات pytest)
+            # الذي كان يُظهر الذرّة «فاشلة» بفشل=0 خطأ=0 (31 ذرّة مقيسة)
+            rc = 0
     return Result(
         name=directory.name,
-        returncode=proc.returncode,
+        returncode=rc,
         passed=counts.get("passed", 0),
         failed=counts.get("failed", 0),
         errors=counts.get("error", 0),

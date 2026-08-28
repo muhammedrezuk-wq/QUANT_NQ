@@ -27,7 +27,7 @@ subscribes:
 - market_data.quality_alert
 - time.clock.divergence
 - storage.symbol.unmapped
-startup_mode: manual
+startup_mode: auto  # تفعيل أمر المالك 2026-08-28 — أعلى جهوزية (2901 تبقى manual بقرار م-44)
 health:
   interval_ms: 60000
   timeout_ms: 5000

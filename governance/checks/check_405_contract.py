@@ -137,10 +137,10 @@ def structural(spec: dict = None) -> int:
         ", ".join(sorted(shares)) or "لا"))
 
     merged = load_atom(A413)
-    ok = merge_id not in merged._DIRECTIONAL_IDS
+    ok = merge_id not in merged.DIRECTIONAL_IDS
     bad += 0 if ok else 1
     print("  413 يستثنيه من عدّ الأصوات الاتّجاهيّة        : %s (%s)" % (
-        "✓" if ok else "✗ دخل القائمة!", ", ".join(merged._DIRECTIONAL_IDS)))
+        "✓" if ok else "✗ دخل القائمة!", ", ".join(merged.DIRECTIONAL_IDS)))
 
     declared = [str(s) for s in manifest(A453)["config"]["directional_sources"]]
     ok = not any(merge_id in s for s in declared)
@@ -271,6 +271,12 @@ async def main_async(spec: dict = None) -> int:
         print("سليم: %s كشف سياقيّ ثنائيّ — لا ينتج اتجاهًا ولا مركزًا، ولا يستطيع." % aid)
     return 1 if bad else 0
 
+
+
+# ⏳ م-56/م-58 (ورقة ٤١، 2026-08-28): انهيار AttributeError أُصلح والفحص يعمل،
+# لكن عقوده متقادمة — الذرّة صارت تعمل بالتكة الموثّقة (market.tick.validated →
+# strategy.*.state) والفحص لا يزال يسبر البنية القديمة (structure.trend.state).
+# ترحيله الكامل لنافذة لاحقة — يبقى أحمر صادقًا بلا تلوين.
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")

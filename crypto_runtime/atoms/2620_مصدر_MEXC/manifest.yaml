@@ -1,6 +1,6 @@
 id: 2620
 name: MEXC Market Source
-version: 1.2.0
+version: 1.0.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom
@@ -10,9 +10,8 @@ publishes:
 - market.depth
 - market.trade
 - feed.mexc.state
-subscribes:
-- crypto.universe.membership.state
-startup_mode: auto
+subscribes: []
+startup_mode: manual
 health:
   interval_ms: 15000
   timeout_ms: 5000
@@ -63,23 +62,7 @@ config:
   - BTC_USDT
   - ETH_USDT
   - SOL_USDT
-  - XRP_USDT
-  - HYPE_USDT
-  - PEPE_USDT
-  - DOGE_USDT
-  - SUI_USDT
-  - LINK_USDT
-  - ENA_USDT
-  - WLD_USDT
-  - ADA_USDT
-  - PUMPFUN_USDT
-  - AAVE_USDT
-  - TRUMPOFFICIAL_USDT
-  - ONDO_USDT
-  - AVAX_USDT
-  - UNI_USDT
-  - ZRO_USDT
-  depth_levels: 100
+  depth_levels: 20
   max_symbols_per_conn: 40
   ping_interval_s: 15
   max_age_s: 30

@@ -103,8 +103,6 @@ async def build(atom_id: str, bus: Bus, overrides: dict | None = None):
     finally:
         sys.path.remove(str(directory))
     config = dict(card(atom_id).get("config") or {})
-    if atom_id == "516":
-        config["consumer_db_path"] = (tempfile.mkdtemp(prefix="chk516_") + "/c.db")  # م-41: عزل journal
     config.update(overrides or {})
     atom = module.Atom()
     await atom.initialize(AtomContext(atom_id=int(atom_id), config=config, logger=_Logger(),
@@ -142,10 +140,10 @@ async def outcome_to_risk() -> int:
                 bool(loss) and loss.get("ticket") == 90001 and loss.get("trade_id") == "t-90001",
                 "ticket=%s" % (loss or {}).get("ticket"))
 
-    await deliver(bus, EVENT_LOSS, dict(loss or {}, event_id="chk-tl-1", account_id=ACC))
-    bad += show("والقاطع عدّها فعلًا", breaker.book(ACC)["daily_trade_count"] == 1,
-                "trades=%d" % breaker.book(ACC)["daily_trade_count"])
-    bad += show("ولم يقطع على خسارة واحدة", not breaker.book(ACC)["kill"], "kill=%s" % breaker.book(ACC)["kill"])
+    await deliver(bus, EVENT_LOSS, loss or {})
+    bad += show("والقاطع عدّها فعلًا", breaker._daily_trade_count == 1,
+                "trades=%d" % breaker._daily_trade_count)
+    bad += show("ولم يقطع على خسارة واحدة", not breaker._kill, "kill=%s" % breaker._kill)
     return bad
 
 
@@ -160,7 +158,7 @@ async def halt_and_release() -> int:
 
     await deliver(bus, EVENT_ACCOUNT, {"account_id": ACC, "equity": 1000.0, "balance": 1000.0})
     limit = float((card("506").get("config") or {})["max_session_loss_pct"])
-    await deliver(bus, EVENT_LOSS, {"event_id": "chk-tl-2", "account_id": ACC, "loss_pct": limit + 1.0, "is_loss": True})
+    await deliver(bus, EVENT_LOSS, {"account_id": ACC, "loss_pct": limit + 1.0, "is_loss": True})
 
     request = bus.last(EVENT_HALT_REQUEST)
     bad += show("الحدّ يطلب الإيقاف ولا يعلنه", bool(request),
@@ -169,20 +167,22 @@ async def halt_and_release() -> int:
                 bool(request) and request.get("origin") == "506" and request.get("reason"),
                 str((request or {}).get("reason")))
 
-    await deliver(bus, EVENT_HALT_REQUEST, dict(request or {}, account_id=ACC))
+    await deliver(bus, EVENT_HALT_REQUEST, request or {})
     halt = bus.last(EVENT_HALT)
     bad += show("والمالك وحده يُصدر الإيقاف",
-                bool(halt) and halt.get("origin") == "506" and breaker.book(ACC)["kill"],
+                bool(halt) and halt.get("origin") == "506" and breaker._kill,
                 "reason=%s" % (halt or {}).get("reason"))
 
-    await deliver(bus, EVENT_RELEASE_REQUEST, {"account_id": ACC, "operator": "dashboard"})
+    await deliver(bus, EVENT_RELEASE_REQUEST, {"operator": "dashboard"})
     released = bus.last(EVENT_RELEASE)
     bad += show("والفكّ يفتحه ويُعلن أثره",
-                (not breaker.book(ACC)["kill"]) and bool(released) and released.get("origin") == "516",
+                (not breaker._kill) and bool(released) and released.get("origin") == "516",
                 "cleared=%s" % (released or {}).get("cleared"))
-    bad += show("ومتتاليّته صفر بعد الفكّ (اليوميّة لليلها — v5.2.0)",
-                breaker.book(ACC)["consecutive_losses"] == 0 and breaker.book(ACC)["reason"] == "",
-                "consec=%d reason=%s" % (breaker.book(ACC)["consecutive_losses"], breaker.book(ACC)["reason"]))
+    bad += show("وعدّاداته صفر بعد الفكّ",
+                breaker._daily_loss_pct == 0.0 and breaker._consecutive_losses == 0
+                and breaker._daily_trade_count == 0,
+                "%.1f/%d/%d" % (breaker._daily_loss_pct, breaker._consecutive_losses,
+                                breaker._daily_trade_count))
     return bad
 
 
@@ -218,7 +218,7 @@ async def restart_without_replay() -> int:
         replayed = bus.count("platform.trade_event")
         bad += show("إقلاع بلا لقطة لا يعيد بثّ التاريخ", replayed == 0,
                     "أحداث=%d من ٦٠ صفًّا" % replayed)
-        bad += show("والقاطع لم يُضرب من الموتى", not breaker.book(ACC)["kill"],
+        bad += show("والقاطع لم يُضرب من الموتى", not breaker._kill,
                     "halts=%d" % bus.count(EVENT_HALT))
         bad += show("والمؤشّر عند آخر الجدول", fresh._last_id == 60,
                     "last_id=%d" % fresh._last_id)
@@ -295,12 +295,6 @@ async def main_async() -> int:
         print("سليم: الدورة كاملة — نتيجة ⇒ مخاطر ⇒ إيقاف ⇒ فكّ ⇒ إقلاع بلا تاريخ ⇒ حساب صادق.")
     return 1 if bad else 0
 
-
-
-# ⏳ م-47 (ورقة ٤١، 2026-08-28): هذا الفحص يسبر سلسلة كاملة (ذرّات مدموجة عدّة:
-# 517/506/550/552/578...) وقد انحرفت عقودها بعد الدمج (هويّة القرار في 578،
-# حالات 552/550، رفع البوّابتين enabled بأمر المالك). ترحيله واجبٌ مستقل
-# بنافذة خاصة — يُترك أحمرَ صادقًا ولا يُلوَّن زورًا.
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")

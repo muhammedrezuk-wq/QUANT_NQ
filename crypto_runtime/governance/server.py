@@ -60,18 +60,7 @@ COMMANDS_DB = DATA_ROOT / "governance" / "commands.db"  # جسر بوّابة ا
 ANALYSIS_SETTINGS_DB = ROOT.parent / "var" / MARKET / "analysis_settings.db"
 TILT_RULES_DB = DATA_ROOT / "store" / "tilt_rules.db"
 DECISIONS_DB = DATA_ROOT / "store" / "decisions.db"
-# إصلاح ف-1 (ورقة ٤٠ · ديفرق ورقة ٣٩ بند ٤): للفوركس، صفحتا الأخبار والصفقات
-# تقرآن nq_brain.db حيث يكتب الـEA فعليًّا (مجلّد MetaTrader المشترك) — لا
-# bridge.db المعزولة الفارغة غير الموجودة أصلًا (كانت تجعل /gov/news يكذب:
-# available:false رغم وصول مئات الأخبار — مقاس بورقة ٣٨ بند ٤).
-# للكريبتو تبقى bridge.db المعزولة كما هي (نفس حكم ورقة ٣٩).
-if MARKET == "crypto":
-    TRADE_DB = ROOT.parent / "var" / MARKET / "bridge.db"
-else:
-    TRADE_DB = Path(os.environ.get(
-        "NQ_NEWS_DB",
-        str(Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
-            / "Common" / "Files" / "nq_brain.db")))
+TRADE_DB = ROOT.parent / "var" / MARKET / "bridge.db"
 LOGS_DIR = DATA_ROOT / "logs"
 
 # جذر المشروع على المسار: الخادم يُشغَّل ملفًّا داخل governance فلا يرى حزم
@@ -922,79 +911,15 @@ _READ_PROXY = {
 }
 
 
-def _iter_atom_manifests() -> list:
-    """مانيفستات الذرات بالشكلين معاً: الشجرة المسطّحة (atoms_crypto/2007_…)
-    والشجرة المقسّمة أقساماً (atoms/قسم 001-050/003_…/manifest.yaml).
-    إصلاح الملعب 2026-08-27: المسح الضحّل بمستوى واحد كان يرى الأقسامَ
-    ملفّاتٍ بلا مانيفست فتفرغ خريطة الأسماء ولوحة الشبكة بأكملها."""
-    out: list = []
-    if not ATOMS_DIR.is_dir():
-        return out
-    for pattern in ("*/manifest.yaml", "*/*/manifest.yaml"):
-        for mf in sorted(ATOMS_DIR.glob(pattern)):
-            if mf not in out:
-                out.append(mf)
-    return out
-
-
-
-# ═══ قسم أسمر — لوحة MEXC (تنفيذ بشري: النظام يقترح، أسمر يكبس الزر) ═══
-# أمر المالك 2026-08-28: صفحة MX — شارت + شراء/بيع + رافعة + حجم.
-# المفاتيح بـ var/mexc_api.json (خارج الشحن دائمًا) ولا تُعاد للوحة أبدًا.
-# الافتراضي تدريب (dry-run)؛ الحقيقي يتطلب تفعيلًا صريحًا مزدوجًا.
-MEXC_KEYS_PATH = ROOT.parent / "var" / "mexc_api.json"
-MEXC_BASE = "https://contract.mexc.com"
-
-
-def _mexc_keys() -> dict:
-    try:
-        data = json.loads(MEXC_KEYS_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
-def _mexc_public(path: str) -> dict:
-    import urllib.request
-    req = urllib.request.Request(MEXC_BASE + path, headers={"User-Agent": "QUANT_NQ/1.0"})
-    with urllib.request.urlopen(req, timeout=12) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-def _mexc_signed(method: str, path: str, body=None):
-    """توقيع MEXC Futures v1: HMAC-SHA256(secret, ts+METHOD+path+body)
-    يُتحقق منه عبر /gov/mexc/test (قراءة رصيد) قبل أي أمر حقيقي."""
-    import hashlib, hmac, time as _t, urllib.error, urllib.request
-    keys = _mexc_keys()
-    if not keys.get("api_key") or not keys.get("secret"):
-        return 400, {"error": "NO_KEYS", "message": "أدخل مفاتيح MEXC أولًا من اللوحة"}
-    ts = str(int(_t.time() * 1000))
-    payload = json.dumps(body, separators=(",", ":")) if body is not None else ""
-    sign = hmac.new(keys["secret"].encode("utf-8"),
-                    (ts + method + path + payload).encode("utf-8"),
-                    hashlib.sha256).hexdigest()
-    req = urllib.request.Request(MEXC_BASE + path,
-                                 data=payload.encode("utf-8") if payload else None,
-                                 method=method)
-    req.add_header("ApiKey", keys["api_key"])
-    req.add_header("Request-Time", ts)
-    req.add_header("Signature", sign)
-    req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=12) as r:
-            return r.status, json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        return exc.code, {"error": "MEXC_HTTP_%d" % exc.code,
-                          "message": exc.read().decode("utf-8", "replace")[:300]}
-    except Exception as exc:  # noqa: BLE001
-        return 502, {"error": type(exc).__name__}
-
-
 def arabic_names() -> dict[int, str]:
     """اسم عربي لكل ذرة، مُشتقّ من اسم مجلّدها (لا خريطة يدوية · ١٤ §٩)."""
     out: dict[int, str] = {}
-    for manifest in _iter_atom_manifests():
-        folder = manifest.parent
+    if not ATOMS_DIR.is_dir():
+        return out
+    for folder in ATOMS_DIR.iterdir():
+        manifest = folder / "manifest.yaml"
+        if not manifest.is_file():
+            continue
         # utf-8-sig: علامة BOM براس الملف (يكتبها Set-Content بويندوز) كانت
         # تُسقط سطر id الأول فتختفي الذرة من الرسم كله — مقيس 2026-08-19.
         text = manifest.read_text(encoding="utf-8-sig")
@@ -1033,7 +958,11 @@ def system_graph() -> dict:
     nodes: list[dict] = []
     pubs: dict[str, list[int]] = {}
     subs: dict[str, list[int]] = {}
-    for mf in _iter_atom_manifests():
+    if ATOMS_DIR.is_dir():
+        for folder in sorted(ATOMS_DIR.iterdir()):
+            mf = folder / "manifest.yaml"
+            if not mf.is_file():
+                continue
             text = mf.read_text(encoding="utf-8-sig")
             m = re.search(r"^\s*id:\s*(\d+)", text, re.M)
             if not m:
@@ -1117,7 +1046,11 @@ def idle_limits() -> dict[int, float]:
     if cached and now - stamped < 10.0:
         return cached
     out: dict[int, float] = {}
-    for mf in _iter_atom_manifests():
+    if ATOMS_DIR.is_dir():
+        for folder in ATOMS_DIR.iterdir():
+            mf = folder / "manifest.yaml"
+            if not mf.is_file():
+                continue
             # utf-8-sig لنفس سبب arabic_names: BOM بويندوز كان يُسقط سطر id.
             text = mf.read_text(encoding="utf-8-sig")
             ident = re.search(r"^\s*id:\s*(\d+)", text, re.M)
@@ -1169,10 +1102,15 @@ def label(atom: dict) -> tuple[str, str]:
 
 
 def _manifest_path(atom_id: int):
-    for mf in _iter_atom_manifests():
-            m = re.search(r"^\s*id:\s*(\d+)", mf.read_text(encoding="utf-8-sig"), re.M)
-            if m and int(m.group(1)) == atom_id:
-                return mf
+    if not ATOMS_DIR.is_dir():
+        return None
+    for folder in ATOMS_DIR.iterdir():
+        mf = folder / "manifest.yaml"
+        if not mf.is_file():
+            continue
+        m = re.search(r"^\s*id:\s*(\d+)", mf.read_text(encoding="utf-8-sig"), re.M)
+        if m and int(m.group(1)) == atom_id:
+            return mf
     return None
 
 
@@ -1836,56 +1774,6 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, parameters_audit_rows(limit))
             return
 
-        if p.startswith("/gov/mexc/"):
-            if MARKET != "crypto":
-                self._json(404, {"error": "قسم الكريبتو فقط (لوحة أسمر)"}); return
-            sub = p[len("/gov/mexc/"):]
-            q = parse_qs(urlparse(self.path).query)
-            try:
-                if sub == "status":
-                    k = _mexc_keys()
-                    masked = (k.get("api_key", "")[:4] + "…" + k.get("api_key", "")[-3:]) if k.get("api_key") else ""
-                    self._json(200, {"configured": bool(k.get("api_key")), "key_masked": masked,
-                                     "dry_run": not bool(k.get("live_enabled"))})
-                elif sub == "universe":
-                    try:
-                        mem = json.loads((ROOT.parent / "crypto_runtime" / "var" /
-                                          "universe_membership.json").read_text(encoding="utf-8"))
-                    except (OSError, ValueError):
-                        mem = {}
-                    self._json(200, {
-                        "core": sorted(x for x, v in mem.items() if isinstance(v, dict) and v.get("ring") == "core"),
-                        "outer": sorted(x for x, v in mem.items() if isinstance(v, dict) and v.get("ring") == "outer")})
-                elif sub == "klines":
-                    sym = (q.get("symbol") or ["BTC_USDT"])[0]
-                    iv = (q.get("interval") or ["Min5"])[0]
-                    d = _mexc_public("/api/v1/contract/kline/%s?interval=%s" % (sym, iv)).get("data") or {}
-                    tcol = d.get("time", [])
-                    candles = []
-                    for i, t in enumerate(tcol):
-                        tt = int(t / 1000) if t > 100000000000 else int(t)
-                        candles.append({"time": tt, "open": float(d["open"][i]), "high": float(d["high"][i]),
-                                        "low": float(d["low"][i]), "close": float(d["close"][i]),
-                                        "volume": float(d["vol"][i])})
-                    self._json(200, {"symbol": sym, "candles": candles[-600:]})
-                elif sub == "ticker":
-                    sym = (q.get("symbol") or ["BTC_USDT"])[0]
-                    d = _mexc_public("/api/v1/contract/ticker?symbol=" + sym).get("data") or {}
-                    self._json(200, {"symbol": sym, "last": d.get("lastPrice"), "bid": d.get("bid1"),
-                                     "ask": d.get("ask1"), "riseFallRate": d.get("riseFallRate")})
-                elif sub == "test":
-                    code, data = _mexc_signed("GET", "/api/v1/private/account/balance?currency=USDT")
-                    self._json(200 if code == 200 else 502, data)
-                elif sub == "positions":
-                    sym = (q.get("symbol") or [""])[0]
-                    code, data = _mexc_signed("GET", "/api/v1/private/position/list/" + sym)
-                    self._json(200 if code == 200 else 502, data)
-                else:
-                    self._json(404, {"error": "unknown mexc endpoint"})
-            except Exception as exc:  # noqa: BLE001
-                self._json(502, {"error": "mexc:%s" % type(exc).__name__})
-            return
-
         if p == "/gov/candles":
             q = parse_qs(urlparse(self.path).query)
             sym = (q.get("symbol") or [""])[0]
@@ -1961,68 +1849,6 @@ class Handler(BaseHTTPRequestHandler):
         except (TypeError, ValueError): self._json(400, {"error": "bad content length"}); return
         if declared_length < 0 or declared_length > _MAX_BODY_BYTES:
             self._json(413, {"error": "request body too large"}); return
-        if self.path.startswith("/gov/mexc/"):
-            if MARKET != "crypto":
-                self._json(404, {"error": "قسم الكريبتو فقط"}); return
-            raw = self.rfile.read(declared_length) if declared_length > 0 else b"{}"
-            try:
-                body = json.loads(raw)
-            except Exception:
-                self._json(400, {"ok": False, "message": "JSON غير صالح"}); return
-            if not isinstance(body, dict):
-                self._json(400, {"ok": False, "message": "الحمولة يجب أن تكون object"}); return
-            sub = self.path[len("/gov/mexc/"):]
-            import os as _os
-            if sub == "keys":
-                if body.get("clear"):
-                    try: MEXC_KEYS_PATH.unlink()
-                    except OSError: pass
-                    self._json(200, {"ok": True, "cleared": True}); return
-                api_key = str(body.get("api_key") or "").strip()
-                secret = str(body.get("secret") or "").strip()
-                if not api_key or not secret:
-                    self._json(400, {"ok": False, "message": "المفتاحان مطلوبان"}); return
-                MEXC_KEYS_PATH.parent.mkdir(parents=True, exist_ok=True)
-                fd = _os.open(MEXC_KEYS_PATH, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
-                with _os.fdopen(fd, "w", encoding="utf-8") as fh:
-                    json.dump({"api_key": api_key, "secret": secret, "live_enabled": False}, fh)
-                self._json(200, {"ok": True, "message": "حُفظ (وضع تدريب) — جرّب الاتصال ثم فعّل التنفيذ"}); return
-            if sub == "live":
-                k = _mexc_keys()
-                if not k:
-                    self._json(400, {"ok": False, "message": "لا مفاتيح"}); return
-                k["live_enabled"] = bool(body.get("enabled"))
-                MEXC_KEYS_PATH.write_text(json.dumps(k), encoding="utf-8")
-                self._json(200, {"ok": True, "live_enabled": k["live_enabled"]}); return
-            if sub == "leverage":
-                code, data = _mexc_signed("POST", "/api/v1/private/position/change_leverage",
-                                          {"currency": "USDT", "symbol": str(body.get("symbol") or ""),
-                                           "leverage": int(body.get("leverage") or 0)})
-                self._json(200 if code == 200 else 502, data); return
-            if sub == "order":
-                keys = _mexc_keys()
-                sym = str(body.get("symbol") or "")
-                side = 1 if str(body.get("side") or "BUY").upper() == "BUY" else 2
-                otype = 1 if str(body.get("type") or "MARKET").upper() == "LIMIT" else 2
-                vol = str(body.get("vol") or "")
-                price = str(body.get("price") or "")
-                leverage = int(body.get("leverage") or 0)
-                open_type = int(body.get("openType") or 1)
-                if not sym or not vol:
-                    self._json(400, {"ok": False, "message": "الرمز والحجم مطلوبان"}); return
-                if not keys.get("live_enabled") or not body.get("live"):
-                    self._json(200, {"ok": True, "dry_run": True, "message": "تدريب — لم يُرسل شيء",
-                                     "would_execute": {"symbol": sym, "side": side, "type": otype,
-                                                       "vol": vol, "price": price or None,
-                                                       "leverage": leverage, "openType": open_type}}); return
-                payload = {"symbol": sym, "side": side, "type": otype, "vol": vol,
-                           "openType": open_type, "leverage": leverage}
-                if otype == 1 and price:
-                    payload["price"] = price
-                code, data = _mexc_signed("POST", "/api/v1/private/order/place", payload)
-                self._json(200 if code == 200 else 502, data); return
-            self._json(404, {"error": "unknown"}); return
-
         cm = re.fullmatch(r"/gov/atoms/(\d+)/config", self.path)
         if cm:
             length = declared_length

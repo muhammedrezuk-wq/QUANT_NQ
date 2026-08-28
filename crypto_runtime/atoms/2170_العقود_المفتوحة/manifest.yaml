@@ -1,6 +1,6 @@
 id: 2170
 name: Open Interest (Quadrants)
-version: 1.1.0
+version: 1.0.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom
@@ -10,7 +10,7 @@ publishes:
 subscribes:
 - market.oi
 - market.candle
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 15000
   timeout_ms: 5000

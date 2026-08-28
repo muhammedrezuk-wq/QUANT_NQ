@@ -57,7 +57,7 @@ config:
   # value (checked separately via open_positions_path).
   entry_resilience_days: 0.25
   exit_failure_days: 1
-  overrides_path: var/universe_overrides.json
+  overrides_path: config/universe_overrides.json  # مُشحن بالزيب — تثبيتات المالك (ورقة ٦)
   membership_state_path: var/universe_membership.json
   open_positions_path: var/open_positions.json
 metadata:

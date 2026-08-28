@@ -5,7 +5,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.1.0"
+ATOM_VERSION = "1.0.0"
 EVENT_IN = "market.depth"
 EVENT_OUT = "sense.walls.state"
 
@@ -50,7 +50,7 @@ class Atom(AtomBase):
         self._running = False
         self._levels_cap = 20
         self._top_n = 3
-        self._near_bps = 2.5
+        self._near_bps = 25.0
         self._max_age_s = 10.0
         self._last: dict[str, dict[str, Any]] = {}
         self._updates = 0
@@ -60,7 +60,7 @@ class Atom(AtomBase):
         self._context = context
         self._levels_cap = int(context.config.get("levels", 20))
         self._top_n = int(context.config.get("top_n", 3))
-        self._near_bps = float(context.config.get("near_bps", 2.5))
+        self._near_bps = float(context.config.get("near_bps", 25.0))
         self._max_age_s = float(context.config.get("max_age_s", 10.0))
         context.subscribe(EVENT_IN, self._on_depth)
 

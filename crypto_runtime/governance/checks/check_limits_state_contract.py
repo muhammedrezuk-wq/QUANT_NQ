@@ -60,8 +60,7 @@ DERIVED = {508: "508_مدير_التعرض"}
 # Rebased 2026-08-15: items 69 and 56/70 moved these two by the owner's order.
 # The barrier still means "this item did not touch them" -- only its reference
 # point moves, and only with a recorded reason.
-# م-43 (ورقة ٤١، 2026-08-28): أُعيد التثبيت على إصدارات ما بعد الدمج الموثّق (RC4/RC5)
-UNTOUCHED = {"611_قارئ_الصفقات": "4.0.3", "516_قاطع_الأمان": "5.3.0"}
+UNTOUCHED = {"611_قارئ_الصفقات": "2.2.0", "516_قاطع_الأمان": "2.5.0"}
 
 CHILD = r'''
 import asyncio, json, os, sqlite3, sys
@@ -72,8 +71,6 @@ from pathlib import Path
 ROOT = Path(sys.argv[1]); STORAGE = Path(sys.argv[2]); OUT = Path(sys.argv[3])
 MODE = sys.argv[4]; DB = sys.argv[5]
 sys.path.insert(0, str(ROOT))
-from build_registry.paths import RegistryAtomRoot as _RAR
-ATOM_ROOT = _RAR(ROOT)  # م-43: كان غائبًا (نسخ-لصق) فانهار الابن
 from core.bootloader import Bootloader
 from core.contracts.atom import AtomContext
 from core.manifest_loader import scan
