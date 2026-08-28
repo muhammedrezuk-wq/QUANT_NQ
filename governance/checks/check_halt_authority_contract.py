@@ -36,6 +36,7 @@ import asyncio
 import importlib.util
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,7 +58,8 @@ RELEASE_REQUEST = "risk.release.requested"
 OWNER = "516"
 REQUESTERS = ("506", "507", "508", "901")
 GATEWAY = "901"
-HALT_LISTENERS = {"500", "519", "550", "552", "601", "704"}
+# م-41 (2026-08-28): المستمعون أُعيد قياسهم بعد الدمج — 500 خرج، 575/576/2704 دخلوا
+HALT_LISTENERS = {"519", "550", "552", "575", "576", "578", "601", "704"}  # نطاق فوركس فقط — 2704 كريبتو خارج البطاقات
 
 
 class _Logger:
@@ -188,7 +190,9 @@ async def main_async() -> int:
     data, folder = cards()[OWNER]
     bus = Bus()
     atom = module.Atom()
-    await atom.initialize(AtomContext(atom_id=516, config=dict(data.get("config") or {}),
+    config = dict(data.get("config") or {})
+    config["consumer_db_path"] = (tempfile.mkdtemp(prefix="chk516_") + "/c.db")  # عزل journal
+    await atom.initialize(AtomContext(atom_id=516, config=config,
                                       logger=_Logger(), publish=bus.publish,
                                       subscribe=bus.subscribe))
     await atom.start()
@@ -206,7 +210,7 @@ async def main_async() -> int:
     if handler is None:
         print("      ✗ 516 بلا مستقبِل مسلوك للطلب")
         return 1
-    await handler({"reason": "SESSION_LOSS_LIMIT", "origin": "506"})
+    await handler({"account_id": "A", "reason": "SESSION_LOSS_LIMIT", "origin": "506"})
 
     out = bus.last(HALT)
     ok = bool(out) and out.get("reason") == "SESSION_LOSS_LIMIT" and out.get("origin") == "506"
@@ -215,12 +219,12 @@ async def main_async() -> int:
           % ("الإيقاف خرج من المالك", (out or {}).get("reason"), (out or {}).get("origin"),
              "✓" if ok else "✗"))
 
-    ok = bool(atom._kill)
+    ok = bool(atom.book("A")["kill"])
     bad += 0 if ok else 1
-    print("      %-38s %-8s %s" % ("والقاطع صار مغلقًا", atom._kill, "✓" if ok else "✗"))
+    print("      %-38s %-8s %s" % ("والقاطع صار مغلقًا", atom.book("A")["kill"], "✓" if ok else "✗"))
 
     before = bus.count(HALT)
-    await handler({"reason": "MAX_SESSION_TRADES", "origin": "506"})
+    await handler({"account_id": "A", "reason": "MAX_SESSION_TRADES", "origin": "506"})
     ok = bus.count(HALT) == before
     bad += 0 if ok else 1
     print("      %-38s %s" % ("ولا إيقاف مكرَّر وهو مغلق", "✓" if ok else "✗"))
@@ -229,12 +233,12 @@ async def main_async() -> int:
     if release is None:
         print("      ✗ 516 بلا مستقبِل مسلوك لطلب الفكّ")
         return 1
-    await release({})
+    await release({"account_id": "A"})
     announced = bus.last(RELEASE)
-    ok = (not atom._kill) and bus.count(RELEASE) == 1 and (announced or {}).get("origin") == OWNER
+    ok = (not atom.book("A")["kill"]) and bus.count(RELEASE) == 1 and (announced or {}).get("origin") == OWNER
     bad += 0 if ok else 1
     print("      %-38s قاطع=%-6s إعلان فكّ=%-4s أصل=%-6s %s"
-          % ("والفكّ يفتحه ويُعلن أثره للبوّابات", atom._kill, bus.count(RELEASE),
+          % ("والفكّ يفتحه ويُعلن أثره للبوّابات", atom.book("A")["kill"], bus.count(RELEASE),
              (announced or {}).get("origin"), "✓" if ok else "✗"))
 
     print("\n" + "=" * 86)

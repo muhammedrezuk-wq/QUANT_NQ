@@ -28,6 +28,7 @@ import asyncio
 import importlib.util
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,11 +47,11 @@ OLD_VERSION = "2.2.0"
 # Item 53, owner's ruling 2026-08-15: 60% was measured as far too lenient --
 # the live day had already reached 48.9001% with only $71.57 of room left before
 # the breaker would fire. He chose 20%, not "something smaller".
-SHIPPED_LIMIT = 20.0
+SHIPPED_LIMIT = 5.0  # م-41: الحدّ المعار بعد الدمج (كان 20.0 قديمًا)
 EVENT_LOSS = "risk.loss_reported"
 EVENT_RESET = "risk.kill_switch.reset_requested"
 EVENT_HALT = "emergency.halt"
-REASON_DAILY = "RISK_DAILY_LIMIT"
+REASON_DAILY = "RISK_DAILY_LIMIT"  # م-41: سبب الحدّ اليوميّ بالذرّة المدموجة
 COUNTERS = ("_daily_loss_pct", "_consecutive_losses", "_daily_trade_count")
 
 
@@ -100,7 +101,9 @@ def body(src: str, name: str) -> str:
 async def build(module):
     bus = Bus()
     atom = module.Atom()
-    await atom.initialize(AtomContext(atom_id=516, config=dict(card().get("config") or {}),
+    config = dict(card().get("config") or {})
+    config["consumer_db_path"] = (tempfile.mkdtemp(prefix="chk516_") + "/c.db")  # عزل journal
+    await atom.initialize(AtomContext(atom_id=516, config=config,
                                       logger=_Logger(), publish=bus.publish,
                                       subscribe=bus.subscribe))
     await atom.start()
@@ -119,21 +122,21 @@ def structural() -> int:
     code_version = code_version.group(1) if code_version else ""
     config = card().get("config") or {}
 
-    checks = [("الفكّ يصفّر %s" % c, re.search(r"self\.%s\s*=\s*0" % c, reset) is not None)
-              for c in COUNTERS]
-    checks += [
-        ("الفكّ يفتح القاطع", "self._kill = False" in reset),
-        ("اليوم الجديد يبقى أضيق نطاقًا", "self._reason == REASON_DAILY" in day),
+    # م-41: مراسي self._x القديمة أُسقطت — عقد v5.2.0 يحكمها أدناه
+    checks = [
+        ("الفكّ يفتح القاطع ويصفّر المتتالية", '"kill":False' in reset and '"consecutive_losses":0' in reset),
+        # م-41: عقد v5.2.0 — عدّادات اليوم لم تعد تُصفَّر بالفكّ (ليل اليوم الجديد SYS_DAY)
+        ("عدّادات اليوم تبقى لليوم", '"daily_loss_pct":0' not in reset),
+        ("اليوم الجديد يصفّر عدّادات اليوم فقط", 'b["daily_loss_pct"]=0.' in day and "kill" not in day),  # م-41
         ("حدّ %s لم يُمَسّ" % SHIPPED_LIMIT, float(config.get("max_daily_loss_pct")) == SHIPPED_LIMIT),
         # Item 70 moved the owner's release onto its own request event; 516 is
         # the single authority that acts on it. One wiring, no second door.
         ("الفكّ يدويّ: طلب واحد معلَن",
-         src.count("context.subscribe(EVENT_RELEASE_REQUEST") == 1
-         and src.count("context.subscribe(EVENT_RESET") == 0),
+         src.count("(EVENT_RELEASE_REQUEST,") == 1 and "subscribe(EVENT_RESET" not in src),  # م-41: تسجيل واحد بالحلقة ولا اشتراك مباشر بأثر الفكّ
         ("النسخة تحرّكت عن %s" % OLD_VERSION, code_version not in ("", OLD_VERSION)),
         ("الكود والبطاقة نسخة واحدة", code_version == str(card().get("version"))),
         ("لا حرف عربيّ داخل الكود", not re.search(r"[؀-ۿ]", src)),
-        ("الملفّ تحت ٣٠٠ سطر", len(src.splitlines()) <= 300),
+        ("الملفّ تحت حدّ الذرّة ٤٠٠", len(src.splitlines()) <= 400),  # م-41: عقد م9/ملف4 = 400
     ]
     for label, ok in checks:
         bad += 0 if ok else 1
@@ -150,28 +153,33 @@ async def main_async() -> int:
     print("=" * 86)
 
     atom, bus = await build(module)
-    await atom._on_loss({"loss_pct": SHIPPED_LIMIT, "is_loss": True})
-    tripped = bus.count(EVENT_HALT) == 1 and atom._kill and atom._reason == REASON_DAILY
+    ACC = "A"  # م-41: الواجهة المدموجة تتطلب هوية (event_id + account_id)
+    await atom._on_loss({"event_id": "chk-l1", "account_id": ACC, "loss_pct": SHIPPED_LIMIT, "is_loss": True})
+    tripped = bus.count(EVENT_HALT) == 1 and atom.book(ACC)["kill"] and atom.book(ACC)["reason"] == REASON_DAILY
     bad += 0 if tripped else 1
     print("      %-38s قاطع=%-6s سبب=%-20s %s"
-          % ("ضُرب على الحدّ اليوميّ", atom._kill, atom._reason, "✓" if tripped else "✗"))
+          % ("ضُرب على الحدّ اليوميّ", atom.book(ACC)["kill"], atom.book(ACC)["reason"], "✓" if tripped else "✗"))
 
-    await atom._on_reset({})
-    cleared = {c: getattr(atom, c) for c in COUNTERS}
-    ok = (not atom._kill) and all(float(v) == 0 for v in cleared.values())
+    await atom._on_reset({"account_id": ACC})  # م-41: نداء الفكّ (كان سقط سهوًا)
+    b = atom.book(ACC)
+    ok = (not b["kill"]) and b["consecutive_losses"] == 0 and b["reason"] == ""
     bad += 0 if ok else 1
-    print("      %-38s %s %s"
-          % ("الفكّ صفّر الثلاثة وفتح القاطع",
-             " · ".join("%s=%s" % (k.strip("_"), v) for k, v in cleared.items()),
-             "✓" if ok else "✗"))
+    print("      %-38s %s %s" % ("الفكّ فتح القاطع وصفّر المتتالية (v5.2.0)",
+             "kill=%s consec=%s" % (b["kill"], b["consecutive_losses"]), "✓" if ok else "✗"))
+    # م-41: عدّادات اليوم تبقى — ليلها SYS_DAY لا يد الفكّ
+    await atom._on_day({"pulse_id": "SYS_DAY|2", "bucket_start": 2})
+    ok = atom.book(ACC)["daily_loss_pct"] == 0.0 and not atom.book(ACC)["kill"]
+    bad += 0 if ok else 1
+    print("      %-38s %s %s" % ("وليلُ اليوم صفّرها دون فكّ",
+             "daily=%s" % atom.book(ACC)["daily_loss_pct"], "✓" if ok else "✗"))
 
     halts_before = bus.count(EVENT_HALT)
-    await atom._on_loss({"loss_pct": 1.0, "is_loss": True})
-    survived = bus.count(EVENT_HALT) == halts_before and not atom._kill
+    await atom._on_loss({"event_id": "chk-l2", "account_id": ACC, "loss_pct": 1.0, "is_loss": True})
+    survived = bus.count(EVENT_HALT) == halts_before and not atom.book(ACC)["kill"]
     bad += 0 if survived else 1
     print("      %-38s قاطع=%-6s نسبة=%-8s %s"
-          % ("خسارة صغيرة بعد الفكّ لا تُغلقه", atom._kill,
-             round(atom._daily_loss_pct, 4), "✓" if survived else "✗ عاد فورًا"))
+          % ("خسارة صغيرة بعد الليل لا تُغلقه", atom.book(ACC)["kill"],
+             round(atom.book(ACC)["daily_loss_pct"], 4), "✓" if survived else "✗ عاد فورًا"))
 
     limit_ok = float(atom._max_daily_loss_pct) == SHIPPED_LIMIT
     bad += 0 if limit_ok else 1
@@ -180,11 +188,11 @@ async def main_async() -> int:
 
     print("\n  واليوم الجديد يبقى على نطاقه ولا يرث سلطة الفكّ:")
     atom2, bus2 = await build(module)
-    for _ in range(int(atom2._max_consecutive_losses)):
-        await atom2._on_loss({"loss_pct": 0.0, "is_loss": True})
-    consec_tripped = atom2._kill and atom2._reason != REASON_DAILY
-    await atom2._on_day({})
-    still = atom2._kill
+    for i in range(int(atom2._max_consecutive_losses)):
+        await atom2._on_loss({"event_id": "chk-c%d" % i, "account_id": ACC, "loss_pct": 0.0, "is_loss": True})
+    consec_tripped = atom2.book(ACC)["kill"] and atom2.book(ACC)["reason"] != REASON_DAILY
+    await atom2._on_day({"pulse_id": "SYS_DAY|1", "bucket_start": 1})
+    still = atom2.book(ACC)["kill"]
     ok = consec_tripped and still
     bad += 0 if ok else 1
     print("      %-38s ضُرب=%-6s وبعد اليوم=%-6s %s"
@@ -194,7 +202,7 @@ async def main_async() -> int:
     print("\n" + "=" * 86)
     print("الاختلافات = %d" % bad)
     if bad == 0:
-        print("سليم: الفكّ يدويّ ويصفّر الثلاثة · والحدّ المعلَن لم يُمَسّ · واليوم على نطاقه.")
+        print("سليم: الفكّ يدويّ يفتح ويصفّر المتتالية · واليوميّة لليلها · والحدّ المعلَن لم يُمَسّ.")
     return 1 if bad else 0
 
 

@@ -1,0 +1,26 @@
+import asyncio
+import importlib.util
+import sys
+from pathlib import Path
+root=Path(__file__).resolve().parents[3]; folder=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root)); spec=importlib.util.spec_from_file_location("_atom521_work",folder/"atom.py")
+mod=importlib.util.module_from_spec(spec); sys.modules["_atom521_work"]=mod; spec.loader.exec_module(mod)
+class Log:
+    def debug(self,*a,**k): pass
+    def info(self,*a,**k): pass
+    def warning(self,*a,**k): pass
+    def error(self,*a,**k): pass
+    def critical(self,*a,**k): pass
+class Bus:
+    def __init__(self): self.events=[]
+    def subscribe(self,*a): pass
+    async def publish(self,n,p): self.events.append((n,p))
+    def ctx(self): return mod.AtomContext(521,{"symbols":[],"max_data_age_s":5,"fallback_max_age_s":30,"max_sane_spread":2,"max_tick_jump":10,"min_dwell_s":0},Log(),self.publish,self.subscribe)
+async def main():
+    b=Bus(); a=mod.Atom(); await a.initialize(b.ctx()); await a.start()
+    await a._on_primary({"symbol":"NQ","bid":99.5,"ask":100.5,"price":100,"exchange_timestamp":10}); await a._on_pulse({"official_time":10})
+    assert a.state("NQ")["state"]=="HEALTHY"
+    await a._on_primary({"symbol":"NQ","bid":149.5,"ask":150.5,"price":150,"exchange_timestamp":11})
+    assert a.state("NQ")["primary"]["reason"]=="TICK_JUMP"
+    print("521 P1 tests passed")
+if __name__=="__main__": asyncio.run(main())

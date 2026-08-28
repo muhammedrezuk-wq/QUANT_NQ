@@ -182,11 +182,6 @@ class Atom(AtomBase):
         official = _to_float(payload.get("official_time"))
         if not self._running or official is None or self._context is None:
             return
-        # م-37/613 (ورقة ٤١، 2026-08-28): بوابة سلامة للساعة الرسمية — رفض
-        # القيم السالبة/غير المنتهية قبل أي استخدام. مرجع زمني غير سليم كان
-        # يُقبل كما هو فتفسد كل حسابات الصمت (silent) بعده.
-        if not (official > 0.0) or official == float("inf"):
-            return
         self._official_time = official
         for name, info in self._providers.items():
             if not info["last_seen"]:

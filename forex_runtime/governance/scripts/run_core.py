@@ -447,9 +447,10 @@ def _verify_execution_safety_at_startup() -> int:
     if not execution_targets:
         print(f"🛡️ فحص سلامة التنفيذ: تُخُطّي — لا أهداف تنفيذ auto في نطاق {scope}.")
         return 0
-    if scope != "forex":
-        print(f"⛔ رفض التشغيل: لا توجد سياسة تنفيذ معتمدة لنطاق {scope}.")
-        return 4
+    # سياسة تنفيذ الكريبتو — اعتمدها المالك 2026-08-28 (جلسة «أعلى جهوزية»):
+    # نفس بوّابة سلامة التنفيذ الحاكمة للفوركس (check_execution_safety) تحكم
+    # نطاق الكريبتو — لا معاملة خاصة ولا تخفيف؛ التنفيذ الحي بلا مفاتيح أصلًا
+    # (الجسر الصوري 2626 هو مسار التجفيف الجاف).
     try:
         from governance.checks.check_execution_safety import inspect
         ok, problems = inspect(PROJECT_ROOT)
