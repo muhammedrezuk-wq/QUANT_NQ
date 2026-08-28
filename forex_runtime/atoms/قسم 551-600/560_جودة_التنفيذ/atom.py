@@ -8,7 +8,17 @@ from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.financial_scope import financial_key, row_key, text
 
-ATOM_VERSION = "2.0.2"
+ATOM_VERSION = "2.0.3"
+# v2.0.3 (2026-08-27, item 23/27 of the 27-atom review -- restore()
+# crashes if the stored value is not a dict): the top-level state WAS
+# guarded (isinstance check, raises ValueError), but the three nested
+# fields (brokers/requests/stats) were not -- state.get("brokers") (etc.)
+# feeding straight into `.items()` crashes with a raw AttributeError if
+# that field is present but corrupted into a non-dict, non-empty value
+# (a list, a string, a number). A failure partway through also left self
+# torn: self._brokers could already be committed while self._requests
+# crashed. Fixed by guarding each nested field and building all three
+# into locals before committing any of them to self.
 EVENT_REQUEST = "trading.final_decision"
 EVENT_TRADE = "platform.trade_event"
 EVENT_REJECTED = "execution.order.rejected"
@@ -167,11 +177,18 @@ class Atom(AtomBase):
 
     async def restore(self, state: dict[str, Any]) -> None:
         if not isinstance(state, dict): raise ValueError("INVALID_EXECUTION_QUALITY_STATE")
-        self._brokers = {str(k): str(v) for k, v in (state.get("brokers") or {}).items()}
-        self._requests = {str(k): dict(v) for k, v in (state.get("requests") or {}).items()
-                          if isinstance(v, dict)}
-        self._stats = {str(k): dict(v) for k, v in (state.get("stats") or {}).items()
-                       if isinstance(v, dict)}
+        raw_brokers = state.get("brokers")
+        raw_requests = state.get("requests")
+        raw_stats = state.get("stats")
+        new_brokers = ({str(k): str(v) for k, v in raw_brokers.items()}
+                       if isinstance(raw_brokers, dict) else {})
+        new_requests = ({str(k): dict(v) for k, v in raw_requests.items() if isinstance(v, dict)}
+                        if isinstance(raw_requests, dict) else {})
+        new_stats = ({str(k): dict(v) for k, v in raw_stats.items() if isinstance(v, dict)}
+                     if isinstance(raw_stats, dict) else {})
+        self._brokers = new_brokers
+        self._requests = new_requests
+        self._stats = new_stats
 
     async def health_check(self) -> HealthStatus:
         if not self._running: return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED")

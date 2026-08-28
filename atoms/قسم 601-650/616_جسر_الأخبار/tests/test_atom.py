@@ -99,7 +99,9 @@ async def test_news_publish_and_shape():
     news = _of(bus, "market.news")
     assert len(news) == 2, len(news)
     assert news[0]["headline"] == "CPI beats" and news[0]["source"] == "yahoo"
-    assert news[0]["id"] == 1 and news[0]["published_at"] == 1000.0
+    # v1.4.0: "id" is namespaced by atom (616:<row_id>) -- 615 reads a
+    # separate database with its own independent row-id sequence.
+    assert news[0]["id"] == "616:1" and news[0]["published_at"] == 1000.0
     print(f"OK — نشر خبرين: {news[0]['headline']}")
 
 

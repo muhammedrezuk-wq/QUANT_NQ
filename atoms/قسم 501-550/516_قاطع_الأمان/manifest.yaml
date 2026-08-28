@@ -1,6 +1,6 @@
 id: 516
 name: "Per-Account Risk Authority"
-version: "5.2.0"
+version: "5.3.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

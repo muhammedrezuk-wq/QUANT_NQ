@@ -1,6 +1,7 @@
 import asyncio
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[3]
@@ -425,3 +426,51 @@ def test_link_loss_raises_so_the_caller_reconnects():
         assert "PEER_CLOSED" in str(exc)
     else:
         raise AssertionError("a dead link must not look alive")
+
+
+def test_connect_runs_off_the_event_loop_thread():
+    """Item 20/27 of the 27-atom review ("a synchronous TLS connect
+    freezes the loop, no connection timeout"): _connect() used to call
+    stream.connect() (TCP + TLS handshake, up to several seconds) DIRECTLY
+    on the atom's own coroutine -- the shared core event loop. Any
+    slowness there stalls every other atom on the same loop. Must now run
+    via asyncio.to_thread, i.e. never on the thread that's running the
+    event loop."""
+    main_thread = threading.current_thread()
+    seen = {}
+
+    class RecordingStream:
+        def __init__(self, *a, **k): pass
+        def connect(self): seen["thread"] = threading.current_thread()
+        def send(self, data): pass
+        def close(self): pass
+
+    atom, _bus, _stream = build(monkey_stream=False)
+    original = module.transport.StreamSession
+    module.transport.StreamSession = RecordingStream
+    try:
+        run(atom._connect())
+    finally:
+        module.transport.StreamSession = original
+    assert seen.get("thread") is not None, "connect() لم يُستدعَ إطلاقاً"
+    assert seen["thread"] is not main_thread, (
+        "connect() نُفِّذ على خيط الحلقة الرئيسي -- سيجمّد كل الذرّات الأخرى")
+
+
+def test_teardown_close_runs_off_the_event_loop_thread():
+    """Item 20/27: _teardown() (called as _connect()'s own first line, so
+    it runs before every reconnect) called stream.close() directly too --
+    close() can block for up to the connect timeout waiting for the
+    background read-thread to join. Must also run via asyncio.to_thread."""
+    main_thread = threading.current_thread()
+    seen = {}
+
+    class RecordingStream:
+        def close(self): seen["thread"] = threading.current_thread()
+
+    atom, _bus, _stream = build(monkey_stream=True)
+    atom._stream = RecordingStream()
+    run(atom._teardown())
+    assert seen.get("thread") is not None, "close() لم يُستدعَ إطلاقاً"
+    assert seen["thread"] is not main_thread, (
+        "close() نُفِّذ على خيط الحلقة الرئيسي -- سيجمّد كل الذرّات الأخرى")

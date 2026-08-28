@@ -14,7 +14,19 @@ from ledger_support import (
     position_scope, scope, text,
 )
 
-ATOM_VERSION = "4.1.0"
+ATOM_VERSION = "4.2.0"
+# v4.2.0 (2026-08-27, item 18/27 of the 27-atom review -- "silent restore
+# on corruption + a fake test file"): ledger_persistence.restore() raised
+# nothing on a non-dict state (self silently kept its empty __init__
+# defaults for realized/extracted/budgets -- financial state that gates
+# real extraction decisions). Now raises, and every field is parsed into
+# a local before any commit to self, so a future failure point can't tear
+# the books. tests/test_risk_scope.py was a single comment line with no
+# actual test -- now verifies its own claim (dollar budget, no percent
+# conversion) for real; tests/test_atom.py's inline scenario is now a
+# proper pytest-discoverable function (was invisible to `pytest`/the
+# official governance/scripts/test_atoms.py runner -- collectible only
+# via direct script execution).
 # v4.1.0 (2026-08-25): budgets are durable (see durable_ledger_consumer
 # BUDGET_CONSUMER) -- an owner budget written through 901 now survives any
 # restart exactly like realized profit does.

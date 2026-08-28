@@ -1,6 +1,6 @@
 id: 108
 name: "News Receiver"
-version: "2.0.0"
+version: "2.0.1"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

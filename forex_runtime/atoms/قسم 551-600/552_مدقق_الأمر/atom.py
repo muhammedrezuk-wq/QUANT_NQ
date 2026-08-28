@@ -7,11 +7,13 @@ import clock
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.financial_scope import financial_key, row_key, text
 from spread_gate import spread_points, too_wide
-from order_validation import _neutral_pair_contract, _validate
+from order_validation import _validate
 from shared.order_validator_state import (health as gate_health, restore as restore_gate,
                                           snapshot as snapshot_gate)
+import order_gates
+import state_inputs
 
-ATOM_VERSION = "5.4.2"
+ATOM_VERSION = "5.5.0"
 EVENT_BUILT = "execution.order.legal"
 EVENT_HALT = "emergency.halt"
 EVENT_RESET = "risk.kill_switch.reset_requested"
@@ -41,21 +43,9 @@ MIN_SPREAD_AGE_S = 0.1
 # (never invented), same rule as the decision-chain barriers (454).
 STAGE_FINAL = "FINAL_VALIDATION"
 STAGE_ACTIVATION = "ASSET_ACTIVATION"
-STAGE_PARENT = "PARENT_DECISION"
-STAGE_MARGIN = "MARGIN_VERDICT"
-STAGE_SNAPSHOT = "SNAPSHOT_VALIDITY"
 # T1: the mandated identity pair threaded through the whole execution chain.
 IDENTITY_FIELDS = ("decision_id", "gate_request_id")
-# T3 (a): a directional entry must carry its parent decision or a documented
-# owner authority -- the same authority fields 576 already publishes.
-AUTHORITY_FIELDS = ("decision_id", "parent_decision_id", "owner_command_id")
 WARNING_IDENTITY = "identity_incomplete"
-# 583 grants usable_for_new_exposure only on READY (its own contract); the
-# snapshot barrier reports that status as the threshold, nothing new.
-SNAPSHOT_USABLE_STATUS = "READY"
-# Memory bound only (same family as 467's tracked-decision bound): oldest
-# record is evicted past this count. Not a trading value.
-_MAX_TRACKED = 4096
 
 _ORDER_FIELDS = (
     "account_id", "broker", "request_id", "action", "symbol", "side", "volume",
@@ -222,55 +212,23 @@ class Atom(AtomBase):
         points = spread_points(payload, self._specs.get(key))
         if points is not None: self._spread[key] = (points, time.monotonic(), time.time())
 
-    @staticmethod
-    def _remember(registry: dict, key: Any, record: dict[str, Any]) -> None:
-        if key not in registry and len(registry) >= _MAX_TRACKED:
-            registry.pop(next(iter(registry)))
-        registry[key] = record
-
     async def _on_margin_verdict(self, payload: dict[str, Any]) -> None:
         """T3 (c): remember 585's margin verdict per (account, request)."""
-        if not isinstance(payload, dict): return  # state handler: no running gate (v5.4.1)
-        account = text(payload.get("account_id")); request_id = text(payload.get("request_id"))
-        if not account or not request_id: return
-        self._remember(self._margin_verdicts, (account, request_id), {
-            "approved": payload.get("approved") is True,
-            "reason": text(payload.get("reason")),
-            "required_margin": payload.get("required_margin"),
-            "free_margin": payload.get("free_margin"),
-            "measured_at": time.time()})
+        await state_inputs.on_margin_verdict(self, payload)
 
     async def _on_snapshot(self, payload: dict[str, Any]) -> None:
         """T3 (d) + T1: remember 583's snapshot verdict and the decision
         identity it carried, keyed by the immutable snapshot_id."""
-        if not isinstance(payload, dict): return  # state handler: no running gate (v5.4.1)
-        snapshot_id = text(payload.get("snapshot_id"))
-        if not snapshot_id: return
-        self._remember(self._snapshots, snapshot_id, {
-            "decision_id": payload.get("decision_id"),
-            "gate_request_id": payload.get("gate_request_id"),
-            "snapshot_status": text(payload.get("snapshot_status")),
-            "usable_for_new_exposure": payload.get("usable_for_new_exposure") is True,
-            "usable_for_protection": payload.get("usable_for_protection") is True,
-            "produced_at": payload.get("produced_at"),
-            "measured_at": time.time()})
+        await state_inputs.on_snapshot(self, payload)
 
     async def _on_reconcile(self, payload: dict[str, Any]) -> None:
-        if not isinstance(payload, dict): return  # state handler: no running gate (v5.4.1)
-        account = text(payload.get("account_id")); broker = text(payload.get("broker")) or self._broker_by_account.get(account, "")
-        symbol = text(payload.get("asset_canonical") or payload.get("symbol"))
-        if account and broker and symbol:
-            self._reconcile[(account, broker, symbol)] = text(payload.get("status")).upper()
+        await state_inputs.on_reconcile(self, payload)
 
     async def _on_exposure(self, payload: dict[str, Any]) -> None:
-        if not isinstance(payload, dict): return  # state handler: no running gate (v5.4.1)
-        account=text(payload.get("account_id"));broker=text(payload.get("broker")) or self._broker_by_account.get(account,"")
-        if account and broker:self._exposure[(account,broker)]=dict(payload)
+        await state_inputs.on_exposure(self, payload)
 
     async def _on_reference(self, payload: dict[str, Any]) -> None:
-        if not isinstance(payload, dict): return  # state handler: no running gate (v5.4.1)
-        symbol = text(payload.get("symbol"))
-        if symbol: self._reference[symbol] = text(payload.get("state") or payload.get("status")).upper()
+        await state_inputs.on_reference(self, payload)
 
     @staticmethod
     def _opens_new_exposure(order: dict[str, Any]) -> bool:
@@ -357,47 +315,11 @@ class Atom(AtomBase):
         if self._global_halted or account in self._halted_accounts:
             await self._refuse(body, "halted"); return
         if body["action"] == ACTION_OPEN:
-            # T3 (a): a directional entry (any OPEN that is not the declared
-            # neutral-pair contract) must carry its parent decision or a
-            # documented owner authority. Management/close orders never enter
-            # this branch, exactly as the existing code separates them.
-            if not _neutral_pair_contract(body) \
-                    and not any(text(body.get(field)) for field in AUTHORITY_FIELDS):
-                self._parent_decision_blocked += 1
-                await self._refuse(body, "PARENT_DECISION_MISSING", STAGE_PARENT,
-                                   measured_at=time.time()); return
-            # T3 (c): the margin stage (585) must have ruled on this very
-            # request and approved it -- the gate verifies the verdict
-            # happened, it does not recompute margin.
-            verdict = self._margin_verdicts.get((account, text(body.get("request_id"))))
-            if verdict is None:
-                self._margin_verdict_blocked += 1
-                await self._refuse(body, "MARGIN_VERDICT_MISSING", STAGE_MARGIN,
-                                   measured_at=time.time()); return
-            if not verdict.get("approved"):
-                self._margin_verdict_blocked += 1
-                await self._refuse(body, "MARGIN_VERDICT_REJECTED", STAGE_MARGIN,
-                                   value=verdict.get("required_margin"),
-                                   threshold=verdict.get("free_margin"),
-                                   measured_at=verdict.get("measured_at")); return
-            # T3 (d): an order that names its snapshot is held to it -- the
-            # snapshot must be known here and usable for new exposure (583
-            # grants that only on READY). Flows that never carry a snapshot
-            # (the owner-authorized initial pairs from 576) are not given an
-            # invented requirement.
-            snapshot_id = text(body.get("snapshot_id"))
-            if snapshot_id:
-                record = self._snapshots.get(snapshot_id)
-                if record is None:
-                    self._snapshot_validity_blocked += 1
-                    await self._refuse(body, "SNAPSHOT_UNKNOWN", STAGE_SNAPSHOT,
-                                       measured_at=time.time()); return
-                if not record.get("usable_for_new_exposure"):
-                    self._snapshot_validity_blocked += 1
-                    await self._refuse(body, "SNAPSHOT_NOT_USABLE", STAGE_SNAPSHOT,
-                                       value=record.get("snapshot_status"),
-                                       threshold=SNAPSHOT_USABLE_STATUS,
-                                       measured_at=record.get("measured_at")); return
+            # T3 (a/c/d): parent authority, margin verdict, snapshot validity
+            # -- delegated to order_gates.py (item 25, 2026-08-27: the
+            # extracted copy is now wired in instead of duplicated inline).
+            if await order_gates.run_open_gates(self, body):
+                return
         if self._opens_new_exposure(body) and clock.quality() != clock.SYNCED:
             self._clock_blocked += 1
             await self._refuse(body, "CLOCK_NOT_SYNCED")

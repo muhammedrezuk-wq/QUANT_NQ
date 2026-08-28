@@ -5,7 +5,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.0.0"
+ATOM_VERSION = "1.1.0"
 EVENT_OI = "market.oi"
 EVENT_CANDLE = "market.candle"
 EVENT_OUT = "sense.oi.state"

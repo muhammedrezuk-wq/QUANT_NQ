@@ -9,14 +9,18 @@ from shared.analysis_speed import speed_factor, speed_value
 from shared.atom_evidence import window_evidence
 from shared.cycle_identity import cycle_key_of
 
-ATOM_VERSION = "1.2.0"
+ATOM_VERSION = "1.3.0"
+
+
+_MAX_SPEED_MULTIPLIER = 5
 
 
 def _speed_window(base: int, symbol: str, account: str, floor: int) -> int:
-    """نافذة مشتقة من مفتاح السرعة — قسم البنية على نفس المفتاح (أمر ٢٦-٠٨:
-    «قسم 200 ينوصل ويصير تحكم من نفس المكان»). الأساس = المانيفست عند 50."""
+    """Window derived from the speed key -- the structure section shares
+    this one key (2026-08-26: section 200 wired to the same control point).
+    Base is the manifest's lookback, default 50."""
     factor = speed_factor(speed_value(account, symbol))
-    return max(floor, min(base * 5, int(round(base * factor))))
+    return max(floor, min(base * _MAX_SPEED_MULTIPLIER, int(round(base * factor))))
 
 EVENT_IN = "market_data.candle_closed"
 EVENT_OUT = "structure.swing.state"
@@ -38,10 +42,16 @@ WARN_INSUFFICIENT = "insufficient_candles"
 
 REASON_NOT_STARTED = "NOT_STARTED"
 REASON_NO_CANDLES = "NO_CANDLES_YET"
+REASON_ALL_REJECTED = "ALL_CANDLES_REJECTED_SO_FAR"
 
 _SCORE_MAX = 100.0
 _PRICE_DP = 4
 _PROM_DP = 4
+# Bound only (external feed boundary -- a malformed/garbage symbol name is
+# untrusted input, unlike the internal 201->251 contract): once this many
+# distinct rejected symbols are tracked, a new symbol's rejections still
+# count toward the total but stop getting their own breakdown entry.
+_MAX_TRACKED_REJECTED_SYMBOLS = 64
 
 
 def _to_float(value: Any) -> float | None:
@@ -63,6 +73,8 @@ class Atom(AtomBase):
         self._candles_seen = 0
         self._emitted = 0
         self._swings_found = 0
+        self._rejected_candles = 0
+        self._rejected_by_symbol: dict[str, int] = {}
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
@@ -87,6 +99,11 @@ class Atom(AtomBase):
         low = _to_float(payload.get("low"))
         close = _to_float(payload.get("close"))
         if not symbol or high is None or low is None or close is None:
+            self._rejected_candles += 1
+            reject_key = str(symbol) if symbol else "UNKNOWN"
+            if reject_key in self._rejected_by_symbol or \
+                    len(self._rejected_by_symbol) < _MAX_TRACKED_REJECTED_SYMBOLS:
+                self._rejected_by_symbol[reject_key] = self._rejected_by_symbol.get(reject_key, 0) + 1
             return
         symbol = str(symbol)
         timeframe = str(payload.get("timeframe", ""))
@@ -107,8 +124,9 @@ class Atom(AtomBase):
                     close: float, st: dict[str, Any], account: str = "") -> None:
         if self._context is None:
             return
-        # مفتاح السرعة يقود نافذة القمم/القيعان — نبع قسم البنية كله
-        # (202–208 تشتق من هذه المتأرجحات): عند 50 = المانيفست حرفيًّا.
+        # The speed key drives the swing-high/low window -- the source of
+        # the whole structure section (202-208 derive from these swings):
+        # at 50 this is the manifest value, literally.
         w_look = _speed_window(self._lookback, symbol, account, 1)
         need = w_look * 2 + 1
         window = list(st["window"])[-need:]
@@ -165,11 +183,19 @@ class Atom(AtomBase):
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message=REASON_NOT_STARTED)
         if self._candles_seen == 0:
+            if self._rejected_candles > 0:
+                return HealthStatus(
+                    state=HealthState.DEGRADED, message=REASON_ALL_REJECTED,
+                    details={"tracked": len(self._state), "rejected": self._rejected_candles,
+                             "rejected_by_symbol": dict(self._rejected_by_symbol)})
             return HealthStatus(state=HealthState.DEGRADED, message=REASON_NO_CANDLES,
-                                details={"tracked": len(self._state)})
+                                details={"tracked": len(self._state), "rejected": 0})
         return HealthStatus(
             state=HealthState.HEALTHY,
-            message="candles=%d emitted=%d swings=%d tracked=%d" % (
-                self._candles_seen, self._emitted, self._swings_found, len(self._state)),
+            message="candles=%d emitted=%d swings=%d tracked=%d rejected=%d" % (
+                self._candles_seen, self._emitted, self._swings_found, len(self._state),
+                self._rejected_candles),
             details={"candles": self._candles_seen, "emitted": self._emitted,
-                     "swings": self._swings_found, "tracked": len(self._state)})
+                     "swings": self._swings_found, "tracked": len(self._state),
+                     "rejected": self._rejected_candles,
+                     "rejected_by_symbol": dict(self._rejected_by_symbol)})

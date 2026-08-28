@@ -1,6 +1,6 @@
 id: 717
 name: "Trading Data Integrity"
-version: "2.1.0"
+version: "2.0.2"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -42,9 +42,6 @@ config_schema:
         additionalProperties: false
     warn_on_empty_table:
       type: boolean
-    min_interval_s:
-      type: number
-      minimum: 0
   required: [stores, warn_on_empty_table]
   additionalProperties: false
 
@@ -60,6 +57,5 @@ config:
     - {db_path: 'var/store\trades.db', table: "trades", time_column: "closed_at"}
     - {db_path: 'var/store\decisions.db', table: "decisions", time_column: "decided_at"}
   warn_on_empty_table: false
-  min_interval_s: 900
 metadata:
   max_idle_s: 3600

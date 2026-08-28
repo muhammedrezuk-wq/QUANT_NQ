@@ -120,6 +120,61 @@ async def test_snapshot_restore_preserves_cursor():
         print("OK — snapshot حفظ المؤشّر: ما أعاد نشر التاريخ")
 
 
+async def test_restore_none_state_does_not_crash_atom_boot():
+    """Item 19/27 of the 27-atom review ("restore() with no shape guard
+    at all"): every other atom's restore() at least checks isinstance
+    before touching state -- this one called state.get(...) directly.
+    state=None is the ORDINARY "no prior snapshot" case (first boot, or a
+    fresh instance) -- it crashed with AttributeError immediately, which
+    could abort this atom's entire boot (no trade events flow into the
+    system at all). Must now raise a clean, expected ValueError instead,
+    and self._restored must stay False so start()'s own fallback
+    (_seed_pointer from the live bridge DB) still has a chance to run."""
+    print("\n--- test_restore_none_state_does_not_crash_atom_boot ---")
+    bus = FakeEventBus()
+    atom = Atom()
+    await atom.initialize(bus.make_context("unused.db"))
+    threw_value_error = False
+    try:
+        await atom.restore(None)
+    except ValueError:
+        threw_value_error = True
+    except AttributeError:
+        raise AssertionError("restore(None) انهارت بـ AttributeError خام -- لا حراسة شكل إطلاقاً")
+    assert threw_value_error, "restore(None) لم تُطلق ValueError واضحة"
+    assert atom._restored is False, "لا يجوز أن يصير _restored=True بعد استعادة فاشلة"
+    print("OK — restore(None) (الحالة الاعتيادية أول إقلاع) تنهر بوضوح لا بعطل خام")
+
+
+async def test_restore_leaves_state_untouched_on_partial_failure():
+    """Item 19/27: a corrupt pending_cost_rows item (row_id not numeric)
+    used to raise mid-loop AFTER self._restored, self._last_id and the
+    counters had already been written directly onto self -- a torn
+    restore left the cursor "restored" with the wrong bookkeeping.
+    Every field is now built into a local first; a failure must leave
+    self byte-for-byte as it was before restore() was called."""
+    print("\n--- test_restore_leaves_state_untouched_on_partial_failure ---")
+    bus = FakeEventBus()
+    atom = Atom()
+    await atom.initialize(bus.make_context("unused.db"))
+    atom._last_id = 7
+    atom.read_count = 3
+    before_last_id, before_read, before_restored = atom._last_id, atom.read_count, atom._restored
+    bad_state = {"last_id": 999, "read": 999,
+                 "pending_cost_rows": [{"row_id": "not-a-number", "revision": "x", "remaining_s": 1.0}]}
+    threw = False
+    try:
+        await atom.restore(bad_state)
+    except (TypeError, ValueError):
+        threw = True
+    assert threw, "restore() لم ينهر رغم row_id غير رقمي -- الاختبار لا يثبت شيئاً بلا هذا"
+    assert atom._last_id == before_last_id, ("حالة ممزَّقة: _last_id تغيّر (%r) رغم فشل الاستعادة (كان %r)"
+                                             % (atom._last_id, before_last_id))
+    assert atom.read_count == before_read, "حالة ممزَّقة: read_count تغيّر رغم فشل الاستعادة"
+    assert atom._restored == before_restored, "حالة ممزَّقة: _restored تغيّر رغم فشل الاستعادة"
+    print("OK — فشل جزئي بالاستعادة لا يمزّق المؤشّر ولا علم الاستعادة -- كلّه يبقى أو يتغيّر معاً")
+
+
 async def test_unreadable_bridge_degraded():
     """حالة فشل (قاعدة 9)."""
     print("\n--- test_unreadable_bridge_degraded ---")
@@ -138,6 +193,8 @@ async def main():
         test_publishes_each_row_with_account_id,
         test_cursor_does_not_republish,
         test_snapshot_restore_preserves_cursor,
+        test_restore_none_state_does_not_crash_atom_boot,
+        test_restore_leaves_state_untouched_on_partial_failure,
         test_unreadable_bridge_degraded,
     ]
     failed = []

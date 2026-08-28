@@ -50,6 +50,12 @@ def _numbers(text: str) -> list[int]:
 
 def main() -> int:
     registry = BuildRegistry(ROOT).refresh()
+    # إصلاح م-28 (ورقة ٤١، بأمر المالك 2026-08-28): عاد التوقع **المستقل الثابت**
+    # إلى جانب توقّع Registry — فلو عُبث بالمانيفستات صمتًا (حذف ذرّة أو قلب
+    # startup_mode) اكتشفه الفحص حتى لو ظل السجلّ متسقًا مع نفسه.
+    EXPECTED_FOREX_ROOT = 233
+    EXPECTED_CRYPTO_ROOT = 77  # 2026-08-28: دمج الشريك أدخل 2622 (Binance)
+    MIN_STARTED_FLOOR = 220
     expected_auto = {
         record.atom_id
         for record in registry.forex_all
@@ -57,6 +63,10 @@ def main() -> int:
     }
     if registry.integrity.missing_roots or registry.integrity.discovery_failures:
         print("❌ Registry discovery غير صالح قبل فحص الإقلاع")
+        return 1
+    if len(registry.forex_all) != EXPECTED_FOREX_ROOT or len(registry.crypto_all) != EXPECTED_CRYPTO_ROOT:
+        print(f"❌ توقع مستقل مخالف: forex={len(registry.forex_all)} (المتوقع {EXPECTED_FOREX_ROOT}) · "
+              f"crypto={len(registry.crypto_all)} (المتوقع {EXPECTED_CRYPTO_ROOT}) — تغيير صامت بالمانيفستات؟")
         return 1
 
     temp = tempfile.TemporaryDirectory(prefix="quant_nq_boot_")
@@ -121,10 +131,13 @@ def main() -> int:
     print(f"بدأت فعليًا: {len(started)}")
     print(f"فشلت: {failed or 'لا شيء'}")
     print(f"استُبعدت: {excluded or 'لا شيء'}")
+    if len(started) < MIN_STARTED_FLOOR:
+        print(f"❌ أرضية مستقلة: بدأت {len(started)} < {MIN_STARTED_FLOOR} — انكماش صامت في الإقلاع")
+        return 1
     if missing or unexpected or failed:
         print(f"❌ اختلاف الإقلاع: missing={missing or 'لا شيء'} unexpected={unexpected or 'لا شيء'}")
         return 1
-    print("✅ Atom Boot يطابق مجموعة auto المكتشفة؛ Core Boot منفصل عن العدد الثابت.")
+    print("✅ Atom Boot يطابق مجموعة auto المكتشفة + التوقع المستقل الثابت (233/77 وأرضية 220).")
     return 0
 
 

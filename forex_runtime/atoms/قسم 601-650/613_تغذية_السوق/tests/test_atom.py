@@ -179,6 +179,28 @@ async def test_volume_published_when_present():
     print("OK — نشر market.volume عند وجود حجم")
 
 
+async def test_garbage_only_feed_does_not_fake_freshness():
+    """v2.5.0: ساعة الصمت لا تُنعِش إلا بتكة صحيحة فعلاً."""
+    print("\n--- test_garbage_only_feed_does_not_fake_freshness ---")
+    import time as _time
+    bus = FakeEventBus()
+    atom = Atom()
+    await atom.initialize(bus.make_context(dict(CFG, max_input_silence_seconds=5)))
+    await atom.start()
+    # قبل الإصلاح: كل حزمة تالفة كانت تُنعِش _last_input_at رغم إسقاطها --
+    # فتغذية لا تنتج تكة صحيحة واحدة أبداً كانت تبقى "طازجة" للأبد.
+    atom._last_input_at = _time.time() - 999  # صمت طويل مسبقاً، بلا أي تكة صحيحة
+    for _ in range(5):
+        await bus.publish("feed.mt5.tick",
+                          {"provider": "MT5", "symbol": "NQ", "timestamp": 1.0})  # لا bid/ask
+    assert atom._dropped == 5, atom._dropped
+    assert atom._forwarded == 0, atom._forwarded
+    health = await atom.health_check()
+    assert health.state == HealthState.DEGRADED, health.state
+    assert "INPUT_STARVED" in health.message, health.message
+    print("OK — تغذية لا تنتج إلا حزماً تالفة تُصنَّف DEGRADED فعلاً، لا HEALTHY وهمياً")
+
+
 async def main():
     tests = [
         test_routes_source_tick_to_market_tick,
@@ -187,6 +209,7 @@ async def main():
         test_preferred_provider_failover,
         test_health_check_surfaces_single_dead_provider,
         test_volume_published_when_present,
+        test_garbage_only_feed_does_not_fake_freshness,
     ]
     failed = []
     for t in tests:

@@ -5,7 +5,23 @@ from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.cycle_identity import cycle_key_of
 
-ATOM_VERSION = "1.4.0"
+ATOM_VERSION = "1.5.0"
+# v1.5.0 (2026-08-27, item 12/27 of the 27-atom review -- an unknown
+# command on a shared event silently splits the allow-list): _on_asset_
+# command called self._allowed_by_account.setdefault(account, set(self.
+# _allowed)) UNCONDITIONALLY whenever account was non-empty, before ever
+# checking whether `command` was one it recognizes. risk.asset.command is
+# a shared event -- any unrecognized command (a typo, a future command
+# not meant for this atom, a malformed payload) or even a RECOGNIZED
+# command with nothing to do (PAUSE on a symbol already absent, RESUME on
+# one already present) still materialized a per-account snapshot of the
+# global allow-list at that moment. Once materialized, _on_tick's lookup
+# (self._allowed_by_account.get(account, self._allowed)) permanently
+# prefers that frozen snapshot over the live global set -- a LATER global
+# addition via _on_activate (no account_id) never reaches that account
+# again. Silent, no log, no error. Fixed by computing the EFFECTIVE set
+# read-only first and only materializing (setdefault) the per-account
+# partition once a real mutation is about to happen.
 
 EVENT_IN = "market.tick.validated"
 EVENT_FILTER = "decision.filter.asset.state"
@@ -91,11 +107,13 @@ class Atom(AtomBase):
         command = str(payload.get("command") or "").strip().upper()
         if not symbol:
             return
-        allowed = self._allowed_by_account.setdefault(account, set(self._allowed)) if account else self._allowed
-        if command in _REMOVE_COMMANDS and symbol in allowed:
+        current = self._allowed_by_account.get(account, self._allowed) if account else self._allowed
+        if command in _REMOVE_COMMANDS and symbol in current:
+            allowed = self._allowed_by_account.setdefault(account, set(self._allowed)) if account else self._allowed
             allowed.discard(symbol)
             await self._publish_whitelist()
-        elif command in _RESTORE_COMMANDS and symbol not in allowed:
+        elif command in _RESTORE_COMMANDS and symbol not in current:
+            allowed = self._allowed_by_account.setdefault(account, set(self._allowed)) if account else self._allowed
             allowed.add(symbol)
             await self._publish_whitelist()
 

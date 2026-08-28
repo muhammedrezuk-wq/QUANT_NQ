@@ -9,7 +9,17 @@ from shared.learning_model import (CLASSES, TickFeatures, FEATURE_NAMES,
 from shared.section_contract import section_atom
 from shared.tick_contract import VALIDATED_TICK_EVENT, as_validated_tick
 
-ATOM_VERSION = "1.3.0"
+ATOM_VERSION = "1.3.1"
+# v1.3.1 (2026-08-27, item 14/27 of the 27-atom review -- "crash reading
+# payload['data'] if the model is not found"): verified against current
+# code, not assumed. _on_load_response already short-circuits on `not
+# payload.get("found")` before ever touching "data" (via .get, not a
+# bracket), and 706's own found=False response omits "data" entirely --
+# so the described crash does not reproduce on this code. It also had
+# ZERO test coverage. No behavior change; added a regression test and
+# proved it load-bearing by temporarily reintroducing the exact bug
+# (dropping the found-guard, switching to payload["data"]) -- reproduced
+# the literal KeyError: 'data', then restored.
 SNAPSHOT_VERSION = 2
 EVENT_SELECTED = "learning.model.selected"
 EVENT_ROLLBACK = "learning.model.rollback_requested"

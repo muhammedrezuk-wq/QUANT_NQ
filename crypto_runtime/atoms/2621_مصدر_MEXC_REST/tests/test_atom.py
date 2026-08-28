@@ -31,7 +31,8 @@ async def main():
     bus = Bus(); atom = mod.Atom()
     await atom.initialize(bus.ctx({
         "symbols": ["BTC_USDT"], "timeframes": ["Min5"],
-        "kline_poll_s": 10, "ticker_poll_s": 5, "warmup_bars": 2, "max_age_s": 60}))
+        "kline_poll_s": 10, "ticker_poll_s": 5, "depth_poll_s": 5, "depth_limit": 100,
+        "warmup_bars": 2, "max_age_s": 60}))
     # لا نستدعي start() — لئلّا تنطلق حلقات الشبكة الخلفية.
 
     # ── الشموع ───────────────────────────────────────────────────────────
@@ -75,6 +76,28 @@ async def main():
     h = await atom.health_check()
     assert h.details["candles"] == 2 and h.details["ticker_polls"] == 1
     print("OK 621 — REST: الإحماء وتخطّي الجارية وعدم الإعادة، والتموضع OI/تمويل/علاوة")
+
+    # ── العمق (سنابشوت كامل بترقيع _get) ────────────────────────────────
+    def fake_depth(url):
+        if "depth" in url:
+            return {"data": {"bids": [[100.0, 5, 1], [99.9, 3, 1]],
+                              "asks": [[100.1, 4, 1], [100.2, 2, 1]]}}
+        return fake_get(url)
+    mod._get = fake_depth
+    await atom._poll_depth()
+    d = bus.of("market.depth")[-1]
+    assert d["symbol"] == "BTC_USDT"
+    assert d["bids"] == [[100.0, 5.0], [99.9, 3.0]] and d["asks"] == [[100.1, 4.0], [100.2, 2.0]]
+    h2 = await atom.health_check()
+    assert h2.details["depth_polls"] == 1
+    print("OK 621 — العمق: سنابشوت bids/asks كامل من REST لا من دلتا WS")
+
+    # ── تتبُّع كون 1001 الحيّ ────────────────────────────────────────────
+    await atom._on_membership({"symbols": ["BTC_USDT", "NEWCOIN_USDT"]})
+    assert atom._symbols == ["BTC_USDT", "NEWCOIN_USDT"], "الدورة التالية تقرأ القائمة الجديدة تلقائيًّا"
+    await atom._on_membership({"symbols": []})
+    assert atom._symbols == ["BTC_USDT", "NEWCOIN_USDT"], "حمولةٌ فارغة لا تُفرِغ القائمة الحالية"
+    print("OK 621 — يتبع كون 1001 الحيّ بلا إعادة تشغيل (حلقة الاستطلاع تقرأ القائمة كلّ دورة)")
 
 
 if __name__ == "__main__":

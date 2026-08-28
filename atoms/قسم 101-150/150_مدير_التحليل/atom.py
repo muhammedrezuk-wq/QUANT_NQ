@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.analysis_speed import speed_value
@@ -10,7 +11,22 @@ from shared.live_analysis import MODE_CANDLE, MODE_LIVE, STATE_READY
 from shared.section_contract import section_atom
 from shared.cycle_identity import cycle_key_of
 
-ATOM_VERSION = '2.8.0'
+ATOM_VERSION = '2.9.0'
+# v2.9.0 (2026-08-27, item 10/27 of the 27-atom review -- confirmed lost
+# update when two units race for the same scope): _on_live_state's
+# "newer_tick" branch popped the old batch, awaited its flush (a real
+# suspension point -- publish + panel emit), then UNCONDITIONALLY created
+# and stored a fresh self._live_batch[scope], discarding any batch a
+# concurrent unit's handler had already created there in the meantime.
+# The lost unit's DATA survives (self._live_latest is untouched), but its
+# membership in the batch's "arrived" set is gone -- the all-units fast
+# flush can then never trigger (permanently short by however many
+# memberships were clobbered), silently degrading every affected cycle to
+# the 1s timeout path instead of firing the instant all analysts report.
+# Fixed with a per-scope asyncio.Lock serializing the whole read-batch /
+# maybe-flush / write-batch section against other same-scope deliveries
+# (same shape as the 516/578 fix: the race needs an await point plus a
+# blind overwrite after it, not shared mutable state alone).
 EVENT_TIME = "SYS_SECOND"
 EVENT_OUT = 'analysis.cycle.collected'
 # Unit 150 closure, phase 3 (owner order 2026-08-23): the analysts panel --
@@ -61,6 +77,7 @@ class Atom(AtomBase):
         self._now = 0.0
         self._live_latest: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         self._live_batch: dict[tuple[str, str], dict[str, Any]] = {}
+        self._live_batch_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
         self._live_flush_timeout_s = 1.0
         self._live_forwarded = 0
         # X.md Build 4 connection 1: the slow (candle) cycle stores + batch.
@@ -93,6 +110,13 @@ class Atom(AtomBase):
 
     async def shutdown(self) -> None:
         await self.stop()
+
+    def _live_lock(self, scope: tuple[str, str, str]) -> asyncio.Lock:
+        lock = self._live_batch_locks.get(scope)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._live_batch_locks[scope] = lock
+        return lock
 
     def _unit_handler(self, expected_id: str):
         async def handler(payload: dict[str, Any]) -> None:
@@ -145,24 +169,31 @@ class Atom(AtomBase):
             "ready": payload.get("ready") is True,
             "state": str(payload.get("analysis_state") or "")})
         source_ts = _to_float(payload.get("source_timestamp")) or 0.0
-        batch = self._live_batch.get(scope)
-        if batch is not None and source_ts > batch["source_ts"]:
-            await self._flush_live(scope, "newer_tick")
-            batch = None
-        if batch is None:
-            batch = {"source_ts": source_ts, "arrived": set(), "opened_wall": self._now,
-                     "account": account, "broker": broker, "symbol": symbol,
-                     "trigger_unit": unit_id, "sequence": sequence,
-                     "payload_source_ts": payload.get("source_timestamp"),
-                     "payload_ts": payload.get("timestamp")}
-            self._live_batch[scope] = batch
-        batch["arrived"].add(unit_id)
-        batch["trigger_unit"] = unit_id
-        batch["sequence"] = sequence
-        batch["payload_source_ts"] = payload.get("source_timestamp")
-        batch["payload_ts"] = payload.get("timestamp")
-        if len(batch["arrived"]) >= self._expected:
-            await self._flush_live(scope, "all_units")
+        # v2.9.0: the whole read-maybe_flush-write section is serialized per
+        # scope. _flush_live below awaits (publish + panel emit) -- without
+        # this lock, another unit's handler for the SAME scope can run in
+        # that window, see no batch (already popped), open its own, and then
+        # have it silently overwritten when this call resumes and writes its
+        # own fresh batch unconditionally. Different scopes stay independent.
+        async with self._live_lock(scope):
+            batch = self._live_batch.get(scope)
+            if batch is not None and source_ts > batch["source_ts"]:
+                await self._flush_live(scope, "newer_tick")
+                batch = self._live_batch.get(scope)
+            if batch is None:
+                batch = {"source_ts": source_ts, "arrived": set(), "opened_wall": self._now,
+                         "account": account, "broker": broker, "symbol": symbol,
+                         "trigger_unit": unit_id, "sequence": sequence,
+                         "payload_source_ts": payload.get("source_timestamp"),
+                         "payload_ts": payload.get("timestamp")}
+                self._live_batch[scope] = batch
+            batch["arrived"].add(unit_id)
+            batch["trigger_unit"] = unit_id
+            batch["sequence"] = sequence
+            batch["payload_source_ts"] = payload.get("source_timestamp")
+            batch["payload_ts"] = payload.get("timestamp")
+            if len(batch["arrived"]) >= self._expected:
+                await self._flush_live(scope, "all_units")
 
     def _record_delivery(self, scope: tuple[str, str, str], unit_id: str,
                          declared: dict[str, Any]) -> None:
@@ -340,10 +371,10 @@ class Atom(AtomBase):
         self._panel_emitted += 1
 
     async def _on_setting(self, payload: dict[str, Any]) -> None:
-        """اعتماد عيار ANALYSIS_SPEED من اللوحة (عقد سرعة التحليل v1.0).
-
-        القيمة تُكتب بسجل العيارات وتصل كل المحللين حيًّا ببصمة القاعدة —
-        لا إقلاع ولا لمس مخاطر (الفصل الصارم §6/§33)."""
+        """Applies the ANALYSIS_SPEED dial from the dashboard (analysis
+        speed contract v1.0). The value is written to the dial registry
+        and reaches every live analyzer via the base snapshot -- no
+        restart, no risk-path touch (strict separation Sec.6/Sec.33)."""
         if not self._running or self._context is None or not isinstance(payload, dict):
             return
         applied = apply_command(payload, atom_id="150")

@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 import re
 import sqlite3
-import time
 from pathlib import Path
 from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "2.1.0"
+ATOM_VERSION = "2.0.2"
 
 _DB_TIMEOUT_S = 5.0
 _BUSY_TIMEOUT_MS = 3000
@@ -48,16 +47,12 @@ class Atom(AtomBase):
         self._runs = 0
         self._last_report: dict[str, dict[str, Any]] = {}
         self._last_flags: list[str] = []
-        self._min_interval_s = 900.0
-        self._last_scan_mono: float | None = None
-        self._skipped = 0
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
         cfg = context.config
         self._stores = [dict(s) for s in cfg["stores"]]
         self._warn_on_empty = bool(cfg["warn_on_empty_table"])
-        self._min_interval_s = float(cfg.get("min_interval_s", 900))
         context.subscribe(EVENT_IN, self._on_cleaned)
         self._initialized = True
 
@@ -123,16 +118,6 @@ class Atom(AtomBase):
     async def _on_cleaned(self, payload: dict[str, Any]) -> None:
         if not self._running or self._context is None:
             return
-        # PRAGMA integrity_check يقرأ كل صفحة في القاعدة: على مخازن بالجيغا
-        # كان الفحص عند كل حدث تنظيف يأكل ~16% من معالج النواة باستمرار
-        # ويمسك قراءات طويلة تُسقط الكتّاب (بروفايل 2026-08-26) — فالمسح
-        # الكامل مقنَّن بفاصل أدنى، والأحداث بين الفواصل تُحصى ولا تُفحص.
-        mono = time.monotonic()
-        if (self._last_scan_mono is not None
-                and mono - self._last_scan_mono < self._min_interval_s):
-            self._skipped += 1
-            return
-        self._last_scan_mono = mono
         now = _to_float(payload.get("timestamp") if isinstance(payload, dict) else None)
         report = await asyncio.to_thread(self._run, now)
         flags = sorted({f for r in report.values() for f in r["flags"]})
@@ -154,8 +139,6 @@ class Atom(AtomBase):
             return HealthStatus(state=HealthState.UNHEALTHY, message=REASON_NOT_STARTED)
         details = {"runs": self._runs, "flags": list(self._last_flags),
                    "stores": len(self._stores),
-                   "skipped_between_scans": self._skipped,
-                   "min_interval_s": self._min_interval_s,
                    "last_report": {k: dict(v) for k, v in self._last_report.items()}}
         if self._runs == 0:
             return HealthStatus(

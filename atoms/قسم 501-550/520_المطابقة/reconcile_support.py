@@ -37,22 +37,43 @@ def normalize(raw,account,broker,symbol,source=""):
     return out
 def desired_records(payload):
     top_a=text(payload.get("account_id"),DEFAULT_ACCOUNT);top_b=text(payload.get("broker"),DEFAULT_BROKER);top_s=text(payload.get("asset_canonical"),text(payload.get("symbol")));raw_list=payload.get("desired")
-    if not isinstance(raw_list,list) or not any(isinstance(x,dict) and ("legs" in x or "positions" in x) for x in raw_list):raw_list=[payload]
+    # v3.5.0: an explicit "desired" list is ALWAYS a batch, full stop -- no
+    # longer sniffed by whether its items happen to carry a "legs"/
+    # "positions" key. The old heuristic silently dropped a batch whose
+    # items were leg-shaped dicts without that key (falls back to
+    # [payload], which has no "legs"/"positions" of its own either ->
+    # every leg in the batch vanished, zero error). Paired with the
+    # presence-check fix below (same version) so a batch of bare
+    # leg-shaped dicts round-trips end to end, not just past this outer
+    # check. The sole live producer (551) never sends a top-level
+    # "desired" key at all, so this changes nothing on the one shape
+    # actually in use today.
+    if not isinstance(raw_list,list):raw_list=[payload]
     out=[]
     for raw in raw_list:
         if not isinstance(raw,dict):continue
         a=text(raw.get("account_id"),top_a);b=text(raw.get("broker"),top_b);s=text(raw.get("asset_canonical"),text(raw.get("symbol"),top_s))
         if not s:continue
-        legs=raw.get("legs",raw.get("positions",[]));legs=legs if isinstance(legs,list) else ([raw] if raw.get("ticket") or raw.get("leg_id") else [])
+        # v3.5.0: raw.get("legs",raw.get("positions",[])) always resolved
+        # to a list (the innermost default) whenever BOTH keys were simply
+        # ABSENT -- so the "raw is itself one leg" fallback right after it
+        # was dead for that case; it only ever fired if "legs" was present
+        # but explicitly not a list. Presence is now checked explicitly.
+        if "legs" in raw:legs=raw.get("legs")
+        elif "positions" in raw:legs=raw.get("positions")
+        else:legs=[raw] if raw.get("ticket") or raw.get("leg_id") else []
+        if not isinstance(legs,list):legs=[]
         out.append({"account_id":a,"broker":b,"asset_canonical":s,"symbol":s,"version":int(num(raw.get("version",payload.get("version",0))) or 0),"stamp":stamp(raw) or stamp(payload),"legs":[normalize(x,a,b,s) for x in legs if isinstance(x,dict)]})
     return out
 def stale(candidate,previous):
     if previous is None:return False
-    # v3.4.0 (2026-08-25): سجلٌّ سابق كل سيقانه بلا تذاكر = نيّة لم تُنفَّذ
-    # قط — لا يتقدّم على نيّة أحدث ختمًا مهما علا رقم إصداره. المقيس: زوج
-    # ميت v18 ظل يحجب سجلات الأزواج الجديدة (v1) فبقي «المرغوب» كاذبًا
-    # وامتنع ربط التذاكر. الإصدار يبقى الحكم بين السجلات المؤكَّدة (ذات
-    # التذاكر) كما كان حرفيًّا.
+    # v3.4.0 (2026-08-25): a previous record whose legs are ALL ticketless
+    # is intent that never executed -- it must not outrank a newer-stamped
+    # intent no matter how high its own version number climbed. Measured:
+    # a dead pair's v18 kept shadowing a fresh pair's v1 record, so
+    # "desired" stayed permanently wrong and ticket binding never
+    # happened. Version stays the judge between CONFIRMED records (those
+    # carrying a ticket) exactly as before.
     prev_legs=previous.get("legs") or []
     prev_pure_intent=bool(prev_legs) and not any(text(x.get("ticket")) for x in prev_legs if isinstance(x,dict))
     cs,ps=candidate.get("stamp"),previous.get("stamp")

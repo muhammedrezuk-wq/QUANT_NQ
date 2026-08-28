@@ -3,6 +3,7 @@ import inspect
 import os
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -155,6 +156,53 @@ async def test_position_appeared_vanished():
     print("OK — ظهور واختفاء المركز على المنصّة سطران بالعربي")
 
 
+async def test_concurrent_writes_do_not_exceed_daily_cap():
+    print("\n--- test_concurrent_writes_do_not_exceed_daily_cap ---")
+    tmp = tempfile.mkdtemp()
+    bus, atom = await _run(tmp, max_lines_per_day=1)
+    real_append = atom._append
+    reached = threading.Event()
+    release = threading.Event()
+    calls = {"n": 0}
+
+    def gated_append(day, text):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # أول كتابة تدخل _append (بخيط عامل حقيقي عبر to_thread) وتُعلَّق
+            # هنا -- قبل أن يعود _write ليزيد lines_today. هذا بالضبط نافذة
+            # الـTOCTOU: الفحص سبق هذه النقطة، والزيادة تليها.
+            reached.set()
+            release.wait(timeout=5)
+        return real_append(day, text)
+
+    atom._append = gated_append
+    task_a = asyncio.create_task(atom._on_trade({
+        "event_type": "OPENED", "ticket": 1, "symbol": "NQ100", "side": "BUY",
+        "volume": 1, "entry_price": 1, "source_row_id": 1, "timestamp": time.time()}))
+    await asyncio.to_thread(reached.wait, 5)
+
+    # تزامن حقيقي: طلب ثانٍ (حدث مختلف تماماً -- REJECTED) يصل بينما الأول
+    # لا يزال معلَّقاً *قبل* زيادة lines_today -- فحصه يرى نفس القيمة القديمة.
+    # كمهمّة خلفية لا await مباشر: على الكود المُصلَح (بالقفل) سيُحجَب هذا
+    # الطلب بانتظار القفل، فوقفه هنا مباشرة كان سيُجمِّد الاختبار نفسه.
+    task_b = asyncio.create_task(atom._on_rejected({
+        "symbol": "NQ100", "side": "SELL", "volume": 1,
+        "reason": "TEST", "request_id": "r1", "timestamp": time.time()}))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    release.set()
+    await asyncio.wait_for(asyncio.gather(task_a, task_b), timeout=5.0)
+
+    assert atom._lines_today <= 1, (
+        "تجاوز سقف الأسطر اليومي: lines_today=%d > max=1 (TOCTOU لم يُغلَق)"
+        % atom._lines_today)
+    text = _today_file(tmp).read_text(encoding="utf-8")
+    written = [l for l in text.splitlines() if "TRADE_OPENED" in l or "ORDER_REJECTED" in l]
+    assert len(written) == 1, ("كُتب أكثر من سطر رغم السقف=1: %r" % written)
+    print("OK — سباق حقيقي بين حدثين مختلفين لا يتجاوز السقف اليومي")
+
+
 async def test_health_states():
     print("\n--- test_health_states ---")
     tmp = tempfile.mkdtemp()
@@ -182,6 +230,7 @@ async def test_health_states():
 async def main():
     tests = [test_opened_line_and_state_event, test_closed_then_cost_revision,
              test_rejected_ack_failed, test_position_appeared_vanished,
+             test_concurrent_writes_do_not_exceed_daily_cap,
              test_health_states]
     failed = []
     for t in tests:

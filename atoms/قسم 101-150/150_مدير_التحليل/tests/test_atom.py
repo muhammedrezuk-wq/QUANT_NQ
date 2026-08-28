@@ -99,6 +99,62 @@ async def test_live_cycle_identity():
     print("OK — المسار الحي مفتوح على sequence 7")
 
 
+class GatedBus(FakeEventBus):
+    """v2.9.0 proof: gate publish() on the OLD batch's forced flush so a
+    second concurrent unit for the same scope gets a real window to run
+    while the first is suspended mid-flush -- reproduces the exact
+    interleaving the fix targets, not a timing-dependent guess."""
+    def __init__(self):
+        super().__init__()
+        self.gate = asyncio.Event()
+        self.reached_gate = asyncio.Event()
+
+    async def publish(self, name, payload):
+        if name == EVENT_OUT and payload.get("close_reason") == "tick_batch_newer_tick":
+            self.reached_gate.set()
+            await self.gate.wait()
+        self.published.append((name, payload))
+
+
+async def test_concurrent_units_same_scope_no_lost_update():
+    print("\n--- test_concurrent_units_same_scope_no_lost_update ---")
+    bus = GatedBus()
+    atom = Atom()
+    await atom.initialize(bus.make_context({"timeout_seconds": 5.0,
+                                            "live_flush_timeout_s": 1.0}))
+    await atom.start()
+    scope = (ACCOUNT, BROKER, SYMBOL)
+    # افتح batch على تكة 1 بوحدة واحدة -- ناقص، لن يكتمل من تلقاء نفسه.
+    await atom._on_live_state(_live_state("trend", 1), "trend", "trend")
+    assert atom._live_batch[scope]["arrived"] == {"trend"}
+
+    # تزامن حقيقي: momentum يصل بتكة أحدث (2) فيُجبَر تفريغ batch التكة
+    # القديمة (newer_tick) -- يعلَّق داخل publish. volatility يصل بنفس
+    # التكة (2) بينما momentum معلَّق -- بالضبط "تزامن وحدتين لنفس النطاق".
+    momentum_task = asyncio.create_task(
+        atom._on_live_state(_live_state("momentum", 2), "momentum", "momentum"))
+    await bus.reached_gate.wait()
+    volatility_task = asyncio.create_task(
+        atom._on_live_state(_live_state("volatility", 2), "volatility", "volatility"))
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    bus.gate.set()
+    await asyncio.wait_for(asyncio.gather(momentum_task, volatility_task), timeout=5.0)
+
+    # الباقي (13 وحدة) يصل على نفس التكة (2) -- المجموع الصحيح صار 15/15.
+    remaining = [u for u in UNIT_IDS if u not in ("momentum", "volatility")]
+    for uid in remaining:
+        await atom._on_live_state(_live_state(uid, 2), uid, uid)
+
+    out2 = [p for n, p in bus.published if n == EVENT_OUT
+            and p.get("sequence") == 2 and p.get("close_reason") == "tick_batch_all_units"]
+    assert out2, ("فقدان تحديث مؤكَّد: التكة 2 لم تكتمل فوراً رغم وصول الخمس "
+                  "عشرة وحدة كلها -- عضويّة وحدة (volatility) في "
+                  "batch['arrived'] ضاعت بتصادم إنشاء batch جديد بعد await "
+                  "الفلَش (v2.9.0 لم يُصلَح أو انكسر)")
+    print("OK — تزامن وحدتين على نفس النطاق لا يُفقد أي عضويّة، الدفعة تكتمل فوراً بلا مهلة")
+
+
 async def test_health_states():
     print("\n--- test_health_states ---")
     bus = FakeEventBus()
@@ -147,6 +203,7 @@ async def test_analysts_panel_self_declared():
 async def main():
     tests = [test_live_all_units_flushes,
              test_live_cycle_identity,
+             test_concurrent_units_same_scope_no_lost_update,
              test_health_states,
              test_analysts_panel_self_declared]
     failed = []

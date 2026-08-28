@@ -44,6 +44,8 @@ config_schema:
       type: array
       items:
         type: string
+    cursor_db:
+      type: string
     require_symbol_resolution:
       type: boolean
     magic:

@@ -262,6 +262,109 @@ async def test_restore_ignores_garbage():
     print("OK — استرجاع فاسد يُتجاهل بلا انهيار")
 
 
+async def test_halt_between_legs_tracks_naked_leg_not_opened():
+    """v3.6.0: halt يصل بالفجوة الحقيقية بين نشر رِجل BUY ومحاولة SELL —
+    محاكاة السباق الفعلي (BUY نشرت فعلاً قبل أن يُستدعى _open لـSELL)."""
+    print("\n--- test_halt_between_legs_tracks_naked_leg_not_opened ---")
+    atom, bus = await _new()
+    await _setup(atom, stop_frac=0.05)
+    real_open = atom._open
+
+    async def patched(account_id, broker, symbol, side, lot, price, pair_id, role,
+                      risk_budget, authority):
+        if role == "SELL":
+            await atom._on_halt({"account_id": account_id, "scope": ""})
+        return await real_open(account_id, broker, symbol, side, lot, price, pair_id,
+                               role, risk_budget, authority)
+    atom._open = patched
+
+    await atom._on_activate(_activate())
+    dec = _decisions(bus)
+    assert len(dec) == 1 and dec[0]["side"] == "BUY", "SELL يجب أن تُحظَر لا تُنشَر"
+    states = _states(bus)
+    assert states[-1]["status"] == "NAKED_LEG_HALT_BLOCKED", states[-1]
+    assert states[-1]["open_role"] == "BUY" and states[-1]["missing_role"] == "SELL"
+    key = "A1|BR|XAUUSD"
+    assert key in atom._naked and atom._naked[key]["missing_role"] == "SELL"
+    assert key in atom._active, "الرِجل الحقيقية تبقي المفتاح Active — يمنع زوجاً ثانياً فوقها"
+    h = await atom.health_check()
+    assert h.state == HealthState.DEGRADED and h.details["naked_legs"] == 1
+    print("OK — halt بين الرجلين → SELL محظورة، الحالة NAKED_LEG لا OPENED كذباً، وDEGRADED ظاهرة")
+
+
+async def test_naked_leg_completes_on_halt_reset():
+    print("\n--- test_naked_leg_completes_on_halt_reset ---")
+    atom, bus = await _new()
+    await _setup(atom, stop_frac=0.05)
+    real_open = atom._open
+    injected = {"done": False}
+
+    async def patched(account_id, broker, symbol, side, lot, price, pair_id, role,
+                      risk_budget, authority):
+        if role == "SELL" and not injected["done"]:
+            injected["done"] = True
+            await atom._on_halt({"account_id": account_id, "scope": ""})
+        return await real_open(account_id, broker, symbol, side, lot, price, pair_id,
+                               role, risk_budget, authority)
+    atom._open = patched
+
+    await atom._on_activate(_activate())
+    assert len(_decisions(bus)) == 1 and atom._naked, "عارية قبل التصفير"
+    await atom._on_halt_reset({"account_id": "A1"})
+    dec = _decisions(bus)
+    assert len(dec) == 2 and dec[1]["side"] == "SELL", "الرِجل الناقصة تكتمل، لا زوج ثانٍ"
+    states = _states(bus)
+    assert states[-1]["status"] == "OPENED" and states[-1]["pair_status"] == "COMPLETED_AFTER_HALT"
+    assert not atom._naked, "تُمسَح فور الاكتمال"
+    h = await atom.health_check()
+    assert h.state == HealthState.HEALTHY and h.details["naked_legs"] == 0
+    print("OK — تصفير الإيقاف يكمل الرِجل الناقصة تلقائياً، صحّة تعود HEALTHY")
+
+
+async def test_naked_leg_survives_restart():
+    print("\n--- test_naked_leg_survives_restart ---")
+    before, bus1 = await _new()
+    await _setup(before, stop_frac=0.05)
+    real_open = before._open
+
+    async def patched(account_id, broker, symbol, side, lot, price, pair_id, role,
+                      risk_budget, authority):
+        if role == "SELL":
+            await before._on_halt({"account_id": account_id, "scope": ""})
+        return await real_open(account_id, broker, symbol, side, lot, price, pair_id,
+                               role, risk_budget, authority)
+    before._open = patched
+    await before._on_activate(_activate())
+    assert before._naked, "عارية قبل اللقطة"
+    saved = await before.snapshot()
+    assert saved["payload"]["naked"], "اللقطة تحمل سجلّ الرِجل العارية"
+
+    after, bus2 = await _new()
+    await after.restore(saved)
+    assert "A1|BR|XAUUSD" in after._naked, "الاسترجاع يعيد بناء التتبّع من الصفر"
+    await after._on_halt_reset({"account_id": "A1"})
+    dec = _decisions(bus2)
+    assert len(dec) == 1 and dec[0]["side"] == "SELL", "تكتمل بعد الاسترجاع بلا إعادة فتح BUY"
+    assert not after._naked
+    print("OK — الرِجل العارية تنجو من إعادة تشغيل الذرّة، وتكتمل بعد التصفير")
+
+
+async def test_gate_window_persists_across_restart():
+    """يتحقّق من إصلاح خلل تسمية: كان الاسترجاع/اللقطة يقرآن atom._gate_window
+    غير الموجودة أصلاً بدل atom._gate.decisions الحقيقية."""
+    print("\n--- test_gate_window_persists_across_restart ---")
+    before, _ = await _new()
+    await before._on_gate_passed({"decision_id": "dec-77", "gate_request_id": "dec-77:r1"})
+    assert before._gate.has("dec-77")
+    saved = await before.snapshot()
+    assert saved["payload"]["gate_window"] == {"dec-77": "dec-77:r1"}
+
+    after, _ = await _new()
+    await after.restore(saved)
+    assert after._gate.has("dec-77"), "نافذة البوابة يجب أن تنجو من إعادة التشغيل"
+    print("OK — نافذة البوابة (٤٦٧) تُحفَظ وتُسترجَع فعلياً الآن")
+
+
 async def test_health():
     print("\n--- test_health ---")
     bus = FakeEventBus()
@@ -280,7 +383,12 @@ async def main():
              test_inverse_lot_via_dial, test_idempotent,
              test_deactivate_reopen, test_missing_inputs, test_budget_from_ledger,
              test_lot_clamped_to_max, test_survives_restart,
-             test_restore_ignores_garbage, test_health]
+             test_restore_ignores_garbage,
+             test_halt_between_legs_tracks_naked_leg_not_opened,
+             test_naked_leg_completes_on_halt_reset,
+             test_naked_leg_survives_restart,
+             test_gate_window_persists_across_restart,
+             test_health]
     failed = []
     for t in tests:
         try:

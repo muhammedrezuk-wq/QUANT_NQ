@@ -52,7 +52,7 @@ PROFILE_DIAL_MAP: dict[str, tuple[str, str]] = {
 
 _OVR_RECHECK_S = 2.0
 _ovr_cache: dict[str, Any] = {"at": -1.0, "mtime": -1.0, "map": None,
-                              "enter_exit": None}
+                              "enter_exit": None, "path": None}
 
 #: §4 — حدود الأفق الزمني: 0.25 ثانية ← 180 يومًا (15,552,000 ث).
 H_MIN_S = 0.25

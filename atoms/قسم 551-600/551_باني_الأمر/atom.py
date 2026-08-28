@@ -5,7 +5,20 @@ from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.financial_scope import account_broker, financial_key, text
 
-ATOM_VERSION = "4.3.0"
+ATOM_VERSION = "4.3.1"
+# v4.3.1 (2026-08-27, item 22/27 of the 27-atom review -- verification
+# only, no code change): _on_validated builds an order via one of two
+# paths -- _direct_order() (already-priced/sized input) or the sized
+# path computed from a stored 513 size. Only the direct path never
+# validates stop_loss at all (payload.get("stop_loss") passes straight
+# through, even as None or wrong-sided; the sized path DOES check via
+# risk_dist <= 0.0). Traced the real pipeline wiring in the manifests,
+# not assumed: 552 and 601 (the atom that actually writes to the broker
+# bridge) subscribe only to 584's execution.order.legal /
+# trading.final_decision, never to this atom's raw execution.order.built
+# -- so 584's stop-legality gate is not a parallel observer, it genuinely
+# blocks a malformed direct-path order before real execution. An
+# end-to-end test with real 551+584 code proves the gap is caught.
 
 EVENT_VALIDATED = "risk.validation.completed"
 EVENT_SIZE = "risk.position_size.state"

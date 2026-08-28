@@ -6,7 +6,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "2.4.1"
+ATOM_VERSION = "2.5.0"
 
 SUBSECOND_CLOCK_REASON = "feed silence is measured below one second"
 
@@ -105,7 +105,6 @@ class Atom(AtomBase):
     async def _on_source_tick(self, payload: dict[str, Any], destination: str) -> None:
         if not self._running or self._context is None:
             return
-        self._last_input_at = time.time()
         provider = payload.get("provider")
         symbol = payload.get("symbol")
         bid = _to_float(payload.get("bid"))
@@ -121,6 +120,13 @@ class Atom(AtomBase):
             self._dropped += 1
             self._context.logger.warning("feed tick without timestamp from %s dropped", provider)
             return
+        # v2.5.0: the staleness clock now advances only on a genuinely
+        # VALID tick -- moved past both validation blocks above. A feed
+        # sending nothing but malformed packets used to touch this on
+        # every arrival regardless, so INPUT_STARVED could never trip
+        # (dropped=100%, forwarded=0, health still HEALTHY) as long as
+        # SOMETHING kept arriving on the wire.
+        self._last_input_at = time.time()
         self._touch(str(provider))
         if self._secondary_suppressed(str(provider)):
             self._suppressed_secondary += 1
@@ -175,6 +181,11 @@ class Atom(AtomBase):
     async def _on_heartbeat(self, payload: dict[str, Any]) -> None:
         official = _to_float(payload.get("official_time"))
         if not self._running or official is None or self._context is None:
+            return
+        # م-37/613 (ورقة ٤١، 2026-08-28): بوابة سلامة للساعة الرسمية — رفض
+        # القيم السالبة/غير المنتهية قبل أي استخدام. مرجع زمني غير سليم كان
+        # يُقبل كما هو فتفسد كل حسابات الصمت (silent) بعده.
+        if not (official > 0.0) or official == float("inf"):
             return
         self._official_time = official
         for name, info in self._providers.items():

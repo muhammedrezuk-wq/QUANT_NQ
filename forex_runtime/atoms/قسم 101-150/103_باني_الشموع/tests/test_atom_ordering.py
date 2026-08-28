@@ -1,4 +1,5 @@
-# اختبارات أمان الترتيب للذرة 103 (الإصدار 4.1.0) — تدقيق 2026-08-22.
+# اختبارات أمان الترتيب للذرة 103 — تدقيق 2026-08-22، محدَّثة 2026-08-27
+# لمفتاح _candles الرباعي (حساب، وسيط، رمز، مدة الفريم) منذ حملة 5.0.0.
 # تغطي: out-of-order (تكة متأخرة)، duplicate، late-period (إعادة فتح فترة مغلقة)،
 # و fabric_gap awareness.
 import asyncio, importlib.util, sys
@@ -75,7 +76,7 @@ async def test_duplicate_dropped():
     await a._on_tick({**base, 'bid': 100, 'ask': 101, 'timestamp': 1})
     assert a.duplicates_dropped == 1, a.duplicates_dropped
     # tick_count لم يتضخم
-    cur = a._candles[('A', 'BR', 'NQ')]
+    cur = a._candles[('A', 'BR', 'NQ', 60.0)]
     assert cur['tick_count'] == 1, cur['tick_count']
     print('ok duplicate_dropped')
 
@@ -92,7 +93,7 @@ async def test_late_period_dropped():
     closed = [p for n, p in b.e if n == m.EVENT_OUT]
     assert len(closed) == 1, len(closed)
     assert a.late_dropped == 1, a.late_dropped
-    assert ('A', 'BR', 'NQ') in a._candles and a._candles[('A', 'BR', 'NQ')]['period_start'] == 60
+    assert ('A', 'BR', 'NQ', 60.0) in a._candles and a._candles[('A', 'BR', 'NQ', 60.0)]['period_start'] == 60
     print('ok late_period_dropped')
 
 

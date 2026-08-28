@@ -1,6 +1,6 @@
 id: 523
 name: "Dial Engine"
-version: "2.2.1"
+version: "2.3.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

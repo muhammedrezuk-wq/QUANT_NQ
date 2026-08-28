@@ -60,7 +60,18 @@ COMMANDS_DB = DATA_ROOT / "governance" / "commands.db"  # جسر بوّابة ا
 ANALYSIS_SETTINGS_DB = ROOT.parent / "var" / MARKET / "analysis_settings.db"
 TILT_RULES_DB = DATA_ROOT / "store" / "tilt_rules.db"
 DECISIONS_DB = DATA_ROOT / "store" / "decisions.db"
-TRADE_DB = ROOT.parent / "var" / MARKET / "bridge.db"
+# إصلاح ف-1 (ورقة ٤٠ · ديفرق ورقة ٣٩ بند ٤): للفوركس، صفحتا الأخبار والصفقات
+# تقرآن nq_brain.db حيث يكتب الـEA فعليًّا (مجلّد MetaTrader المشترك) — لا
+# bridge.db المعزولة الفارغة غير الموجودة أصلًا (كانت تجعل /gov/news يكذب:
+# available:false رغم وصول مئات الأخبار — مقاس بورقة ٣٨ بند ٤).
+# للكريبتو تبقى bridge.db المعزولة كما هي (نفس حكم ورقة ٣٩).
+if MARKET == "crypto":
+    TRADE_DB = ROOT.parent / "var" / MARKET / "bridge.db"
+else:
+    TRADE_DB = Path(os.environ.get(
+        "NQ_NEWS_DB",
+        str(Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
+            / "Common" / "Files" / "nq_brain.db")))
 LOGS_DIR = DATA_ROOT / "logs"
 
 # جذر المشروع على المسار: الخادم يُشغَّل ملفًّا داخل governance فلا يرى حزم
@@ -911,15 +922,26 @@ _READ_PROXY = {
 }
 
 
+def _iter_atom_manifests() -> list:
+    """مانيفستات الذرات بالشكلين معاً: الشجرة المسطّحة (atoms_crypto/2007_…)
+    والشجرة المقسّمة أقساماً (atoms/قسم 001-050/003_…/manifest.yaml).
+    إصلاح الملعب 2026-08-27: المسح الضحّل بمستوى واحد كان يرى الأقسامَ
+    ملفّاتٍ بلا مانيفست فتفرغ خريطة الأسماء ولوحة الشبكة بأكملها."""
+    out: list = []
+    if not ATOMS_DIR.is_dir():
+        return out
+    for pattern in ("*/manifest.yaml", "*/*/manifest.yaml"):
+        for mf in sorted(ATOMS_DIR.glob(pattern)):
+            if mf not in out:
+                out.append(mf)
+    return out
+
+
 def arabic_names() -> dict[int, str]:
     """اسم عربي لكل ذرة، مُشتقّ من اسم مجلّدها (لا خريطة يدوية · ١٤ §٩)."""
     out: dict[int, str] = {}
-    if not ATOMS_DIR.is_dir():
-        return out
-    for folder in ATOMS_DIR.iterdir():
-        manifest = folder / "manifest.yaml"
-        if not manifest.is_file():
-            continue
+    for manifest in _iter_atom_manifests():
+        folder = manifest.parent
         # utf-8-sig: علامة BOM براس الملف (يكتبها Set-Content بويندوز) كانت
         # تُسقط سطر id الأول فتختفي الذرة من الرسم كله — مقيس 2026-08-19.
         text = manifest.read_text(encoding="utf-8-sig")
@@ -958,11 +980,7 @@ def system_graph() -> dict:
     nodes: list[dict] = []
     pubs: dict[str, list[int]] = {}
     subs: dict[str, list[int]] = {}
-    if ATOMS_DIR.is_dir():
-        for folder in sorted(ATOMS_DIR.iterdir()):
-            mf = folder / "manifest.yaml"
-            if not mf.is_file():
-                continue
+    for mf in _iter_atom_manifests():
             text = mf.read_text(encoding="utf-8-sig")
             m = re.search(r"^\s*id:\s*(\d+)", text, re.M)
             if not m:
@@ -1046,11 +1064,7 @@ def idle_limits() -> dict[int, float]:
     if cached and now - stamped < 10.0:
         return cached
     out: dict[int, float] = {}
-    if ATOMS_DIR.is_dir():
-        for folder in ATOMS_DIR.iterdir():
-            mf = folder / "manifest.yaml"
-            if not mf.is_file():
-                continue
+    for mf in _iter_atom_manifests():
             # utf-8-sig لنفس سبب arabic_names: BOM بويندوز كان يُسقط سطر id.
             text = mf.read_text(encoding="utf-8-sig")
             ident = re.search(r"^\s*id:\s*(\d+)", text, re.M)
@@ -1102,15 +1116,10 @@ def label(atom: dict) -> tuple[str, str]:
 
 
 def _manifest_path(atom_id: int):
-    if not ATOMS_DIR.is_dir():
-        return None
-    for folder in ATOMS_DIR.iterdir():
-        mf = folder / "manifest.yaml"
-        if not mf.is_file():
-            continue
-        m = re.search(r"^\s*id:\s*(\d+)", mf.read_text(encoding="utf-8-sig"), re.M)
-        if m and int(m.group(1)) == atom_id:
-            return mf
+    for mf in _iter_atom_manifests():
+            m = re.search(r"^\s*id:\s*(\d+)", mf.read_text(encoding="utf-8-sig"), re.M)
+            if m and int(m.group(1)) == atom_id:
+                return mf
     return None
 
 

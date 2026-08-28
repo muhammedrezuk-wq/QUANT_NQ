@@ -138,5 +138,24 @@ async def main():
  await a3.restore({'global_halted':False,'halted_accounts':{}})
  assert a3._snapshots=={} and a3._margin_verdicts=={},'حالة قديمة بلا الكاشين -- تُقرأ فارغة لا خطأ'
  print('552 (T4): استرجاع حالة قديمة بلا الكاشين الجديدين لا يكسر شيئًا')
+
+ # --- بند 25: حرّاس الحالة الخمسة تتجاهل self._running (مقفلة v5.4.1،
+ # مقيسة حيّاً مرّتين: قائمة بيضاء بلعت أول قائمتها، ثمّ RECONCILIATION_
+ # NOT_MATCHED). منذ v5.5.0 هذه الدوال مفوَّضة فعليًا لـstate_inputs.py
+ # (بعد إصلاحه وإثباته)، فهذا الاختبار يقفل السلوك الصحيح على المسار
+ # الحيّ نفسه لا على نسخة افتراضية -- سقوطه يعني عودة العلّتين المقيستين.
+ a4=m.Atom();await a4.initialize(m.AtomContext(552,{'enabled':True,'max_spread_points':0},L(),b.publish,b.subscribe))
+ assert a4._running is False,'لم يُستدعَ start() بعد -- هذا هو المطلوب لهذا الاختبار'
+ await a4._on_margin_verdict({'account_id':'A','request_id':'r9','approved':True,'required_margin':1.0,'free_margin':9.0})
+ await a4._on_snapshot({'snapshot_id':'snap-x','decision_id':'D','gate_request_id':'G','snapshot_status':'READY','usable_for_new_exposure':True,'usable_for_protection':True})
+ await a4._on_reconcile({'account_id':'A','broker':'BR','symbol':'NQ','status':'match'})
+ await a4._on_exposure({'account_id':'A','broker':'BR','usable_for_new_exposure':True})
+ await a4._on_reference({'symbol':'NQ','state':'healthy'})
+ assert ('A','r9') in a4._margin_verdicts,'حكم الهامش سقط قبل start() -- عودة لعلّة القائمة البيضاء المقيسة حيّاً'
+ assert 'snap-x' in a4._snapshots,'اللقطة سقطت قبل start()'
+ assert a4._reconcile.get(('A','BR','NQ'))=='MATCH','المطابقة سقطت قبل start()'
+ assert ('A','BR') in a4._exposure,'التعرض سقط قبل start()'
+ assert a4._reference.get('NQ')=='HEALTHY','المرجع سقط قبل start()'
+ print('552 (بند 25): خمسة حرّاس حالة تُخزّن قبل start() -- يقفل v5.4.1 اختباريًّا لا تفسيرًا فقط')
  print('552 all gate tests passed')
 if __name__=='__main__':asyncio.run(main())

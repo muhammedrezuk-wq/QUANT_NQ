@@ -10,7 +10,15 @@ from shared.probability_contract import (
 )
 from shared.section_contract import section_atom
 
-ATOM_VERSION = "2.0.0"
+ATOM_VERSION = "2.1.0"
+# v2.1.0 (2026-08-27, ported from atom 359's own 2.1.0 fix -- same shape of
+# unbounded self._cycles, same fix): open cycles are BOUNDED. There was no
+# expiry path at all -- any cycle missing one of the seven models stayed in
+# memory forever, guaranteed growth under tick-period cycles. Oldest
+# incomplete cycle is dropped past the cap, counted and declared (never
+# silent). Thresholds (required_depth / confidence_threshold) untouched:
+# owner dials.
+_MAX_OPEN_CYCLES = 512
 EVENT_OUT = "probability.merged.state"
 MODEL_ID = "models_merged"
 MODEL_EVENTS = (
@@ -41,6 +49,7 @@ class Atom(AtomBase):
         self._required_depth = 60.0
         self._confidence_threshold = 60.0
         self._emitted = self._invalid = self._duplicates = 0
+        self._evicted = 0
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
@@ -68,6 +77,10 @@ class Atom(AtomBase):
         if not cycle_id or model_id not in BASE_MODEL_IDS:
             self._invalid += 1
             return
+        if cycle_id not in self._cycles and len(self._cycles) >= _MAX_OPEN_CYCLES:
+            # v2.1.0: bounded -- drop the OLDEST incomplete cycle, counted.
+            self._cycles.pop(next(iter(self._cycles)))
+            self._evicted += 1
         cycle = self._cycles.setdefault(cycle_id, {})
         if model_id in cycle:
             self._duplicates += 1
@@ -192,11 +205,13 @@ class Atom(AtomBase):
             return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED")
         return HealthStatus(
             state=HealthState.HEALTHY,
-            message="merged=%d" % self._emitted,
+            message="merged=%d open=%d evicted=%d" % (
+                self._emitted, len(self._cycles), self._evicted),
             details={
                 "emitted": self._emitted,
                 "open": len(self._cycles),
                 "invalid": self._invalid,
                 "duplicates": self._duplicates,
+                "evicted": self._evicted,
             },
         )

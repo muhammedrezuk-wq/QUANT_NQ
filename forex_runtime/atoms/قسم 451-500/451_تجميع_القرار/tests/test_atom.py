@@ -35,7 +35,7 @@ async def test_tick_opens_cycle_from_sequence():
     print("\n--- test_tick_opens_cycle_from_sequence ---")
     a,b=await _new()
     await a._on_tick(_tick(1))
-    cid=next(iter(a._cycles))
+    cid=a._identity[(ACCOUNT, BROKER, SYMBOL)]["cycle_id"]
     assert cid.endswith("|tick|1"), cid
     print("OK — دورة تكة من sequence:", cid)
 

@@ -114,6 +114,24 @@ class HubHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _inline_assets(self, html: bytes) -> bytes:
+        """إصلاح الملعب: حقن CSS/JS داخل الـHTML نفسه — صفحة مكتفية بذاتها.
+
+        السبب: عبر سلاسل البروكسي/الكاش المتعددة كان يمكن أن يُفقد ملف الستايل
+        فتظهر اللوحة نصًّا خامًا بلا تصميم. بالحقن يستحيل ذلك: كل شيء يصل
+        مع الـHTML نفسه في استجابة واحدة."""
+        import re as _re
+        text = html.decode("utf-8")
+        m = _re.search(r'<link[^>]+href="\./assets/([^"]+\.css)"[^>]*>', text)
+        if m and (DIST / "assets" / m.group(1)).is_file():
+            css = (DIST / "assets" / m.group(1)).read_text(encoding="utf-8")
+            text = text.replace(m.group(0), "<style>" + css + "</style>")
+        m = _re.search(r'<script[^>]+src="\./assets/([^"]+\.js)"[^>]*></script>', text)
+        if m and (DIST / "assets" / m.group(1)).is_file():
+            js = (DIST / "assets" / m.group(1)).read_text(encoding="utf-8")
+            text = text.replace(m.group(0), "<script type=" + chr(34) + "module" + chr(34) + ">" + js + "</script>")
+        return text.encode("utf-8")
+
     def _serve_static(self) -> None:
         path = urlparse(self.path).path
         rel = "index.html" if path in ("/", "/index.html") else path.lstrip("/")
@@ -125,6 +143,8 @@ class HubHandler(BaseHTTPRequestHandler):
             return
         types = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".woff": "font/woff"}
         data = target.read_bytes()
+        if target.name == "index.html":
+            data = self._inline_assets(data)
         self.send_response(200)
         self._headers(content_type=types.get(target.suffix, "application/octet-stream"), length=len(data))
         self.end_headers()
@@ -158,6 +178,12 @@ class HubHandler(BaseHTTPRequestHandler):
                 "Upgrade: websocket\r\nConnection: Upgrade\r\n"
                 f"Sec-WebSocket-Accept: {_accept(client_key)}\r\n\r\n"
             ).encode("ascii"))
+            # إصلاح م-5 (ورقة ٤١ ← ٣٩ بند ٥، بأمر المالك 2026-08-28): بايتات أول
+            # إطار بثّ تلتف غالبًا مع ردّ المصافحة؛ كانت تُرمى فتتزحزح محاذاة
+            # البثّ ويتجمّد بعد أول لقطة. تُمرَّر الآن كما هي.
+            _, _, leftover = response.partition(b"\r\n\r\n")
+            if leftover:
+                self.connection.sendall(leftover)
         except (OSError, ConnectionError) as exc:
             try:
                 self._json(502, {"error": f"websocket-backend-unreachable:{market}:{type(exc).__name__}"})
@@ -222,7 +248,10 @@ class HubHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), HubHandler)
+    # إصلاح الملعب 2026-08-27: السماح بالربط على 0.0.0.0 للمعاينة الخارجية
+    # (QUANT_HUB_HOST) — الافتراضي يبقى 127.0.0.1 كما في النسخة الأصلية.
+    host = os.environ.get("QUANT_HUB_HOST", "127.0.0.1")
+    server = ThreadingHTTPServer((host, PORT), HubHandler)
     print(f"Unified dashboard: http://127.0.0.1:{PORT}")
     print("Internal market dashboards: 8092=forex, 8093=crypto")
     try:

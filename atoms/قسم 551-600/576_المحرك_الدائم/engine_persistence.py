@@ -1,9 +1,22 @@
 from __future__ import annotations
 from typing import Any
 from shared.snapshot_state import VALID,digest_of,grade
+import naked_leg
+
+# v3.6.0 (2026-08-27): two fixes, both found reading this file against the
+# live atom, not assumed. (1) this module read/wrote `atom._gate_window`,
+# which has never existed on the atom -- the real object is `atom._gate`
+# (a GateWindow, see gate_window.py) holding `.decisions`. snapshot() always
+# saved `{}` (getattr default) and restore() would have raised AttributeError
+# the moment a non-empty window was ever restored; neither path is exercised
+# by a self-consistent snapshot->restore cycle, which is why it went
+# unnoticed. (2) `_naked` (naked-leg tracking, same date) is now persisted so
+# a restart during the halt-cleared-but-not-yet-completed window doesn't
+# silently drop the only record of a real, unhedged position -- row shape
+# owned by naked_leg.py, not duplicated here.
 
 def snapshot(atom,version):
-    body={"version":version,"active":sorted(atom._active),"actual_active":sorted(atom._actual_active),"pending":dict(atom._pending),"budget":dict(atom._budget),"counter":atom._counter,"gate_window":dict(getattr(atom,"_gate_window",{}))}
+    body={"version":version,"active":sorted(atom._active),"actual_active":sorted(atom._actual_active),"pending":dict(atom._pending),"budget":dict(atom._budget),"counter":atom._counter,"gate_window":dict(atom._gate.decisions),"naked":naked_leg.to_rows(atom._naked)}
     return {"schema_version":1,"written_at":float(atom._epoch or 0),"session_epoch":atom._epoch,"payload":body,"digest":digest_of(body)}
 
 def restore(atom,state:dict[str,Any],number,key_sep):
@@ -29,4 +42,5 @@ def restore(atom,state:dict[str,Any],number,key_sep):
     if isinstance(window,dict):
         for decision_id,gate_request_id in window.items():
             if isinstance(decision_id,str) and decision_id and isinstance(gate_request_id,str) and gate_request_id:
-                atom._gate_window[decision_id]=gate_request_id
+                atom._gate.decisions[decision_id]=gate_request_id
+    naked_leg.load_rows(atom._naked,payload.get("naked"),number,key_sep)

@@ -5,7 +5,7 @@ from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.section_contract import section_atom
 
-ATOM_VERSION = "1.2.0"
+ATOM_VERSION = "1.2.1"
 
 EVENT_IN = "structure.swing.state"
 EVENT_OUT = "liquidity.pool.state"

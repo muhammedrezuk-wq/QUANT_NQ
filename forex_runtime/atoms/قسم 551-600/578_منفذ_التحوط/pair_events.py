@@ -151,7 +151,7 @@ class PairEventMixin:
         pair["status"] = status
         # v5.3.0: كل تغيّر زوج يمرّ من هنا — فيُكتب دائمًا فور وقوعه،
         # فلا يضيع بموت غير نظيف (الجذر المقاس: pairs:{} بعد انهيار).
-        self._persist_pairs()
+        await self._persist_pairs()
         await self._context.publish(EVENT_PAIR_STATE, {
             "pair_id": pair["pair_id"], "account_id": pair["account_id"],
             "symbol": pair["symbol"], "status": status,

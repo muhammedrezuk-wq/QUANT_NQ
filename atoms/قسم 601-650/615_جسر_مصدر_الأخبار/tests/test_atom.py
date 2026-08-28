@@ -55,13 +55,18 @@ class FakeEventBus:
                            publish=self.publish, subscribe=self.subscribe)
 
 
+_IMPACT_DEFAULT = object()  # sentinel: distinguishes "unset -> UNKNOWN" from an explicit None (real SQL NULL)
+
+
 def _row(row_id, scope="UNRESOLVED", symbols="UNKNOWN", headline="Fed holds",
-         published=1000.0, written=1001.0, sentiment=None, state="UNKNOWN"):
+         published=1000.0, written=1001.0, sentiment=None, state="UNKNOWN",
+         impact=_IMPACT_DEFAULT):
     return (row_id, "key-%d" % row_id, None, headline, "en", 0,
             "https://x.invalid/%d" % row_id, "yahoo-ndx", "RSS", scope, symbols,
             None, None, "NOT_APPLIED", None, None, "NOT_APPLIED",
             "NOT_APPLIED", "NOT_APPLIED", "NOT_APPLIED",
-            sentiment, state, "UNKNOWN", "RECEIVED", published, written)
+            sentiment, state, ("UNKNOWN" if impact is _IMPACT_DEFAULT else impact),
+            "RECEIVED", published, written)
 
 
 def _make_db(path, rows=(), table=True):
@@ -126,10 +131,35 @@ async def test_resolved_row_reaches_both_events():
     await _pulse(atom, 100.0)
     narrow = _of(bus, "market.news")
     assert len(narrow) == 1 and narrow[0]["symbols"] == ["USTEC"]
-    assert narrow[0]["headline"] == "Fed holds" and narrow[0]["id"] == 1
+    # v1.2.0: "id" is namespaced by atom (615:<row_id>) -- 616 reads a
+    # separate database with its own independent row-id sequence.
+    assert narrow[0]["headline"] == "Fed holds" and narrow[0]["id"] == "615:1"
     assert len(_of(bus, "market.news.enriched")) == 1
     assert atom._unresolved_held == 0
     print("OK — المحلول يمرّ بالحدثين، والرموز قائمة لا نصّ")
+
+
+async def test_missing_impact_level_is_the_shared_unknown_literal():
+    """Item 21/27 of the 27-atom review ("same event name, two conflicting
+    shapes -- between two atoms, not within one"): a NULL impact_level
+    used to reach market.news as Python None here, while 616's own bridge
+    always sends the literal string "UNKNOWN" for the same situation on
+    the SAME shared event -- a consumer would see two different "we
+    don't know" markers depending on which atom produced the event.
+    Aligned to 616's explicit, named constant on both enriched and narrow
+    (they must agree with each other too, not just with 616)."""
+    print("\n--- test_missing_impact_level_is_the_shared_unknown_literal ---")
+    db = _db_path()
+    _make_db(db, rows=[_row(1, scope="ASSET", symbols="USTEC", impact=None)])
+    bus, atom = await _make(db)
+    await _pulse(atom, 100.0)
+    narrow = _of(bus, "market.news")[0]
+    enriched = _of(bus, "market.news.enriched")[0]
+    assert narrow["impact_level"] == "UNKNOWN", (
+        "impact_level غائب يجب أن يصل UNKNOWN حرفيًّا كما ٦١٦ لا None: %r" % narrow["impact_level"])
+    assert enriched["impact_level"] == "UNKNOWN", (
+        "الحمولة الموسّعة يجب أن تتّفق مع الضيّقة أيضًا: %r" % enriched["impact_level"])
+    print("OK — impact_level الغائب UNKNOWN حرفيًّا بكلا الحمولتين، يتّفق مع ٦١٦")
 
 
 async def test_multiple_symbols_are_split():
@@ -284,6 +314,7 @@ async def test_health_states():
 async def main():
     tests = [test_unresolved_never_reaches_the_narrow_event,
              test_resolved_row_reaches_both_events,
+             test_missing_impact_level_is_the_shared_unknown_literal,
              test_multiple_symbols_are_split,
              test_enriched_carries_the_full_contract,
              test_rows_are_not_republished,

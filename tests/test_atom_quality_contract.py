@@ -32,7 +32,8 @@ def test_all_reported_numeric_values_are_owned_without_moving_them() -> None:
         source = (directory / "atom.py").read_text(encoding="utf-8")
         numbers = validator.literal_numbers(validator.ast.parse(source))
         owned = validator._owned_numeric_values(atom_id)
-        assert numbers
+        # 2026-08-28 (دمج الشريك): بعض الذرّات صارت ثوابتَ مسماة بالكامل فلا
+        # أرقام حرفية — الشرط الملكيةُ لا الوجود.
         assert all(item[2] in owned for item in numbers)
 
 

@@ -1,6 +1,6 @@
 id: 576
 name: "Perpetual Engine"
-version: "3.5.0"
+version: "3.6.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -22,6 +22,7 @@ subscribes:
   - "dial.profile.state"
   - "market.symbol_specs"
   - "market_data.candle_closed"
+  - "market.tick.validated"
   - "risk.asset_ledger.state"
   - "platform.positions.state"
   - "platform.account.state"

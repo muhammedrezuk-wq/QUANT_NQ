@@ -314,6 +314,10 @@ async def test_live_bus_eligibility_lands_before_settlement():
     await bus.publish("decision.scored.state",
                       _scored(1.0, 0.0, 1.0, score=72.0, confidence=0.8,
                               strength=0.61, identity=IDENTITY), publisher="453")
+    # الناقل الحقيقي (V3.0) لا يُسلِّم أثناء publish -- يودع بصناديق البريد
+    # فقط ويعود؛ التسليم عبر مهام المستهلكين الخلفية. القياس بعد التسليم
+    # لا بعد الإيداع (نفس الاصطلاح المستخدَم بكل اختبار ناقل حقيقي بالمشروع).
+    assert await bus.drain(timeout_s=5.0)
     assert resolved, "لم يصدر قرار محلول عبر الناقل الحقيقي"
     assert len(resolved) == 1, "حسم واحد بالضبط لكل دورة scored"
     last = resolved[-1]

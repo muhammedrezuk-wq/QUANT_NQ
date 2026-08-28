@@ -1,6 +1,6 @@
 id: 520
 name: "Position Reconciliation"
-version: "3.4.0"
+version: "3.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

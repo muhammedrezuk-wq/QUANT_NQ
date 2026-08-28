@@ -33,7 +33,7 @@ it's gone. Without touching a single line of the core.
 | | |
 |---|---|
 | Forex atoms | **233** under `atoms/` |
-| Crypto atoms | **76** under `atoms_crypto/` — isolated, advisory |
+| Crypto atoms | **77** under `atoms_crypto/` — isolated, advisory |
 | Sealed core files | **23** (`core/CORE.lock`) |
 | Core version | **1.27.0** — sealed `2026-08-27` |
 | Governance checks | **71** under `governance/checks/` |

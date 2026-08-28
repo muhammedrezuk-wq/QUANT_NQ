@@ -1,6 +1,6 @@
 id: 519
 name: "Asset Portfolio"
-version: "3.3.0"
+version: "3.2.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -10,11 +10,9 @@ dependencies: []
 publishes:
   - "asset.portfolio.state"
   - "asset.portfolio.owner_intent"
-  - "asset.portfolio.owner_intent.state"
 
 subscribes:
   - "asset.portfolio.owner_intent"
-  - "asset.portfolio.owner_intent.state"
   - "risk.asset_ledger.state"
   - "platform.trade_event"
   - "platform.account.state"

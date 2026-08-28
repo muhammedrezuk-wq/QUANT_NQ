@@ -1,6 +1,6 @@
 id: 615
 name: "News Source Bridge"
-version: "1.1.0"
+version: "1.2.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

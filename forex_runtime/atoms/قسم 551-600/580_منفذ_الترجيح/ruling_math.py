@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-ATOM_VERSION = "1.1.0"
+ATOM_VERSION = "1.2.0"
 
 EVENT_GATE_PASSED = "decision.gate.passed"
 EVENT_RULE_COMMAND = "tilt.rule.command"
@@ -146,117 +146,6 @@ CREATE TABLE IF NOT EXISTS tilt_state_journal (
 CREATE INDEX IF NOT EXISTS ix_tilt_journal_symbol
 ON tilt_state_journal(symbol, changed_at);
 """
-
-
-def _finite(value: Any) -> float | None:
-    """Strict finite number (bool rejected) -- the 901 command number rule."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = float(value)
-    if number != number or number in (float("inf"), float("-inf")):
-        return None
-    return number
-
-
-def _valid_points(points: Any) -> list[list[float]] | None:
-    """Mirror of 901's curve validation: at most MAX_POINTS pairs
-    [threshold, amount], every number finite, thresholds strictly ascending.
-    An empty list is legal (the owner clearing a curve). Returns normalized
-    float pairs, or None when the shape is invalid."""
-    if not isinstance(points, list) or len(points) > MAX_POINTS:
-        return None
-    normalized: list[list[float]] = []
-    previous: float | None = None
-    for point in points:
-        if not isinstance(point, (list, tuple)) or len(point) != 2:
-            return None
-        threshold = _finite(point[0])
-        amount = _finite(point[1])
-        if threshold is None or amount is None:
-            return None
-        if previous is not None and threshold <= previous:
-            return None
-        previous = threshold
-        normalized.append([threshold, amount])
-    return normalized
-
-
-def interpolate(points: list[list[float]],
-                x: float) -> tuple[float, list[list[float]], str]:
-    """The sealed continuity rule (amendment S52): below the first point 0.0,
-    above the last point the last amount, linear interpolation between the
-    two neighbouring points -- decimal precision, no slabs, no 0/1 jumps.
-    Returns (tilt, active neighbour points, note)."""
-    if not points:
-        return 0.0, [], NOTE_NO_POINTS
-    if x < points[0][0]:
-        return 0.0, [], NOTE_BELOW_FIRST
-    last_t, last_v = points[-1]
-    if x >= last_t:
-        return float(last_v), [[float(last_t), float(last_v)]], NOTE_BEYOND_LAST
-    for (t0, v0), (t1, v1) in zip(points, points[1:]):
-        if t0 <= x < t1:
-            tilt = v0 + (v1 - v0) * (x - t0) / (t1 - t0)
-            return (float(tilt),
-                    [[float(t0), float(v0)], [float(t1), float(v1)]],
-                    NOTE_INTERPOLATED)
-    return float(last_v), [[float(last_t), float(last_v)]], NOTE_BEYOND_LAST
-
-
-def _contract_view(payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    """Eight-field view (sealed 455 rule): the 'unified' block is the truth
-    when present, otherwise the flat payload. Returns (view, is_unified)."""
-    unified = payload.get("unified")
-    if isinstance(unified, dict):
-        return unified, True
-    return payload, False
-
-
-def _declared_unknown(view: dict[str, Any], name: str) -> bool:
-    for key in UNKNOWN_LISTS:
-        unknown = view.get(key)
-        if isinstance(unknown, (list, tuple)) and name in unknown:
-            return True
-    return False
-
-
-def _read_number(view: dict[str, Any], unified: bool,
-                 field: str) -> float | None:
-    """A real measured number or None -- never a fabricated fallback (the
-    455 pattern). Flat payloads are read ONLY by their wire key (so the
-    direction word or 466's 0/1 confidence flag is never misread as a
-    contract number); unified blocks by the contract name."""
-    source = field if unified else FIELD_SOURCES[field]
-    if _declared_unknown(view, source) or (
-            source != field and _declared_unknown(view, field)):
-        return None
-    raw = view.get(source)
-    if isinstance(raw, bool):
-        return None
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    return value if value == value else None
-
-
-def _read_state(view: dict[str, Any], unified: bool) -> str | None:
-    names = (FIELD_STATE,) if unified else (STATE_SOURCE, FIELD_STATE)
-    for name in names:
-        if _declared_unknown(view, name):
-            return None
-        raw = view.get(name)
-        if isinstance(raw, str) and raw.strip():
-            return raw.strip().upper()
-    return None
-
-
-def _side_applies(side: str, value: float) -> bool:
-    if side == SIDE_ABS:
-        return True
-    if side == SIDE_UP:
-        return value > 0.0
-    return value < 0.0
 
 
 def _finite(value: Any) -> float | None:

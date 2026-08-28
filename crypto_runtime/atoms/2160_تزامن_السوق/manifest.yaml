@@ -1,6 +1,6 @@
 id: 2160
 name: Cross-Market Sync (BTC vs peers)
-version: 1.0.0
+version: 1.1.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom
@@ -9,7 +9,7 @@ publishes:
 - sense.cross_market.state
 subscribes:
 - market.candle
-startup_mode: manual
+startup_mode: auto
 health:
   interval_ms: 30000
   timeout_ms: 5000

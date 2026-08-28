@@ -4,7 +4,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "3.3.0"
+ATOM_VERSION = "3.2.0"
 FAIL_CLOSED = "RESTORE_FAILED_FAIL_CLOSED"
 EVENT_LEDGER = "risk.asset_ledger.state"
 EVENT_TRADE = "platform.trade_event"
@@ -15,7 +15,6 @@ EVENT_RESET = "risk.kill_switch.reset_requested"
 EVENT_COMMAND = "risk.asset.command"
 EVENT_OUT = "asset.portfolio.state"
 EVENT_INTENT = "asset.portfolio.owner_intent"
-EVENT_INTENT_STATE = "asset.portfolio.owner_intent.state"
 
 NORMAL = "NORMAL"
 WARNING = "WARNING"
@@ -73,7 +72,6 @@ class Atom(AtomBase):
         self._exit_ratio = float(context.config.get("exit_ratio", 0.90))
         for event, handler in (
             (EVENT_INTENT, self._rehydrate),
-            (EVENT_INTENT_STATE, self._rehydrate),
             (EVENT_LEDGER, self._on_ledger),
             (EVENT_TRADE, self._on_trade),
             (EVENT_ACCOUNT, self._on_account),
@@ -243,14 +241,8 @@ class Atom(AtomBase):
         }
         self._updates += 1
         await self._context.publish(EVENT_OUT, self._last)
-        intent_event = {
+        await self._context.publish(EVENT_INTENT, {
             "account_scope": "519", "owner_intent": self._intent()
-        }
-        # Keep the legacy event for compatibility; the explicit .state event
-        # is the replayable owner-intent contract for hot reload.
-        await self._context.publish(EVENT_INTENT, intent_event)
-        await self._context.publish(EVENT_INTENT_STATE, {
-            **intent_event, "state_version": "1"
         })
 
     def _portfolio_row(self, ledger: Any) -> dict[str, Any] | None:
@@ -316,14 +308,8 @@ class Atom(AtomBase):
         })
         self._last = body
         await self._context.publish(EVENT_OUT, body)
-        intent_event = {
+        await self._context.publish(EVENT_INTENT, {
             "account_scope": "519", "owner_intent": self._intent()
-        }
-        # Keep the legacy event for compatibility; the explicit .state event
-        # is the replayable owner-intent contract for hot reload.
-        await self._context.publish(EVENT_INTENT, intent_event)
-        await self._context.publish(EVENT_INTENT_STATE, {
-            **intent_event, "state_version": "1"
         })
 
     async def snapshot(self) -> dict[str, Any]:

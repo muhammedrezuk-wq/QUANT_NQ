@@ -51,7 +51,7 @@ class FakeEventBus:
         self.published.append((name, payload))
 
     def make_context(self, db_path):
-        cfg = {"account_id": MY_ACCOUNT, "db_path": db_path, "heartbeat_interval_s": 1.0, "magic": 20260801}
+        cfg = {"account_id": MY_ACCOUNT, "db_path": db_path, "heartbeat_interval_s": 1.0, "magic": 20260801, "cursor_db": db_path + ".cursor"}
         return AtomContext(atom_id=601, config=cfg, logger=_NullLogger(),
                            publish=self.publish, subscribe=self.subscribe)
 
@@ -175,6 +175,12 @@ async def test_identity_thread_rides_bridge_row_and_results():
     import json as _json
     with tempfile.TemporaryDirectory() as tmp:
         db = os.path.join(tmp, "nq_brain.db")
+        # القرص الدائم للمؤشّر (_CURSOR_DB) مسار عالمي ثابت بالإنتاج عمداً --
+        # لكن هذا يعني أن تشغيلتين متتاليتين لهذا الاختبار كانتا تتشاركان
+        # نفس الملف الحقيقي على القرص وتتسمّمان من بعضهما (id=1 دائماً بقاعدة
+        # مؤقّتة جديدة، فمؤشّر الحياة الماضية كان يصادف قيم هذا التشغيل بالضبط
+        # فيرفض الصفّ). يُعزَل هنا فقط -- مسار الإنتاج بـatom.py لم يُمسّ.
+        _mod._CURSOR_DB = os.path.join(tmp, "bridge_cursor_601.db")
         bus = FakeEventBus()
         atom = Atom()
         await atom.initialize(bus.make_context(db))

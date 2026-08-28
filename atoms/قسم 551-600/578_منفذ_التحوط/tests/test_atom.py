@@ -2,6 +2,7 @@ import asyncio
 import importlib.util
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 root=Path(__file__).resolve().parents[3]; folder=Path(__file__).resolve().parents[1]
@@ -277,4 +278,70 @@ async def main():
     print("OK — ت١: الحقلان يمران بطلبات الفتح والتخفيض، والغائب None + إنذار")
 
     print("OK — العقد يعمل دون نبضات وهمية")
+
+    # v5.4.0: كل تغيّر زوج كان يكتب المخزن الدائم بنداء متزامن حاجب (وُجد
+    # أثناء تدقيق ٣٠٤ ذرّة). لفّه بـasyncio.to_thread وحده كان سيفتح نافذة
+    # سباق جديدة: كتابتان متتاليتان (زوج A ثم زوج B) لو رُحّلتا لخيطين بلا
+    # قفل، وتأخّرت الأولى، لكانت تُكتب فوق الثانية الأحدث فتضيع B من القرص.
+    # القفل لكل الذرّة (مورد واحد، ملف واحد) يضمن أن الكتابات تصل القرص
+    # بنفس ترتيب صدورها بالضبط.
+    a19, b19 = await new()
+    real_save = mod.pair_store.save
+    write_order = []
+
+    def ordered_save(path, sealed):
+        pairs = sealed["payload"]["pairs"]
+        if "P-B" not in pairs:
+            time.sleep(0.15)  # يحاكي كتابة أولى بطيئة (قرص مزدحم)
+        write_order.append(sorted(pairs))
+        return real_save(path, sealed)
+
+    mod.pair_store.save = ordered_save
+    try:
+        t1 = asyncio.create_task(a19._on_requested(
+            {"pair_id": "P-A", "leg_role": "BUY", "request_id": "ra",
+             "account_id": "A", "symbol": "X"}))
+        await asyncio.sleep(0.01)
+        t2 = asyncio.create_task(a19._on_requested(
+            {"pair_id": "P-B", "leg_role": "BUY", "request_id": "rb",
+             "account_id": "A", "symbol": "Y"}))
+        await asyncio.gather(t1, t2)
+    finally:
+        mod.pair_store.save = real_save
+    assert write_order == [["P-A"], ["P-A", "P-B"]], write_order
+    on_disk = mod.pair_store.load(a19._pair_store_path)["payload"]["pairs"]
+    assert "P-B" in on_disk, ("الكتابة الأحدث ضاعت من القرص بعد كتابة"
+                              " أقدم متأخّرة: %r" % on_disk)
+    print("OK — القفل يمنع كتابة أقدم متأخّرة من الكتابة فوق أحدث منها بالقرص")
+
+    # وحلقة الحدث نفسها لا تتجمّد أثناء تلك الكتابة (asyncio.to_thread فعليًّا،
+    # لا لفّ شكليّ) — نفس منهج الإثبات المستخدم بذرّتَي 516 و580.
+    a20, b20 = await new()
+    real_save2 = mod.pair_store.save
+
+    def slow_save(path, sealed):
+        time.sleep(0.2)
+        return real_save2(path, sealed)
+
+    mod.pair_store.save = slow_save
+    order = []
+
+    async def other_task():
+        await asyncio.sleep(0.05)
+        order.append("other_task")
+
+    async def pair_call():
+        await a20._on_requested({"pair_id": "P-C", "leg_role": "BUY",
+                                 "request_id": "rc", "account_id": "A",
+                                 "symbol": "Z"})
+        order.append("pair_call")
+
+    try:
+        await asyncio.gather(other_task(), pair_call())
+    finally:
+        mod.pair_store.save = real_save2
+    assert order == ["other_task", "pair_call"], order
+    print("OK — حلقة الحدث بقيت حرّة أثناء كتابة الزوج الدائمة")
+
+
 if __name__=="__main__":asyncio.run(main())

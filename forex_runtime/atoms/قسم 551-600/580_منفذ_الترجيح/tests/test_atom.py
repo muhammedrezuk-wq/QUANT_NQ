@@ -11,6 +11,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path as _Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -493,6 +494,57 @@ async def test_17_health(tmp_path):
     print("OK — الصحة تدرّجت وبياناتها تحمل الحد والعدادات")
 
 
+async def test_18_missing_gated_at_falls_back_to_now_no_crash(tmp_path):
+    print("\n--- gated_at غائب: يسقط لوقت الآن بلا انهيار (NameError سابقًا) ---")
+    db = str(tmp_path / "t18.db")
+    atom, bus = await _new(db)
+    payload = gate(confidence_value=50.0)
+    del payload["gated_at"]
+    before = time.time()
+    # قبل الإصلاح: NameError('time' غير مستورَد بـgate_runner) كانت تصل هنا
+    # وتُسقِط المعالج بالكامل بعد نشر tilt.state وقبل كتابة اليوميّة.
+    await atom._on_gate_passed(payload)
+    after = time.time()
+    assert _tilts(bus), "tilt.state لم يُنشر أصلًا"
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT changed_at FROM tilt_state_journal"
+        " ORDER BY rowid DESC LIMIT 1").fetchone()
+    conn.close()
+    assert row is not None, "اليوميّة لم تُكتب — الانهيار منع الوصول لها"
+    assert before - 1.0 <= row[0] <= after + 1.0, row[0]
+    print("OK — بلا gated_at: لا انهيار، واليوميّة كُتبت بختم وقتٍ حقيقي (الآن)")
+
+
+async def test_19_journal_write_off_loop_thread(tmp_path):
+    print("\n--- كتابة اليوميّة لا تجمّد حلقة الحدث (asyncio.to_thread فعليًّا) ---")
+    atom, bus = await _new(str(tmp_path / "t19.db"))
+    await atom._on_rule_command(rule("confidence", [[80.0, 0.10]]))
+    real_journal = atom._journal
+
+    def slow_journal(*a, **k):
+        time.sleep(0.3)
+        return real_journal(*a, **k)
+
+    atom._journal = slow_journal
+    order = []
+
+    async def other_task():
+        await asyncio.sleep(0.05)
+        order.append("other_task")
+
+    async def gate_call():
+        await atom._on_gate_passed(gate(confidence_value=82.0))
+        order.append("gate_call")
+
+    # لو بقيت الكتابة معلَّقة بخيط حلقة الحدث (قبل الإصلاح) لَما استطاع
+    # other_task إنهاء نومه الأقصر (٥٠ms) قبل عودة gate_call من الحجب
+    # الكامل (٣٠٠ms) -- الترتيب كان سينعكس.
+    await asyncio.gather(other_task(), gate_call())
+    assert order == ["other_task", "gate_call"], order
+    print("OK — حلقة الحدث بقيت حرّة أثناء كتابة اليوميّة (المهمّة الأخرى أنهت أولًا)")
+
+
 async def main():
     tests = [test_1_first_level_interpolated, test_2_second_level_and_flat_tail,
              test_3_return_softens_by_itself,
@@ -507,7 +559,8 @@ async def main():
              test_13_rule_command_validation,
              test_14_idempotent_duplicate_and_versioning,
              test_15_disable_rule, test_16_no_default_curves_and_full_reason,
-             test_17_health]
+             test_17_health, test_18_missing_gated_at_falls_back_to_now_no_crash,
+             test_19_journal_write_off_loop_thread]
     failed = []
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         tmp_path = _Path(tmp_dir)

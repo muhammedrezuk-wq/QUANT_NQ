@@ -5,7 +5,16 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "2.0.0"
+ATOM_VERSION = "2.0.1"
+# v2.0.1 (2026-08-27, item 21/27 of the 27-atom review -- verification
+# only, no code change): 615 and 616 both publish market.news by
+# deliberate design (parallel sources, not a replacement). Their raw
+# bridge-table row ids could collide across the two independent source
+# databases, and this atom's dedup key (self._seen_keys) is exactly that
+# "id" field -- an end-to-end test proved the collision drops a real,
+# distinct headline as a false duplicate on the pre-fix producers, and
+# that 615/616's own fix (namespacing "id" per atom) resolves it from
+# this atom's side without any change needed here.
 
 EVENT_OUT = "market_data.news_received"
 

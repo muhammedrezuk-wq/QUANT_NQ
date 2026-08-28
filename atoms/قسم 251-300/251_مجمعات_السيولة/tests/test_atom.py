@@ -125,6 +125,21 @@ async def test_contract_shape_complete():
     print("OK — العقد الموحّد كامل الحقول")
 
 
+async def test_score_boundaries_no_crash_correct_confidence():
+    print("\n--- test_score_boundaries_no_crash_correct_confidence ---")
+    # بند 26 (فحص من الصفر، لا نصّ تدقيق أصليّ متاح): 251 تحوّل score
+    # لـ int() بلا try/except، بخلاف كل تحويل رقميّ آخر بالملف -- تحقّقت
+    # أن المنتِج الحقيقيّ الوحيد (201) يرسل score كعدد صحيح 0..100 دومًا
+    # (int(round(...)) قبل النشر)، فلا مسار حيّ يبعث None أو نصًّا هناك.
+    # هذا الاختبار يقفل الطرفين الحقيقيّين اللذين لا يغطّيهما ملف الاختبار
+    # الحالي: بروز صفريّ (score=0 مع إشارة حقيقية) وبروز أقصى (score=100).
+    _atom, _bus, zero = await _run([_swing("swing_high", 12, ts=2, score=0)])
+    assert zero[-1]["score"] == 0 and zero[-1]["confidence"] == 0.0, zero[-1]
+    _atom, _bus, full = await _run([_swing("swing_low", 8, ts=2, score=100)])
+    assert full[-1]["score"] == 100 and full[-1]["confidence"] == 1.0, full[-1]
+    print("OK — score=0 وscore=100 (طرفا مدى المنتِج الحقيقيّ 201): بلا سقوط، ثقة صحيحة عند الحدّين")
+
+
 async def test_health_states():
     print("\n--- test_health_states ---")
     bus = FakeEventBus()
@@ -148,6 +163,7 @@ async def main():
         test_confidence_scales_with_prominence,
         test_none_swing_no_pool,
         test_contract_shape_complete,
+        test_score_boundaries_no_crash_correct_confidence,
         test_health_states,
     ]
     failed = []

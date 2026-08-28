@@ -1,6 +1,6 @@
 id: 563
 name: "Durable Execution Confirm"
-version: "3.1.0"
+version: "3.1.1"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

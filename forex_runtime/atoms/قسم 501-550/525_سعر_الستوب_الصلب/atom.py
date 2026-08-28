@@ -6,7 +6,18 @@ from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.financial_scope import account_broker, financial_key, row_key, text
 
-ATOM_VERSION = "2.0.0"
+ATOM_VERSION = "2.1.0"
+# v2.1.0 (2026-08-27): min_abs_v_net governs the flat-position guard right
+# before `p_stop`/`delta_p` divide by v_net -- but it is owner-configurable
+# and the schema's own `minimum: 0` allows it to be set to exactly 0
+# (a plausible misreading: "0 = no filtering"). At 0 the guard
+# `abs(v_net) < min_abs_v_net` becomes `abs(v_net) < 0`, never true, so a
+# genuinely flat position (v_net == 0.0) reaches the division --
+# ZeroDivisionError, config-permitted, not a contrived edge case. A hard,
+# non-configurable floor below protects the division regardless of what
+# the owner sets; the config value can still raise the threshold for
+# business reasons, just never lower it past this floor.
+_HARD_MIN_ABS_V_NET = 1e-9
 EVENT_LEDGER = "risk.asset_ledger.state"
 EVENT_SPECS = "market.symbol_specs"
 EVENT_ACCOUNT = "platform.account.state"
@@ -74,7 +85,7 @@ class Atom(AtomBase):
         if not bool(led.get("budgeted")) or budget is None or budget <= 0:
             base["reason"] = "NO_BUDGET"; return base
         if vpu is None or vpu <= 0: base["reason"] = "NO_ACCOUNT_SYMBOL_SPECS"; return base
-        if v_net is None or w is None or abs(v_net) < self._min_abs_v_net:
+        if v_net is None or w is None or abs(v_net) < max(self._min_abs_v_net, _HARD_MIN_ABS_V_NET):
             base["reason"] = "FLAT_NO_PRICE_STOP"; return base
         room = budget + buffer_k - commission
         delta_p = room / (vpu * abs(v_net)); p_stop = (w + (-budget-buffer_k+commission)/vpu)/v_net

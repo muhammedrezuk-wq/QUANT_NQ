@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
-from shared.analysis_speed import horizon_value
+from shared.analysis_speed import MATCH_POINT, horizon_value
 from shared.horizon_profile import generate, profile_active
 
-ATOM_VERSION = "2.2.1"
+ATOM_VERSION = "2.3.0"
 
 EVENT_LEDGER = "risk.asset_ledger.state"
 EVENT_COMMAND = "dial.command"
@@ -14,8 +14,9 @@ EVENT_OUT = "dial.profile.state"
 EVENT_ACCOUNT = "platform.account.state"
 EVENT_TIME = "SYS_SECOND"
 EVENT_SETTINGS_STATE = "decision.settings.state"
-#: ظل شخصية الأفق (ورقة المؤشر الموحد v1.0 + مراحل الهجرة §61):
-#: يولَّد ويُنشر للوحة والقياس — ولا يطبَّق على أي ذرّة حتى أمر تفعيل المالك.
+#: Horizon-profile shadow (unified indicator paper v1.0 + migration phases
+#: §61): generated and published for the dashboard/measurement -- never
+#: applied to any atom until the owner's explicit activation command.
 EVENT_HORIZON = "horizon.profile.state"
 
 REASON_NOT_STARTED = "NOT_STARTED"
@@ -91,7 +92,7 @@ class Atom(AtomBase):
         await self._publish_shadow()
 
     async def _publish_shadow(self) -> None:
-        """ظل الشخصية من مفتاح الأفق — نشر فقط، صفر تطبيق (Phase 1-2 §61)."""
+        """Profile shadow from the horizon key -- publish only, zero application (Phase 1-2 §61)."""
         if self._context is None:
             return
         horizon = horizon_value()
@@ -107,8 +108,8 @@ class Atom(AtomBase):
                                      **profile})
 
     async def _refresh_from_keys(self) -> None:
-        """مفتاح الأفق تغيّر: يُعاد نشر ملف العيار الحي (مستهلكه 581 —
-        الوقف/الأفق/الإيقاع) وظل الشخصية معًا."""
+        """Horizon key changed: republish the live dial profile (consumed
+        by 581 -- stop/horizon/cadence) and the profile shadow together."""
         await self._emit()
         await self._publish_shadow()
 
@@ -134,11 +135,20 @@ class Atom(AtomBase):
         account_id, broker, symbol = parts if len(parts) == _SCOPE_PARTS else ("", "", "")
         dial = self._dials.get(key)
         if dial is None:
-            # مفتاح الأفق المحكوم (ورقة المفاتيح الأربعة: أعلى = أضيق/سكالب)
-            # يُترجم لمقياس هذا المحرك (أعلى = أفق أطول): 100 − المفتاح.
-            # عند 50 = 50 = الافتراض القديم حرفيًّا. وأمر CALIBRATE اليدوي
-            # لنطاق بعينه يبقى أعلى من المفتاح (الفردي فوق الرئيسي).
-            dial = _clamp(100.0 - horizon_value(account_id, symbol),
+            # The governed horizon key (four-keys paper: higher = narrower/
+            # scalp) translates to this engine's own scale (higher =
+            # longer horizon) as a DEVIATION from the neutral point
+            # MATCH_POINT, added onto this engine's own local default
+            # `default_dial` -- not on top of a hardcoded 50. At the
+            # key's neutral value (50, the default before any approval)
+            # the two formulas are byte-identical, so nothing changes
+            # behaviorally as long as `default_dial` also stays at its
+            # own default (50). (Found 2026-08-27: `default_dial` was
+            # read from config and stored, but never actually used --
+            # any non-50 value was silently ignored.) A manual CALIBRATE
+            # command for one specific scope still outranks the key
+            # (the individual override beats the master one).
+            dial = _clamp(self._default_dial + (MATCH_POINT - horizon_value(account_id, symbol)),
                           _DIAL_MIN, _DIAL_MAX)
         x = _clamp(dial, _DIAL_MIN, _DIAL_MAX) / _DIAL_MAX
         cfg = self._cfg

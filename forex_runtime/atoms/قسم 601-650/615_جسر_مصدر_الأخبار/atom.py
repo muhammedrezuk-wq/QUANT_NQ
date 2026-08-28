@@ -8,7 +8,29 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.1.0"
+ATOM_VERSION = "1.2.0"
+# v1.2.0 (2026-08-27, item 21/27 of the 27-atom review -- same event name,
+# two conflicting shapes between 615 and 616, both publishing
+# market.news by deliberate design (see this atom's own history, v1.0.0: the owner's own
+# ruling that 615 is a parallel path alongside 616, not a replacement --
+# 108 stays untouched and the rich contract is not sacrificed for it --
+# coexistence is the intended architecture, not the bug). Two real,
+# confirmed problems in that coexistence: (1) impact_level had no fallback here (None) while
+# 616 always sent the literal "UNKNOWN" -- aligned to 616's explicit
+# constant, the more deliberate of the two. (2) "id" was the bridge
+# table's own raw row id from EACH atom's OWN independent database --
+# 615's row 17 and 616's row 17 are unrelated news items that happen to
+# share a number. The only confirmed consumer (108) uses "id" as its
+# dedup key (self._seen_keys) -- an id collision across sources silently
+# drops a real, distinct headline as a false duplicate. Namespaced with
+# the atom id so cross-source collision is structurally impossible.
+# Checked but NOT changed: "symbols" looked inconsistent (616 omits when
+# empty, this atom always sends it) but narrow's own `resolved` gate
+# below already guarantees symbols is non-empty whenever narrow actually
+# publishes -- the field-presence rules already converge in practice for
+# the one event these two atoms share; the enriched-only symbols_raw
+# companion field has no 616 counterpart to conflict with either.
+IMPACT_UNKNOWN = "UNKNOWN"
 
 EVENT_PULSE = "SYS_SECOND"
 EVENT_NEWS = "market.news"
@@ -168,6 +190,10 @@ class Atom(AtomBase):
         row_id = row.get("id")
         if isinstance(row_id, int) and row_id > self._last_news_id:
             self._last_news_id = row_id
+        # v1.2.0: published "id" is namespaced by atom -- 616 reads a
+        # separate database with its own independent row-id sequence, and
+        # the only confirmed consumer (108) dedups by this field.
+        published_id = "615:%s" % row_id if row_id is not None else None
 
         published_at = _to_float(row.get("published_at"))
         written_at = _to_float(row.get("written_at"))
@@ -185,7 +211,7 @@ class Atom(AtomBase):
         resolved = scope != SCOPE_UNRESOLVED and bool(symbols)
 
         enriched: dict[str, Any] = {
-            "id": row_id,
+            "id": published_id,
             "dedupe_key": row.get("dedupe_key"),
             "headline_ar": row.get("headline_ar"),
             "headline_src": row.get("headline_src"),
@@ -208,7 +234,7 @@ class Atom(AtomBase):
             "merge_version": row.get("merge_version"),
             "sentiment_score": _to_float(row.get("sentiment_score")),
             "sentiment_state": row.get("sentiment_state"),
-            "impact_level": row.get("impact_level"),
+            "impact_level": row.get("impact_level") or IMPACT_UNKNOWN,
             "status": row.get("status"),
             "published_at": published_at,
             "written_at": written_at,
@@ -227,13 +253,13 @@ class Atom(AtomBase):
             return
 
         narrow: dict[str, Any] = {
-            "id": row_id,
+            "id": published_id,
             "headline": row.get("headline_src"),
             "link": row.get("link"),
             "source": row.get("source"),
             "symbols": symbols,
             "sentiment_score": _to_float(row.get("sentiment_score")),
-            "impact_level": row.get("impact_level"),
+            "impact_level": row.get("impact_level") or IMPACT_UNKNOWN,
             "published_at": published_at,
             "written_at": written_at,
         }

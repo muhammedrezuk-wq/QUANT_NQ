@@ -10,6 +10,7 @@ THE LINE THE OWNER DREW, and the reason the reconcile step exists:
 """
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from shared.snapshot_state import CONFIRMED, VALID, digest_of, grade, reconcile
@@ -17,9 +18,17 @@ from shared.snapshot_state import CONFIRMED, VALID, digest_of, grade, reconcile
 
 def seal(version: str, counter: int, pairs: dict[str, Any],
          official_time: Any, epoch: Any, flood_guard: Any = None) -> dict[str, Any]:
-    """The record this atom persists, sealed so tampering is detectable."""
+    """The record this atom persists, sealed so tampering is detectable.
+
+    Deep-copies every pair (legs included): the caller may hand this to a
+    background thread for serialization (durable persist) or hold onto it
+    past the current turn (snapshot/restore) -- either way it must not
+    still be aliased to the live, mutable `self._pairs`, or a handler that
+    runs while the copy is in flight could tear the write or silently
+    change what gets persisted.
+    """
     body = {"version": version, "counter": counter,
-            "pairs": {k: dict(v) for k, v in (pairs or {}).items()},
+            "pairs": copy.deepcopy(pairs or {}),
             "flood_guard": flood_guard if isinstance(flood_guard, dict) else {}}
     return {"schema_version": 1,
             "written_at": float(official_time or 0.0),

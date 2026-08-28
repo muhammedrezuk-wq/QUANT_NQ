@@ -10,7 +10,7 @@ from catchup import decide
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from storage_policy import enforce_limits
 
-ATOM_VERSION = "5.0.0"
+ATOM_VERSION = "5.1.0"
 MAX_BUFFER_ROWS = 100000
 
 _DB_TIMEOUT_S = 5.0

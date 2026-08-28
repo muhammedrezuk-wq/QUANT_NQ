@@ -55,7 +55,7 @@ class FakeEventBus:
 # الشكل التعاقدي الكامل لمخرج 466 (عقد الجيران — الهوية الست + الثمانية + الحواجز)
 def _contract(side="buy", approved=True, **extra):
     body = {"symbol": "NQ100", "timeframe": "60s", "account_id": "A1",
-            "broker": "BR", "cycle_id": "NQ100|60s|1000.0",
+            "broker": "BR", "cycle_id": "NQ100|60s|1000.0", "period_start": 1000.0,
             "decision_id": "dec-1", "decision_side": side, "approved": approved,
             "strength": 0.8, "score": 80,
             "barriers": [{"value": 0.83, "threshold": 0.8,

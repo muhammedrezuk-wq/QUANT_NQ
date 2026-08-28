@@ -1,12 +1,28 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.learning_model import (CLASSES, classification_metrics, predict,
                                    schema_hash, stable_hash, valid_vector)
 from shared.section_contract import section_atom
 
-ATOM_VERSION = "1.1.1"
+ATOM_VERSION = "1.2.0"
+# v1.2.0 (2026-08-27, item 11/27 of the 27-atom review -- the race the
+# _on_feature comment below already documents was never actually guarded):
+# _on_feature's retry loop snapshots self._pending, awaits _try_validate
+# per candidate (a real suspension once a candidate is about to be
+# published), then does self._pending.remove(candidate) by VALUE. A
+# concurrent _on_candidate call for a RESUBMISSION of the same
+# model_version (a legitimate case per the comment's own premise) filters
+# self._pending and reassigns it while the retry is suspended -- the
+# resubmission's dict differs from the original (e.g. updated train_ids),
+# so the retry's remove() no longer finds an equal item and raises
+# ValueError: list.remove(x): x not in list, crashing the handler task.
+# Fixed with a single asyncio.Lock serializing _on_feature's and
+# _on_candidate's shared-state sections against each other -- this atom
+# has one flat feature/pending pool (no per-scope partitioning like 150),
+# so one lock is the right granularity.
 SNAPSHOT_VERSION = 2
 EVENT_FEATURE = "learning.feature.ready"
 EVENT_CANDIDATE = "learning.model.candidate"
@@ -27,6 +43,7 @@ class Atom(AtomBase):
         self._seen = 0
         self._emitted = 0
         self._rejected = 0
+        self._state_lock = asyncio.Lock()
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
@@ -48,26 +65,32 @@ class Atom(AtomBase):
     async def _on_feature(self, payload: dict[str, Any]) -> None:
         if not self._running or not isinstance(payload, dict):
             return
-        self._features.append(dict(payload))
-        self._features = self._features[-MAX_FEATURES:]
         # A trainer can publish while EventBus is still delivering this same
         # feature to subscribers.  Retry deferred candidates after the holdout
         # reaches us; event scheduling must not decide model validity.
-        for candidate in list(self._pending):
-            if await self._try_validate(candidate):
-                self._pending.remove(candidate)
+        # v1.2.0: the lock serializes this whole section against
+        # _on_candidate -- _try_validate awaits (publish) once a candidate
+        # is about to complete, and self._pending must not be reassigned by
+        # a concurrent resubmission out from under the remove() below.
+        async with self._state_lock:
+            self._features.append(dict(payload))
+            self._features = self._features[-MAX_FEATURES:]
+            for candidate in list(self._pending):
+                if await self._try_validate(candidate):
+                    self._pending.remove(candidate)
 
     async def _on_candidate(self, payload: dict[str, Any]) -> None:
         if not self._running or self._context is None or not isinstance(payload, dict):
             return
         self._seen += 1
         candidate = dict(payload)
-        if not await self._try_validate(candidate):
-            version = str(candidate.get("model_version") or "")
-            self._pending = [row for row in self._pending
-                             if str(row.get("model_version") or "") != version]
-            self._pending.append(candidate)
-            self._pending = self._pending[-MAX_PENDING:]
+        async with self._state_lock:
+            if not await self._try_validate(candidate):
+                version = str(candidate.get("model_version") or "")
+                self._pending = [row for row in self._pending
+                                 if str(row.get("model_version") or "") != version]
+                self._pending.append(candidate)
+                self._pending = self._pending[-MAX_PENDING:]
 
     async def _try_validate(self, payload: dict[str, Any]) -> bool:
         if self._context is None:

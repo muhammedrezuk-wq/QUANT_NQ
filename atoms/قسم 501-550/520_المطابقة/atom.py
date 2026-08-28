@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,26 @@ from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from reconcile_support import (DEFAULT_ACCOUNT, DEFAULT_BROKER, SRC_SEP, actual_records,
     compare, desired_records, identity, normalize, num, parts, scope, stale, text)
 
-ATOM_VERSION="3.4.0"
+ATOM_VERSION="3.5.0"
+# v3.5.0 (2026-08-27, item 15/27 of the 27-atom review): three findings,
+# verified against current code first. (1) desired_records had TWO
+# compounding shape bugs in reconcile_support.py: the outer batch-vs-
+# single-record heuristic silently dropped an explicit "desired" list
+# whose items lacked a "legs"/"positions" key (falls back to [payload],
+# which has neither either -> every leg vanishes, zero error); and even
+# past that, the per-item legs lookup's nested-default form always
+# resolved to a list when BOTH keys were merely absent, so the "raw is
+# itself one leg" fallback beside it was dead code for that exact case.
+# Both fixed together (no live producer hits either: 551, the sole
+# producer, always sends "legs" directly, never a "desired" wrapper). (2)
+# _persist() ran synchronous file I/O (write+fsync+replace) directly on
+# the event loop for every desired/ack event -- now threaded via
+# asyncio.to_thread, same shape as 516/578/720. (3) restore() mutated
+# self._desired/_actual/_stamps/... through a sequence of field parses
+# that could each raise -- a failure partway through left self in a torn
+# mix of old and new state. Now builds every field into a local first and
+# only commits to self once ALL of them parsed successfully; a failure
+# leaves self exactly as it was pre-restore.
 # v3.2.0 (2026-08-25): the reconcile gate had never opened once in the
 # system's life (measured: 18 orders ever built, 18 rejected, the last 12
 # RECONCILIATION_NOT_MATCHED) because 551 writes desired state at BUILD
@@ -73,7 +93,8 @@ class Atom(AtomBase):
         if isinstance(rows,list):
             out["positions"]=[{**row,"broker":text(row.get("broker")) or self._brokers.get(text(row.get("account_id"),a),b)} if isinstance(row,dict) else row for row in rows]
         return out
-    def _load_records(self,records,guard_stale=False):
+    def _load_records(self,records,guard_stale=False,target=None):
+        if target is None:target=self._desired
         for raw in records:
             if not isinstance(raw,dict):continue
             a=text(raw.get("account_id"),DEFAULT_ACCOUNT)
@@ -84,21 +105,21 @@ class Atom(AtomBase):
             legs=legs if isinstance(legs,list) else []
             record={"account_id":a,"broker":b,"asset_canonical":s,"symbol":s,"version":int(num(raw.get("version",0)) or 0),"stamp":num(raw.get("stamp")),"legs":[normalize(x,a,b,s) for x in legs if isinstance(x,dict)]}
             k=scope(a,s,b)
-            # v3.4.0: الاستعادة تحترم قانون البيات نفسه — لقطة ذاكرة أقدم
-            # لا تدوس سجلًا أحدث حُمّل من القرص (مقيس: التبديل الساخن أعاد
-            # شبح زوج ميت فوق السجل المرحَّل).
-            if guard_stale and stale(record,self._desired.get(k)):continue
-            self._desired[k]=record
+            # v3.4.0: restore respects the same staleness law -- an older
+            # memory snapshot does not trample a newer record already
+            # loaded from disk (measured: a hot restart replayed a dead
+            # pair's ghost over the record that had already migrated).
+            if guard_stale and stale(record,target.get(k)):continue
+            target[k]=record
     def _load(self):
         if not self._path.exists():return
         try:
             data=json.loads(self._path.read_text(encoding="utf-8"))
             self._load_records(data.get("desired",[]) if isinstance(data,dict) else [])
         except (OSError,json.JSONDecodeError,TypeError,ValueError) as exc:self._load_error=str(exc)
-    def _persist(self):
+    def _persist_bytes(self,content):
         try:
             self._path.parent.mkdir(parents=True,exist_ok=True)
-            content=json.dumps({"version":2,"desired":list(self._desired.values())},ensure_ascii=False,sort_keys=True)
             fd,tmp=tempfile.mkstemp(dir=self._path.parent,prefix=".desired.",suffix=".tmp")
             try:
                 with os.fdopen(fd,"w",encoding="utf-8") as f:f.write(content);f.flush();os.fsync(f.fileno())
@@ -107,6 +128,14 @@ class Atom(AtomBase):
         except (OSError,TypeError,ValueError) as exc:self._write_error=str(exc);return False
         self._write_error=""
         return True
+    async def _persist(self):
+        # v3.5.0: the write+fsync+replace was blocking the event loop on
+        # every desired/ack event. The JSON snapshot is built HERE, on the
+        # calling coroutine -- it touches self._desired, which must not be
+        # read from a worker thread while another coroutine mutates it on
+        # the main thread. Only the pure file I/O moves to the thread.
+        content=json.dumps({"version":2,"desired":list(self._desired.values())},ensure_ascii=False,sort_keys=True)
+        return await asyncio.to_thread(self._persist_bytes,content)
     async def _on_desired(self,payload):
         if not self._running or not isinstance(payload,dict):return
         changed=set()
@@ -115,7 +144,7 @@ class Atom(AtomBase):
             if stale(record,self._desired.get(k)):continue
             self._desired[k]=record
             changed.add(k)
-        if changed:self._persist()
+        if changed:await self._persist()
         for k in changed:await self._publish(k)
     async def _on_actual(self,payload):
         if not self._running or not isinstance(payload,dict):return
@@ -161,10 +190,12 @@ class Atom(AtomBase):
                 for leg in record.get("legs",[]):
                     if not text(leg.get("ticket")) and cid in (text(leg.get("leg_id")),text(leg.get("request_id"))):
                         leg["ticket"]=ticket;leg["_identity"]=identity(leg);changed.add(k);bound=True
-            # v3.4.0: إشعار فتحٍ منفَّذ بلا ساق مرغوبة مسجّلة = واقعٌ عبر كل
-            # البوابات وضاع سجلُّ نيّته (مقيس: سجل زوج ميت كان يصدّ سجلات
-            # الأحدث) — يُتبنّى كسجل مرغوب مؤكَّد بتذكرته، فلا يُحسب المركز
-            # المنفَّذ «غريبًا» ويقفل الرمز.
+            # v3.4.0: an executed-open ack with no registered desired leg
+            # is real -- it cleared every gate and its intent record was
+            # simply lost (measured: a dead pair's record was shadowing
+            # the newer ones). Adopted as a confirmed desired record keyed
+            # by its own ticket, so the executed position is never counted
+            # "extra" and the symbol never gets stuck.
             if (not bound and a and b and s
                     and str(payload.get("action") or "").upper()=="OPEN"
                     and str(payload.get("status") or "").upper() in ("","DONE")):
@@ -183,7 +214,7 @@ class Atom(AtomBase):
                     record["version"]=int(num(record.get("version")) or 0)+1
                     changed.add(k)
         if changed:
-            self._persist()
+            await self._persist()
             for k in changed:await self._publish(k)
         if a and b and s:await self._publish(scope(a,s,b))
     async def _on_force(self,p):
@@ -195,9 +226,10 @@ class Atom(AtomBase):
         if a and b and s:
             await self._publish(scope(a,s,b))
             return
-        # v3.3.0: تعافي التغذية (116) يصل بلا نطاق — كان السلك موصولًا اسمًا
-        # مقطوعًا فعلًا (مقيس: 97 حدث تعافٍ، صفر تمريرات). تعافٍ بلا نطاق =
-        # تمريرة مطابقة شاملة على كل النطاقات المعروفة.
+        # v3.3.0: a feed-recovery signal (116) arrives with no scope -- the
+        # wire was connected in name only (measured: 97 recovery events,
+        # zero passes). Scopeless recovery means a full reconcile sweep
+        # over every known scope.
         for k in set(self._desired) | set(self._actual):
             await self._publish(k)
     async def _publish(self,k):
@@ -210,14 +242,27 @@ class Atom(AtomBase):
         return {"version":ATOM_VERSION,"desired":list(self._desired.values()),"actual":[{"scope":k,"legs":v} for k,v in self._actual.items()],"actual_seen":sorted(self._actual_seen),"account_actual_seen":[list(x) for x in self._account_actual_seen],"stamps":dict(self._stamps),"acks":dict(self._acks),"brokers":dict(self._brokers)}
     async def restore(self,state):
         if not isinstance(state,dict) or not isinstance(state.get("desired"),list):raise ValueError("INVALID_RECONCILIATION_STATE")
-        self._load_records(state["desired"],guard_stale=True)
-        self._actual={str(x["scope"]):list(x["legs"]) for x in state.get("actual",[]) if isinstance(x,dict) and isinstance(x.get("legs"),list)}
-        self._actual_seen={str(x) for x in state.get("actual_seen",[])}
-        self._account_actual_seen={tuple(x) for x in state.get("account_actual_seen",[]) if isinstance(x,list) and len(x)==2}
-        self._stamps={str(k):float(v) for k,v in (state.get("stamps") or {}).items()}
-        self._acks={str(k):dict(v) for k,v in (state.get("acks") or {}).items() if isinstance(v,dict)}
-        self._brokers={str(k):str(v) for k,v in (state.get("brokers") or {}).items()}
-        self._persist()
+        # v3.5.0: every field is parsed into a LOCAL first -- self is only
+        # touched once ALL of them succeed. A parse failure partway through
+        # (a corrupt stamp, a malformed account_actual_seen entry, ...)
+        # must leave self exactly as it was before restore(), not a torn
+        # mix of some fields already replaced and others still stale/old.
+        new_desired=dict(self._desired)
+        self._load_records(state["desired"],guard_stale=True,target=new_desired)
+        new_actual={str(x["scope"]):list(x["legs"]) for x in state.get("actual",[]) if isinstance(x,dict) and isinstance(x.get("legs"),list)}
+        new_actual_seen={str(x) for x in state.get("actual_seen",[])}
+        new_account_actual_seen={tuple(x) for x in state.get("account_actual_seen",[]) if isinstance(x,list) and len(x)==2}
+        new_stamps={str(k):float(v) for k,v in (state.get("stamps") or {}).items()}
+        new_acks={str(k):dict(v) for k,v in (state.get("acks") or {}).items() if isinstance(v,dict)}
+        new_brokers={str(k):str(v) for k,v in (state.get("brokers") or {}).items()}
+        self._desired=new_desired
+        self._actual=new_actual
+        self._actual_seen=new_actual_seen
+        self._account_actual_seen=new_account_actual_seen
+        self._stamps=new_stamps
+        self._acks=new_acks
+        self._brokers=new_brokers
+        await self._persist()
     async def health_check(self):
         if not self._running:return HealthStatus(state=HealthState.UNHEALTHY,message="NOT_STARTED")
         d={"desired":len(self._desired),"actual":len(self._actual),"actual_accounts":len(self._account_actual_seen),"comparisons":self._comparisons,"load_error":self._load_error,"write_error":self._write_error}

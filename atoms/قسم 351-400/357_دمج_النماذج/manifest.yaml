@@ -1,6 +1,6 @@
 id: 357
 name: Live Tick Model Merger
-version: 2.0.0
+version: 2.1.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom

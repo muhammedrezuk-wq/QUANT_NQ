@@ -5,6 +5,8 @@ import sqlite3
 import sys
 import tempfile
 
+import yaml
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -150,9 +152,29 @@ async def test_health_states():
         os.unlink(db)
 
 
+async def test_manifest_subscribes_matches_runtime_watch_events():
+    """v5.1.0: manifest.yaml's declarative `subscribes:` and the atom's
+    OWN `config.watch_events` are two hand-maintained lists in the same
+    file -- nothing kept them in sync. Found drifted both ways: 4 names
+    declared subscribed but never actually watched (dead declarations --
+    events a debugger would wrongly expect to find recorded here), and 6
+    real subscriptions (driven by watch_events) invisible to anything
+    reading only `subscribes:` (dependency graphs, impact analysis)."""
+    print("\n--- test_manifest_subscribes_matches_runtime_watch_events ---")
+    manifest_path = _Path(__file__).resolve().parents[1] / "manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    declared = set(manifest["subscribes"])
+    runtime = set(manifest["config"]["watch_events"]) | {_mod.EVENT_DAY, _mod.EVENT_PULSE}
+    assert declared == runtime, {
+        "declared_but_not_watched": sorted(declared - runtime),
+        "watched_but_not_declared": sorted(runtime - declared)}
+    print(f"OK — manifest.subscribes يطابق watch_events+{{{_mod.EVENT_DAY},{_mod.EVENT_PULSE}}} حرفياً ({len(declared)})")
+
+
 async def main():
     tests = [test_records_named_events, test_only_watched_events,
-             test_prune_on_day, test_health_states]
+             test_prune_on_day, test_health_states,
+             test_manifest_subscribes_matches_runtime_watch_events]
     failed = []
     for t in tests:
         try:

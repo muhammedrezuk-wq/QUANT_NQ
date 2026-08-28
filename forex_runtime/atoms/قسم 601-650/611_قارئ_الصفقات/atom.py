@@ -8,7 +8,20 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "4.0.2"
+ATOM_VERSION = "4.0.3"
+# v4.0.3 (2026-08-27, item 19/27 of the 27-atom review -- restore() with
+# no shape guard at all): every other atom's restore() at least checks
+# `isinstance(state, dict)` before touching it; this one called
+# state.get(...) directly with no check whatsoever -- state=None (the
+# ordinary "no prior snapshot" case) crashes with AttributeError
+# immediately, and a malformed pending_cost_rows item can raise mid-loop
+# AFTER self._restored=True and the counters were already set, tearing
+# self. Fixed the same shape as 518/520/524: non-dict state raises
+# cleanly, every field parses into a local first, and self._restored is
+# only flipped to True as the LAST step of a successful commit -- if
+# restore() fails or is never called cleanly, start()'s existing fallback
+# (_seed_pointer from the live bridge DB) still fires, which is the safe
+# recovery for a bridge-reader atom.
 
 EVENT_OUT = "platform.trade_event"
 EVENT_PULSE = "SYS_SECOND"
@@ -303,16 +316,30 @@ class Atom(AtomBase):
                     for row_id,revision in self._pending_cost_rows.items()]}
 
     async def restore(self, state: dict) -> None:
-        self._last_id = int(state.get("last_id", 0))
-        self._restored = True
-        self.read_count = int(state.get("read", 0))
-        self.published_count = int(state.get("published", 0))
-        self.failure_count = int(state.get("failures", 0))
-        self.identity_rejected=int(state.get("identity_rejected",0))
-        self._pending_cost_rows={};self._pending_cost_deadlines={}
-        raw=state.get("pending_cost_rows") or []
-        if isinstance(raw,dict):raw=[{"row_id":key,"revision":value,"remaining_s":self._cost_refresh_timeout_s} for key,value in raw.items()]
+        if not isinstance(state, dict):
+            raise ValueError("INVALID_TRADE_READER_STATE")
+        new_last_id = int(state.get("last_id", 0))
+        new_read_count = int(state.get("read", 0))
+        new_published_count = int(state.get("published", 0))
+        new_failure_count = int(state.get("failures", 0))
+        new_identity_rejected = int(state.get("identity_rejected", 0))
+        new_pending_cost_rows: dict[int, str] = {}
+        new_pending_cost_deadlines: dict[int, float] = {}
+        raw = state.get("pending_cost_rows") or []
+        if isinstance(raw, dict):
+            raw = [{"row_id": key, "revision": value, "remaining_s": self._cost_refresh_timeout_s}
+                   for key, value in raw.items()]
+        if not isinstance(raw, list): raw = []
         for item in raw:
-            if not isinstance(item,dict):continue
-            row_id=int(item.get("row_id"));self._pending_cost_rows[row_id]=str(item.get("revision") or "")
-            self._pending_cost_deadlines[row_id]=time.monotonic()+max(0.0,float(item.get("remaining_s") or 0.0))
+            if not isinstance(item, dict): continue
+            row_id = int(item.get("row_id"))
+            new_pending_cost_rows[row_id] = str(item.get("revision") or "")
+            new_pending_cost_deadlines[row_id] = time.monotonic() + max(0.0, float(item.get("remaining_s") or 0.0))
+        self._last_id = new_last_id
+        self.read_count = new_read_count
+        self.published_count = new_published_count
+        self.failure_count = new_failure_count
+        self.identity_rejected = new_identity_rejected
+        self._pending_cost_rows = new_pending_cost_rows
+        self._pending_cost_deadlines = new_pending_cost_deadlines
+        self._restored = True

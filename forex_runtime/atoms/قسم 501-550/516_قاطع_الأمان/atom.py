@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import math
 from typing import Any
@@ -9,7 +10,7 @@ from shared.financial_truth import EVENT_SHORTAGE, FinancialTruth, bind_truth
 from shared.financial_scope import text
 from shared.durable_execution_journal import Journal
 
-ATOM_VERSION = "5.2.0"
+ATOM_VERSION = "5.3.0"
 # v5.2.0 (2026-08-25): the owner's master reset button reaches the switch.
 # Measured live: the dashboard's kill_switch_reset arrives with an EMPTY
 # payload, and the release handler required account_id -- the owner's press
@@ -72,7 +73,9 @@ class Atom(AtomBase):
         self._duplicates=0
         self._day_guard=PulseGuard(EVENT_DAY)
         self._truth=FinancialTruth('516')
+        self._locks={}
     def book(self,a):return self._books.setdefault(a,{"broker":"","daily_loss_pct":0.,"consecutive_losses":0,"daily_trade_count":0,"open_trade_count":0,"kill":False,"reason":"","account_status":"UNKNOWN","system_status":"UNKNOWN","equity":None})
+    def _lock(self,a):return self._locks.setdefault(a,asyncio.Lock())
     async def initialize(self,c):
         self._context=c
         cfg=c.config
@@ -94,9 +97,9 @@ class Atom(AtomBase):
     async def _flush_outbox(self):
         if self._context is None or self._journal is None or self._storage_error:return
         try:
-            for output_id,event_name,payload in self._journal.pending_outputs():
+            for output_id,event_name,payload in await asyncio.to_thread(self._journal.pending_outputs):
                 await self._context.publish(event_name,payload)
-                self._journal.mark_emitted(output_id)
+                await asyncio.to_thread(self._journal.mark_emitted,output_id)
         except Exception as exc:self._storage_error=type(exc).__name__
     async def _on_clock(self,p):
         if self._running and isinstance(p,dict):
@@ -105,9 +108,9 @@ class Atom(AtomBase):
     def _financial_state(self,a):
         b=self.book(a)
         return {key:b[key] for key in ("daily_loss_pct","consecutive_losses","daily_trade_count","kill","reason")}
-    def _persist_financial_state(self,a,event_id):
+    async def _persist_financial_state(self,a,event_id):
         if self._journal is None or self._storage_error:return
-        try:self._journal.save_consumer_state("516",a,self._financial_state(a),event_id)
+        try:await asyncio.to_thread(self._journal.save_consumer_state,"516",a,self._financial_state(a),event_id)
         except Exception as exc:self._storage_error=type(exc).__name__
     async def _changed(self,a,reason,before):
         b=self.book(a)
@@ -230,10 +233,11 @@ class Atom(AtomBase):
                 state["reason"]=reason
                 outputs.append(("risk-halt:"+event_id,EVENT_HALT,{"account_id":a,"broker":b.get("broker"),"reason":reason,"origin":"516","daily_loss_pct":round(state["daily_loss_pct"],4),"consecutive_losses":state["consecutive_losses"]}))
             return state,outputs
-        try:fresh,state=self._journal.reduce_consumer_event(event_id,a,"TRADE_RESULT",event_id,p,"516",a,initial,reduce)
-        except Exception as exc:self._storage_error=type(exc).__name__;return
-        before=copy.deepcopy(b)
-        b.update(state)
+        async with self._lock(a):
+            try:fresh,state=await asyncio.to_thread(self._journal.reduce_consumer_event,event_id,a,"TRADE_RESULT",event_id,p,"516",a,initial,reduce)
+            except Exception as exc:self._storage_error=type(exc).__name__;return
+            before=copy.deepcopy(b)
+            b.update(state)
         if not fresh:self._duplicates+=1;return
         self._processed_result_ids.add(event_id)
         if loss is None:self._incomplete_ignored+=1;await self._publish_state(a,"LOSS_UNKNOWN_IGNORED");return
@@ -241,12 +245,13 @@ class Atom(AtomBase):
         await self._changed(a,"COMPLETE_TRADE_RESULT" if completeness=="COMPLETE" else "TRADE_RESULT_COSTS_INCOMPLETE",before)
     async def _trip(self,a,reason,origin="516"):
         if not a or self._context is None:return
-        b=self.book(a)
-        if b["kill"]:return
-        before=copy.deepcopy(b)
-        b["kill"]=True
-        b["reason"]=reason
-        self._persist_financial_state(a,"administrative-halt:"+reason)
+        async with self._lock(a):
+            b=self.book(a)
+            if b["kill"]:return
+            before=copy.deepcopy(b)
+            b["kill"]=True
+            b["reason"]=reason
+            await self._persist_financial_state(a,"administrative-halt:"+reason)
         await self._context.publish(EVENT_HALT,{"account_id":a,"broker":b.get("broker"),"reason":reason,"origin":origin,"daily_loss_pct":round(b["daily_loss_pct"],4),"consecutive_losses":b["consecutive_losses"]})
         await self._changed(a,"HARD_STOP",before)
     async def _on_halt_request(self,p):
@@ -257,22 +262,25 @@ class Atom(AtomBase):
     async def _on_day(self,p):
         if not self._running or not self._day_guard.accept(p):return
         for a,b in list(self._books.items()):
-            before=copy.deepcopy(b)
-            b["daily_loss_pct"]=0.
-            b["daily_trade_count"]=0
-            self._persist_financial_state(a,"day-reset:"+str(p.get("pulse_id") or p.get("bucket_start") or ""))
+            async with self._lock(a):
+                before=copy.deepcopy(b)
+                b["daily_loss_pct"]=0.
+                b["daily_trade_count"]=0
+                await self._persist_financial_state(a,"day-reset:"+str(p.get("pulse_id") or p.get("bucket_start") or ""))
             await self._changed(a,"DAY_ROLL_COUNTER_RESET",before)
     async def _on_reset(self,p):
         if not self._running or not isinstance(p,dict):return
         a=text(p.get("account_id"))
-        # v5.2.0: رفعٌ صريح بلا حساب = زر المالك العام — يفكّ كل دفتر مقفول.
+        # v5.2.0: an explicit release with no account = the owner's master
+        # button -- unlocks every book currently killed.
         targets=[a] if a else [x for x in list(self._books) if self.book(x).get("kill")]
         if not targets:return
         for account in targets:
-            before=copy.deepcopy(self.book(account))
-            b=self.book(account)
-            b.update({"kill":False,"reason":"","consecutive_losses":0})
-            self._persist_financial_state(account,"owner-release:"+str(p.get("request_id") or self._official_time or ""))
+            async with self._lock(account):
+                before=copy.deepcopy(self.book(account))
+                b=self.book(account)
+                b.update({"kill":False,"reason":"","consecutive_losses":0})
+                await self._persist_financial_state(account,"owner-release:"+str(p.get("request_id") or self._official_time or ""))
             await self._changed(account,"EXPLICIT_OWNER_RELEASE",before)
             if self._context is not None:await self._context.publish(EVENT_RESET,{"account_id":account,"broker":b.get("broker"),"reason":"OWNER_RELEASE","origin":"516"})
     async def _on_positions(self,p):

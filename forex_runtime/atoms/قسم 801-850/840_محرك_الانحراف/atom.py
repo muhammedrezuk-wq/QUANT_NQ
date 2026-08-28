@@ -18,7 +18,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.1.0"
+ATOM_VERSION = "1.0.1"
 
 DEFAULT_WARMUP_WINDOWS = 5
 DEFAULT_DRIFT_THRESHOLD = 0.5
@@ -30,9 +30,6 @@ EVENT_HEALTH = "measurement.health.state"
 EVENT_REGIME = "market.regime.state"
 EVENT_OUT = "drift.vector.state"
 EVENT_PROPOSE = "recalibration.proposed"
-#: v1.1.0 — عقل المعايرة 870 يغلق الحلقة: إعادة تأسيس خط الأساس لقسمٍ
-#: (بعد تقييم وتحقق ورجوع آلي عنده) — أو استعادة الخط القديم عند الفشل.
-EVENT_APPLIED = "recalibration.applied"
 
 REASON_NOT_STARTED = "NOT_STARTED"
 REASON_WARMING = "BASELINE_WARMING"
@@ -79,7 +76,6 @@ class Atom(AtomBase):
         context.subscribe(EVENT_HEALTH, self._on_health)
         context.subscribe(EVENT_REGIME, self._on_regime)
         context.subscribe("adaptation.kill_switch.state", self._on_kill_switch)
-        context.subscribe(EVENT_APPLIED, self._on_applied)
 
     async def start(self) -> None:
         self._running = True
@@ -144,24 +140,6 @@ class Atom(AtomBase):
         if not self._running or not isinstance(payload, dict):
             return
         self._regime_transitions = int(payload.get("transitions") or 0)
-
-    async def _on_applied(self, payload: dict[str, Any]) -> None:
-        """إعادة تأسيس/استعادة خط الأساس لقسم — يصدرها 870 حصرًا بعد دورته."""
-        if not self._running or not isinstance(payload, dict):
-            return
-        section = str(payload.get("target") or "")
-        if not section:
-            return
-        restore = payload.get("restore_baseline")
-        if isinstance(restore, dict) and restore:
-            # رجوع: الخط القديم يعود كما كان (أرقامه محفوظة بيومية 870).
-            self._baseline[section] = {str(k): float(v) for k, v in restore.items()
-                                       if _num(v) is not None}
-        else:
-            # إعادة تأسيس: يُمحى الخط فيُعاد بناؤه فورًا من النوافذ الحاضرة
-            # (المتوسط الحالي = الطبيعي الجديد المقبول).
-            self._baseline.pop(section, None)
-        self._rebaselined = getattr(self, "_rebaselined", 0) + 1
 
     async def _on_kill_switch(self, payload: dict[str, Any]) -> None:
         if not isinstance(payload, dict):

@@ -9,7 +9,7 @@ from shared.financial_scope import financial_key, row_key, text
 
 _BUDGET_TOLERANCE = 1.01
 
-ATOM_VERSION = "3.5.0"
+ATOM_VERSION = "3.6.0"
 EVENT_ACTIVATE = "perpetual.asset.activate"
 EVENT_DEACTIVATE = "perpetual.asset.deactivate"
 EVENT_PULSE = "SYS_SECOND"
@@ -38,6 +38,12 @@ ST_ALREADY = "ALREADY_ACTIVE"
 ST_MISSING = "MISSING_INPUTS"
 ST_LOT_SMALL = "LOT_TOO_SMALL"
 ST_REJECTED = "REJECTED"
+# v3.6.0 (2026-08-27): a halt landing between a pair's two legs used to leave
+# the BUY leg open (real, stop-loss-less) while SELL silently returned on
+# HALT_BLOCKED -- yet the caller still reported ST_OPENED, since _open()
+# raised nothing for that path. Fixed in naked_leg.py (see _try_key below
+# and _on_halt_reset) -- that module owns the "NAKED_LEG_HALT_BLOCKED"
+# status so it never drifts from the code that actually emits it.
 REASON_NOT_STARTED = "NOT_STARTED"
 REASON_NO_AUTHORITY = "NO_PARENT_AUTHORITY"
 EVENT_REJECTED = "perpetual.entry.rejected"
@@ -53,6 +59,7 @@ FIELD_COMMAND_ID = "command_id"
 # Campaign 450-901 batch B: the window itself lives in gate_window.py.
 from gate_window import GateWindow, publish_rejection
 import market_inputs
+import naked_leg
 
 EVENT_GATE_PASSED = "decision.gate.passed"
 REASON_UNVERIFIED_DECISION = "DECISION_NOT_IN_GATE_WINDOW"
@@ -116,6 +123,7 @@ class Atom(AtomBase):
         self._gate = GateWindow()
         self._unverified_decisions = 0
         self._halt = HaltGate()
+        self._naked: dict[str, dict[str, Any]] = {}
 
     async def _on_account(self, payload: dict[str, Any]) -> None:
         await market_inputs.on_account(self, payload)
@@ -152,6 +160,9 @@ class Atom(AtomBase):
 
     async def _on_halt_reset(self, payload: dict[str, Any]) -> None:
         self._halt.on_reset(payload)
+        # v3.6.0: complete any leg left naked by a halt that landed mid-pair,
+        # the moment its account is no longer blocked (naked_leg.py).
+        await naked_leg.complete_ready(self)
 
     async def _on_pulse(self, payload: dict[str, Any]) -> None:
         if self._epoch or not isinstance(payload, dict):
@@ -350,12 +361,27 @@ class Atom(AtomBase):
         pair_id = "pair-%s-%s-%s-%d-%d" % (account_id, broker, symbol, self._epoch,
                                         self._counter)
         try:
-            await self._open(account_id, broker, symbol, SIDE_BUY, lot, price, pair_id, "BUY", budget / 2.0, authority)
-            await self._open(account_id, broker, symbol, SIDE_SELL, lot, price, pair_id, "SELL", budget / 2.0, authority)
+            buy_ok = await self._open(account_id, broker, symbol, SIDE_BUY, lot, price, pair_id, "BUY", budget / 2.0, authority)
+            if not buy_ok:
+                # Halted before either leg opened -- nothing naked yet, same
+                # retry-later behaviour as before this fix.
+                self._active.discard(key)
+                self._pending[key] = dict(payload)
+                return
+            sell_ok = await self._open(account_id, broker, symbol, SIDE_SELL, lot, price, pair_id, "SELL", budget / 2.0, authority)
         except Exception:
             self._active.discard(key)
             self._pending[key] = dict(payload)
             raise
+        if not sell_ok:
+            # v3.6.0 (naked-leg fix, see naked_leg.py): BUY already left this
+            # atom as a real order -- retrying the pair from scratch would
+            # risk a second BUY once the halt clears. `key` stays in _active
+            # so a fresh activate reads ALREADY_ACTIVE, not a second pair.
+            await naked_leg.enter(self, key, account_id=account_id, broker=broker, symbol=symbol,
+                                  pair_id=pair_id, missing_role="SELL", lot=lot, price=price,
+                                  risk_budget=budget / 2.0, authority=authority)
+            return
         self._opened += 1
         await self._emit_state(account_id, broker, symbol, ST_OPENED, {
             "lot": lot, "price": round(price, PRICE_DP),
@@ -366,14 +392,14 @@ class Atom(AtomBase):
 
     async def _open(self, account_id: str, broker: str, symbol: str, side: str, lot: float,
                     price: float, pair_id: str, role: str, risk_budget: float,
-                    authority: tuple[str, str]) -> None:
+                    authority: tuple[str, str]) -> bool:
         if self._context is None:
-            return
+            return False
         if self._halt.blocks(account_id):
             # The halt blocks NEW exposure at its source -- not only at 552.
             await self._emit_state(account_id, broker, symbol, "HALT_BLOCKED",
                                    {"pair_id": pair_id, "leg_role": role})
-            return
+            return False
         request_id = "%s-%s-a1" % (pair_id, role.lower())
         await self._context.publish(EVENT_REQUEST, {
             "request_id": request_id, "account_id": account_id, "broker": broker,
@@ -386,6 +412,7 @@ class Atom(AtomBase):
             "purpose": "INITIAL_NEUTRAL", "risk_budget": risk_budget,
             authority[0]: authority[1],
         })
+        return True
 
     async def _emit_state(self, account_id: str, broker: str, symbol: str, status: str,
                           extra: dict[str, Any]) -> None:
@@ -404,15 +431,14 @@ class Atom(AtomBase):
     async def health_check(self) -> HealthStatus:
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message=REASON_NOT_STARTED)
-        return HealthStatus(
-            state=HealthState.HEALTHY,
-            message="active=%d pending=%d opened=%d rejected_no_authority=%d rejected_unverified_decision=%d" % (
-                len(self._active), len(self._pending), self._opened, self._no_authority,
-                self._unverified_decisions),
-            details={"active": len(self._active), "actual_active": len(self._actual_active),
-                     "pending": len(self._pending), "opened": self._opened,
-                     "rejected_no_authority": self._no_authority,
-                     "rejected_unverified_decision": self._unverified_decisions,
-                     "gate_window": len(self._gate.decisions),
-                     "prices": len(self._price), "specs": len(self._vpu)},
-        )
+        # v3.6.0: a naked leg must never be invisible -- in the one-line
+        # message (shows up in any log/grep of health alone) and DEGRADED
+        # so a dashboard/alert can't miss it, not buried in details only.
+        details = {"active": len(self._active), "actual_active": len(self._actual_active),
+                  "pending": len(self._pending), "opened": self._opened, "naked_legs": len(self._naked),
+                  "rejected_no_authority": self._no_authority, "rejected_unverified_decision": self._unverified_decisions,
+                  "gate_window": len(self._gate.decisions), "prices": len(self._price), "specs": len(self._vpu)}
+        return HealthStatus(state=HealthState.DEGRADED if self._naked else HealthState.HEALTHY,
+            message="active=%d pending=%d opened=%d naked=%d rejected_no_authority=%d rejected_unverified_decision=%d" % (
+                len(self._active), len(self._pending), self._opened, len(self._naked),
+                self._no_authority, self._unverified_decisions), details=details)

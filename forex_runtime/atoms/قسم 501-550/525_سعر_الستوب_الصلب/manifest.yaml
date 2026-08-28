@@ -1,6 +1,6 @@
 id: 525
 name: "Hard Stop Price"
-version: "2.0.0"
+version: "2.1.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -30,7 +30,7 @@ config_schema:
   properties:
     min_abs_v_net:
       type: number
-      minimum: 0
+      exclusiveMinimum: 0
   additionalProperties: false
 
 config:

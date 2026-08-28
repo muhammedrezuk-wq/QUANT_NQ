@@ -1,6 +1,6 @@
 id: 251
 name: "Liquidity Pool Detector"
-version: "1.2.0"
+version: "1.2.1"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

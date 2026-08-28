@@ -7,7 +7,11 @@ class B:
  def __init__(self):self.e=[]
  def subscribe(self,*a):pass
  async def publish(self,n,p):self.e.append((n,p))
-async def main():
+async def test_broker_scoped_ledger_and_reservations():
+ # v4.2.0: was an un-prefixed main() -- invisible to `pytest`/the official
+ # governance/scripts/test_atoms.py runner, collectible only by running
+ # this file directly as a script. Renamed to a real test_* function so
+ # it actually runs under CI; logic and assertions are untouched.
  b=B();a=m.Atom();td=tempfile.TemporaryDirectory();await a.initialize(m.AtomContext(518,{'default_risk_budget':0,'count_realized':True,'max_seen_trades':100,'consumer_db_path':td.name+'/c.db'},L(),b.publish,b.subscribe));await a.start();await a._on_account({'account_id':'A','broker':'BR'});await a._on_specs({'symbols':[{'account_id':'A','symbol':'NQ','tick_size':.25,'tick_value':5}]});await a._on_budget({'account_id':'A','broker':'BR','symbol':'NQ','risk_budget':50});await a._on_positions({'account_id':'A','broker':'BR','source':'609','timestamp':2,'complete':True,'positions':[{'account_id':'A','broker':'BR','symbol':'NQ','ticket':1,'side':'BUY','volume':1,'entry_price':100,'current_price':101}]});row=[p for n,p in b.e if n==m.EVENT_OUT][-1]['ledgers'][0];assert row['floating_economic']==20 and row['broker']=='BR';await a._on_trade({'event_id':'t','account_id':'A','broker':'BR','symbol':'NQ','pnl':10,'gross_pnl':12,'completeness':'COMPLETE'});assert [p for n,p in b.e if n==m.EVENT_OUT][-1]['ledgers'][0]['K']==10;await a._on_order({'account_id':'A','broker':'BR','symbol':'NQ','request_id':'r','action':'OPEN','risk_budget':20});row=[p for n,p in b.e if n==m.EVENT_OUT][-1]['ledgers'][0];assert row['reserved_risk']==20 and row['remaining_risk']<=30;snap=await a.snapshot();c=m.Atom();await c.restore(snap);assert c._reservations;print('518 broker-scoped ledger and reservation tests passed')
 async def test_spec_fallback_across_accounts_same_broker():
     """استعادة سلوك احتياطي انقطع بصمت أثناء إعادة هيكلة متعددة الوسطاء (مقيس 2026-08-19
@@ -35,4 +39,4 @@ async def test_spec_fallback_across_accounts_same_broker():
     print('OK — 518 spec fallback across accounts, same broker only')
 
 
-if __name__=='__main__':asyncio.run(main());asyncio.run(test_spec_fallback_across_accounts_same_broker())
+if __name__=='__main__':asyncio.run(test_broker_scoped_ledger_and_reservations());asyncio.run(test_spec_fallback_across_accounts_same_broker())

@@ -4,7 +4,19 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "3.0.0"
+ATOM_VERSION = "3.1.0"
+# v3.1.0 (2026-08-27, item 16/27 of the 27-atom review -- "silent restore
+# on data corruption"): restore() silently RETURNED on a non-dict state
+# (leaving self at its empty __init__ defaults, no error, no log) and
+# then mutated self._issued/_confirmed/_pending/... through a sequence of
+# field parses that could each raise -- a failure partway through left a
+# torn mix of old and new milestone-issuance bookkeeping. That bookkeeping
+# is what stops a milestone from being extracted twice; silently losing
+# or tearing it on a corrupt snapshot risks re-issuing (real money)
+# extraction requests for milestones already issued or even confirmed in
+# the prior run. Fixed the same shape as 520: non-dict state now raises,
+# and every field is built into a local first, committed to self only
+# once ALL of them parse successfully.
 
 EVENT_LEDGER = "risk.asset_ledger.state"
 EVENT_STATE = "asset.extraction.state"
@@ -294,16 +306,22 @@ class Atom(AtomBase):
 
     async def restore(self, state: dict[str, Any]) -> None:
         if not isinstance(state, dict):
-            return
-        self._issued = {str(k): {int(v) for v in values if isinstance(v, (int, float))}
-                        for k, values in (state.get("issued") or {}).items()
-                        if isinstance(values, list)}
-        self._confirmed = {str(k): {int(v) for v in values if isinstance(v, (int, float))}
-                          for k, values in (state.get("confirmed") or {}).items()
-                          if isinstance(values, list)}
-        self._pending = {str(v.get("extraction_id")): dict(v)
-                         for v in state.get("pending", [])
-                         if isinstance(v, dict) and v.get("extraction_id")}
-        self._full_issued = {str(k) for k in state.get("full_issued", [])}
-        self._failure_ids = {str(value) for value in state.get("failure_ids", [])}
-        self._failures = int(state.get("failures") or 0)
+            raise ValueError("INVALID_EXTRACTION_STATE")
+        new_issued = {str(k): {int(v) for v in values if isinstance(v, (int, float))}
+                      for k, values in (state.get("issued") or {}).items()
+                      if isinstance(values, list)}
+        new_confirmed = {str(k): {int(v) for v in values if isinstance(v, (int, float))}
+                         for k, values in (state.get("confirmed") or {}).items()
+                         if isinstance(values, list)}
+        new_pending = {str(v.get("extraction_id")): dict(v)
+                       for v in state.get("pending", [])
+                       if isinstance(v, dict) and v.get("extraction_id")}
+        new_full_issued = {str(k) for k in state.get("full_issued", [])}
+        new_failure_ids = {str(value) for value in state.get("failure_ids", [])}
+        new_failures = int(state.get("failures") or 0)
+        self._issued = new_issued
+        self._confirmed = new_confirmed
+        self._pending = new_pending
+        self._full_issued = new_full_issued
+        self._failure_ids = new_failure_ids
+        self._failures = new_failures

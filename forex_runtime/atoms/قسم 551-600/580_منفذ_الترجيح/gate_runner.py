@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any
 
 import clock
@@ -74,6 +76,10 @@ async def _on_gate_passed(atom, payload: dict[str, Any]) -> None:
     atom._tilt_published += 1
     await atom._emit(EVENT_TILT_STATE, out)
     stamp = _finite(payload.get("gated_at"))
-    atom._journal(symbol, str(payload.get("decision_id") or ""),
-                  contributions, round(total_capped, _DP),
-                  stamp if stamp is not None else time.time())
+    # Blocking sqlite write -- fires on every approved decision, so it runs
+    # off the event loop thread (found during the 304-atom audit: it used to
+    # block the loop for up to busy_timeout=10s under store contention).
+    await asyncio.to_thread(
+        atom._journal, symbol, str(payload.get("decision_id") or ""),
+        contributions, round(total_capped, _DP),
+        stamp if stamp is not None else time.time())

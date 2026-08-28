@@ -128,6 +128,104 @@ async def test_contract_shape_complete():
     print("OK — العقد الموحّد كامل الحقول")
 
 
+async def test_rejected_candle_counter_tracks_malformed_input():
+    print("\n--- test_rejected_candle_counter_tracks_malformed_input ---")
+    # بند 26 (فحص من الصفر، متابعة): حدّ خارجيّ حقيقيّ (تغذية شموع) بلا أي
+    # عدّاد سابق للمرفوض -- شمعة معطوبة كانت تُرمى بصمت تام.
+    bus = FakeEventBus(); atom = Atom()
+    await atom.initialize(bus.make_context(dict(CFG))); await atom.start()
+    bad = [
+        {"symbol": None, "high": 10, "low": 9, "close": 9.5},           # لا رمز
+        {"symbol": "NQ100", "high": None, "low": 9, "close": 9.5},      # قمة غائبة
+        {"symbol": "NQ100", "high": 10, "low": None, "close": 9.5},     # قاع غائب
+        {"symbol": "NQ100", "high": 10, "low": 9, "close": "oops"},     # إغلاق غير رقميّ
+        {"symbol": "NQ100", "high": "bad", "low": 9, "close": 9.5},     # قمة نصّية
+    ]
+    for b in bad:
+        await atom._on_candle(b)
+    assert atom._rejected_candles == 5, atom._rejected_candles
+    assert atom._rejected_by_symbol.get("UNKNOWN") == 1, atom._rejected_by_symbol
+    assert atom._rejected_by_symbol.get("NQ100") == 4, atom._rejected_by_symbol
+    assert atom._candles_seen == 0, "لا شمعة صالحة وصلت بعد"
+    # شمعة سليمة بعدها تُقبل عاديًّا -- الرفض لا يفسد المسار السليم
+    await atom._on_candle({"symbol": "NQ100", "high": 10, "low": 9, "close": 9.5,
+                           "timeframe": "60s", "period_start": 0.0})
+    assert atom._candles_seen == 1
+    print(f"OK — 5 شموع معطوبة مرفوضة ومعزولة بالرمز، شمعة سليمة بعدها تعمل عاديًّا")
+
+
+async def test_rejected_by_symbol_isolates_broken_feed_across_multiple_symbols():
+    print("\n--- test_rejected_by_symbol_isolates_broken_feed_across_multiple_symbols ---")
+    # الاختبار الجوهريّ: عملات متعدّدة سليمة، عملة واحدة معطوبة الخط --
+    # يجب ألّا يختفي عطبها خلف صحّة البقيّة، ويجب ألّا تتأثّر البقيّة به.
+    bus = FakeEventBus(); atom = Atom()
+    await atom.initialize(bus.make_context(dict(CFG))); await atom.start()
+    healthy_symbols = ["NQ100", "BTCUSD", "EURUSD"]
+    broken_symbol = "XAUUSD"
+
+    async def feed_good_swing_high(symbol):
+        bars = [(10, 9), (11, 10), (15, 14), (11, 10), (10, 9)]
+        for i, (h, l) in enumerate(bars):
+            c = (h + l) / 2
+            await atom._on_candle({"symbol": symbol, "high": h, "low": l, "close": c,
+                                   "timeframe": "60s", "period_start": float(i)})
+
+    for sym in healthy_symbols:
+        await feed_good_swing_high(sym)
+    for _ in range(12):
+        await atom._on_candle({"symbol": broken_symbol, "high": None, "low": 9, "close": 9.5})
+
+    health = await atom.health_check()
+    assert health.state == HealthState.HEALTHY, (
+        "عملات سليمة تعمل -- الصحّة العامّة يجب أن تبقى HEALTHY رغم عطب عملة واحدة")
+    assert health.details["rejected"] == 12, health.details
+    assert health.details["rejected_by_symbol"] == {broken_symbol: 12}, (
+        "عطب XAUUSD يجب أن يظهر باسمها تحديدًا -- لا يضيع بين البقيّة ولا يُنسَب لغيرها")
+
+    swings = [p for n, p in bus.published if n == EVENT_OUT]
+    for sym in healthy_symbols:
+        sym_swings = [s for s in swings if s["symbol"] == sym]
+        assert any(s["signal"] == "swing_high" for s in sym_swings), (
+            f"{sym} كانت سليمة ويجب أن تُنتج قمّتها بلا تأثّر بعطب {broken_symbol}")
+    assert not [s for s in swings if s["symbol"] == broken_symbol and s["signal"] != "none"], (
+        f"{broken_symbol} لم تصل شمعة سليمة واحدة لها -- لا يجوز أن تُنتج إشارة حقيقية")
+    print(f"OK — {len(healthy_symbols)} عملات سليمة أنتجت قممها بلا تأثّر، "
+          f"و{broken_symbol} المعطوبة مُعزَّاة باسمها بدقّة (12/12) لا مخفيّة خلف صحّة البقيّة")
+
+
+async def test_all_rejected_health_message_distinct_from_no_input_yet():
+    print("\n--- test_all_rejected_health_message_distinct_from_no_input_yet ---")
+    bus1 = FakeEventBus(); a1 = Atom()
+    await a1.initialize(bus1.make_context(dict(CFG))); await a1.start()
+    h_truly_empty = await a1.health_check()
+    assert h_truly_empty.message == "NO_CANDLES_YET", h_truly_empty.message
+
+    bus2 = FakeEventBus(); a2 = Atom()
+    await a2.initialize(bus2.make_context(dict(CFG))); await a2.start()
+    await a2._on_candle({"symbol": "NQ100", "high": None, "low": 9, "close": 9.5})
+    h_all_rejected = await a2.health_check()
+    assert h_all_rejected.message == "ALL_CANDLES_REJECTED_SO_FAR", h_all_rejected.message
+    assert h_all_rejected.state == HealthState.DEGRADED, h_all_rejected.state
+    print("OK — 'لا مدخل بعد' و'كل المدخل مرفوض' رسالتان مختلفتان، لا خلط بين حالتين مختلفتين فعليًّا")
+
+
+async def test_rejected_by_symbol_bounded_but_total_stays_accurate():
+    print("\n--- test_rejected_by_symbol_bounded_but_total_stays_accurate ---")
+    # نفس عائلة حدّ 552 (_MAX_TRACKED): رمز مرفوض جديد باستمرار (تغذية
+    # مشوَّهة أو عبثيّة) يجب ألّا يُنمّي القاموس بلا حدّ -- لكن المجموع
+    # الكلّي (عدد صحيح بسيط) يبقى دقيقًا دومًا مهما تعدّدت الأسماء.
+    bus = FakeEventBus(); atom = Atom()
+    await atom.initialize(bus.make_context(dict(CFG))); await atom.start()
+    n_symbols = 200
+    for i in range(n_symbols):
+        await atom._on_candle({"symbol": f"FAKE{i}", "high": None, "low": 9, "close": 9.5})
+    assert atom._rejected_candles == n_symbols, atom._rejected_candles
+    assert len(atom._rejected_by_symbol) == 64, (
+        f"يجب أن يبقى القاموس محدودًا بـ64، والفعليّ {len(atom._rejected_by_symbol)}")
+    print(f"OK — {n_symbols} رمزًا مرفوضًا مختلفًا: المجموع دقيق ({atom._rejected_candles})، "
+          f"والقاموس محدود (64) لا ينمو بلا سقف")
+
+
 async def test_health_states():
     print("\n--- test_health_states ---")
     bus = FakeEventBus()
@@ -153,6 +251,10 @@ async def main():
         test_detect_swing_low,
         test_monotonic_no_swing,
         test_contract_shape_complete,
+        test_rejected_candle_counter_tracks_malformed_input,
+        test_rejected_by_symbol_isolates_broken_feed_across_multiple_symbols,
+        test_all_rejected_health_message_distinct_from_no_input_yet,
+        test_rejected_by_symbol_bounded_but_total_stays_accurate,
         test_health_states,
     ]
     failed = []

@@ -73,3 +73,62 @@ def test_budget_survives_restart():
             assert atom3._budgets.get(key) == 75.0, atom3._budgets
 
     asyncio.run(scenario())
+
+
+def test_restore_raises_on_corrupt_non_dict_state():
+    """Item 18/27 of the 27-atom review ("silent restore on data
+    corruption"): ledger_persistence.restore() used to silently `return`
+    on a non-dict state -- the atom quietly kept its empty __init__
+    defaults for _realized/_extracted/_budgets, no error, no log.
+    self._extracted is what stops the SAME profit from being extracted
+    twice (524 reads this ledger's published state for its milestone
+    ladder); losing it silently on a corrupt snapshot risks re-extracting
+    real money already paid out in the prior run. Must now raise."""
+    async def scenario():
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "journal.db")
+            atom, _ = await _boot(db)
+            await atom._on_trade({"event_id": "t1", "account_id": "A1", "broker": "BR",
+                                  "symbol": "BTCUSD", "pnl": 40.0, "gross_pnl": 40.0,
+                                  "completeness": "COMPLETE"})
+            key = mod.scope("A1", "BTCUSD", "BR")
+            before_realized = dict(atom._realized)
+            threw = False
+            try:
+                await atom.restore("not-a-dict-state")
+            except ValueError:
+                threw = True
+            assert threw, "restore() لم ينهر رغم حالة ليست قاموساً -- استعادة صامتة لا تزال قائمة"
+            assert atom._realized == before_realized, ("الحالة تغيّرت رغم انهيار restore() "
+                                                        "-- ليست صامتة فقط بل ممزَّقة أيضاً")
+            assert key in before_realized
+
+    asyncio.run(scenario())
+
+
+def test_restore_ignores_corrupt_single_field_without_crashing():
+    """Item 18/27: a single corrupt sub-field inside an otherwise-valid
+    state dict (e.g. "positions" saved as a non-list) used to raise
+    TypeError mid-restore -- after whichever earlier books/... in the
+    original field order had already been written directly onto self,
+    tearing it. Every list-shaped sub-field is now defensively coerced to
+    empty when malformed, so restore() can no longer be crashed by one
+    bad field; the rest of a valid snapshot still restores correctly."""
+    async def scenario():
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "journal.db")
+            atom1, _ = await _boot(db)
+            await atom1._on_account({"account_id": "A1", "broker": "BR"})
+            await atom1._on_activate({"account_id": "A1", "broker": "BR", "symbol": "BTCUSD",
+                                      "budget": 100.0, "event_id": "evt-activate-1"})
+            snap = await atom1.snapshot()
+            snap["positions"] = 42  # corrupt: should be a list
+            atom2, _ = await _boot(str(Path(tmp) / "journal2.db"))
+            await atom2.restore(snap)  # must not raise
+            key = mod.scope("A1", "BTCUSD", "BR")
+            assert atom2._budgets.get(key) == 100.0, ("حقل سليم (budgets) لم يُستعَد رغم أنّ "
+                                                       "الحقل الفاسد (positions) وحده يجب أن "
+                                                       "يُتجاهَل لا أن يُسقط البقية: %r" % atom2._budgets)
+            assert not atom2._positions
+
+    asyncio.run(scenario())

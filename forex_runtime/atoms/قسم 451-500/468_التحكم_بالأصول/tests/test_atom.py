@@ -102,6 +102,46 @@ async def test_empty_whitelist_blocks_all():
     print("OK — قائمة فاضية → DEGRADED + يمنع الكلّ (fail-closed)")
 
 
+async def test_unknown_command_does_not_partition_allowlist():
+    print("\n--- test_unknown_command_does_not_partition_allowlist ---")
+    atom, bus = await _new()
+    await atom._on_asset_command({"symbol": "XAUUSD", "account_id": "A",
+                                   "command": "BOGUS_TYPO"})
+    assert "A" not in atom._allowed_by_account, (
+        "أمر غير معروف أنشأ تقسيماً بالحساب رغم أنه لا يفعل شيئاً: %r"
+        % atom._allowed_by_account)
+    print("OK — أمر غير معروف لا يُنشئ تقسيماً بالحساب")
+
+
+async def test_noop_recognized_command_does_not_partition_allowlist():
+    print("\n--- test_noop_recognized_command_does_not_partition_allowlist ---")
+    atom, bus = await _new()
+    # PAUSE على رمز غائب أصلاً (BTCUSD ليس بالقائمة CFG) -- لا شيء يتغيّر.
+    await atom._on_asset_command({"symbol": "BTCUSD", "account_id": "A",
+                                   "command": "PAUSE"})
+    assert "A" not in atom._allowed_by_account, (
+        "أمر معروف بلا أثر فعلي أنشأ تقسيماً بالحساب: %r"
+        % atom._allowed_by_account)
+    print("OK — أمر معروف بلا أثر فعلي لا يُنشئ تقسيماً بالحساب")
+
+
+async def test_unknown_command_does_not_desync_account_from_later_global_activation():
+    print("\n--- test_unknown_command_does_not_desync_account_from_later_global_activation ---")
+    atom, bus = await _new()
+    # أمر غير معروف يصل بحدث مشترك -- قبل الإصلاح كان هذا وحده كافياً
+    # لتجميد لقطة القائمة لهذا الحساب.
+    await atom._on_asset_command({"symbol": "XAUUSD", "account_id": "A",
+                                   "command": "BOGUS_TYPO"})
+    # تفعيل عام (بلا account_id) يضيف رمزاً جديداً للقائمة العامة.
+    await atom._on_activate({"symbol": "NEWSYM"})
+    # الحساب A يجب أن يرى الرمز الجديد فوراً -- لا انشقاق صامت.
+    await atom._on_tick(_tick("NEWSYM"))
+    f = _filters(bus)[-1]
+    assert f["symbol"] == "NEWSYM" and f["metadata"]["passed"] is True, (
+        "الحساب A انشقّ صامتاً عن القائمة العامة بعد أمر غير معروف: %s" % f)
+    print("OK — لا انشقاق صامت: الحساب يتبع القائمة العامة الحيّة بعد أمر غير معروف")
+
+
 async def test_health_healthy():
     print("\n--- test_health_healthy ---")
     bus = FakeEventBus()
@@ -117,6 +157,9 @@ async def test_health_healthy():
 async def main():
     tests = [test_allowed_symbol_passes, test_blocked_symbol_fails,
              test_whitelist_published_on_start, test_empty_whitelist_blocks_all,
+             test_unknown_command_does_not_partition_allowlist,
+             test_noop_recognized_command_does_not_partition_allowlist,
+             test_unknown_command_does_not_desync_account_from_later_global_activation,
              test_health_healthy]
     failed = []
     for t in tests:

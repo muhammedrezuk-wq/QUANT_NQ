@@ -11,7 +11,20 @@ from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.durable_execution_journal import Journal
 from shared.financial_scope import row_key, text
 
-ATOM_VERSION = "3.1.0"
+ATOM_VERSION = "3.1.1"
+# v3.1.1 (2026-08-27, item 24/27 of the 27-atom review -- blocking I/O at
+# boot + restore() without guarding): initialize() called
+# self._journal.ensure() (mkdir + open a raw sqlite connection + run
+# schema statements + commit -- all synchronous) directly on the event
+# loop, unlike every OTHER Journal call in this same atom
+# (remember_request/commit_event/pending_outputs/mark_emitted/counts),
+# which already run via asyncio.to_thread. Now consistent. restore()'s
+# top-level guard was already fine, but the four counters were
+# int(state.get(...) or 0) with no try/except -- a corrupted non-numeric
+# value (e.g. a string) raised a raw, uncontrolled ValueError instead of
+# the same clean INVALID_EXECUTION_CONFIRM_STATE the top-level check
+# already uses, and a failure partway through left self torn (earlier
+# counters already committed). Both fixed.
 EVENT_IN = "platform.trade_event"
 EVENT_OUT = "market.outcome.realized"
 EVENT_ACK = "execution.command.ack"
@@ -64,7 +77,7 @@ class Atom(AtomBase):
         self._journal = Journal(str(context.config.get(
             "dedupe_db_path", "var/store/execution_confirmation.db")))
         try:
-            self._journal.ensure(); self._journal_ready = True
+            await asyncio.to_thread(self._journal.ensure); self._journal_ready = True
         except (OSError, sqlite3.Error) as exc:
             self._last_error = str(exc); self._journal_ready = False
         context.subscribe(EVENT_IN, self._on_event)
@@ -273,8 +286,15 @@ class Atom(AtomBase):
 
     async def restore(self, state: dict[str, Any]) -> None:
         if not isinstance(state, dict): raise ValueError("INVALID_EXECUTION_CONFIRM_STATE")
-        self._seen = int(state.get("seen") or 0); self._opened = int(state.get("opened") or 0)
-        self._realized = int(state.get("realized") or 0); self._duplicates = int(state.get("duplicates") or 0)
+        try:
+            new_seen = int(state.get("seen") or 0)
+            new_opened = int(state.get("opened") or 0)
+            new_realized = int(state.get("realized") or 0)
+            new_duplicates = int(state.get("duplicates") or 0)
+        except (TypeError, ValueError):
+            raise ValueError("INVALID_EXECUTION_CONFIRM_STATE")
+        self._seen = new_seen; self._opened = new_opened
+        self._realized = new_realized; self._duplicates = new_duplicates
 
     async def health_check(self) -> HealthStatus:
         if not self._running: return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED")

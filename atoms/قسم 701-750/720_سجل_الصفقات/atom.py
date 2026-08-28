@@ -9,7 +9,20 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.0.1"
+ATOM_VERSION = "1.1.0"
+# v1.1.0 (2026-08-27, item 13/27 of the 27-atom review -- exceeding the
+# daily line cap, a real TOCTOU): _write checked self._lines_today >=
+# self._max_lines_per_day, then awaited the actual file write
+# (asyncio.to_thread(self._append, ...) -- a genuine suspension, the
+# write runs on a worker thread), and only incremented self._lines_today
+# AFTER that write returned. Six different event types feed _write, each
+# its own subscription/consumer task (V3.0 mailbox) -- two can race right
+# at the cap boundary, both pass the stale check before either
+# increments, both write, and the cap is exceeded by however many raced
+# through concurrently. Fixed with an asyncio.Lock serializing the whole
+# check -> write -> increment section; _append's own threading.Lock
+# already serialized the actual file bytes, so this closes the gap
+# without changing I/O behavior.
 
 EVENT_TRADE = "platform.trade_event"
 EVENT_APPEARED = "platform.position.appeared"
@@ -84,6 +97,7 @@ class Atom(AtomBase):
         self._state_tail = 12
         self._max_lines_per_day = 20000
         self._file_lock = threading.Lock()
+        self._write_lock = asyncio.Lock()
         self._day = ""
         self._lines_today = 0
         self._total_lines = 0
@@ -143,45 +157,49 @@ class Atom(AtomBase):
     async def _write(self, kind: str, when: float, body: str) -> None:
         if self._context is None:
             return
-        day = time.strftime("%Y%m%d")
-        if day != self._day:
-            self._day = day
-            self._lines_today = 0
-            self._suppressed_today = 0
-            self._cap_announced = False
-        if self._lines_today >= self._max_lines_per_day:
-            self._suppressed_today += 1
-            if not self._cap_announced:
-                self._cap_announced = True
-                try:
-                    await asyncio.to_thread(
-                        self._append, day,
-                        "⛔ TRADE_LOG_DAILY_CAP_REACHED (%d lines) - remaining events today "
-                        "are counted, not written (suppressed in atom 720 health details)"
-                        % self._max_lines_per_day)
-                except OSError:
-                    pass
-            return
-        line = "%s | %s" % (
-            time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(when)), body)
-        try:
-            await asyncio.to_thread(self._append, day, line)
-        except OSError as exc:
-            self._io_failures += 1
-            self._last_io_error = str(exc)
-            return
-        self._last_io_error = ""
-        self._lines_today += 1
-        self._total_lines += 1
-        self._last_lines.append(line)
-        await self._context.publish(EVENT_STATE, {
-            "file": str(self._today_path(day)),
-            "date": day,
-            "kind": kind,
-            "lines_today": self._lines_today,
-            "total_lines": self._total_lines,
-            "last_lines": list(self._last_lines),
-            "timestamp": when})
+        # v1.1.0: the whole check -> write -> increment section is
+        # serialized -- the write below awaits (asyncio.to_thread), a real
+        # suspension point six different event types can race through.
+        async with self._write_lock:
+            day = time.strftime("%Y%m%d")
+            if day != self._day:
+                self._day = day
+                self._lines_today = 0
+                self._suppressed_today = 0
+                self._cap_announced = False
+            if self._lines_today >= self._max_lines_per_day:
+                self._suppressed_today += 1
+                if not self._cap_announced:
+                    self._cap_announced = True
+                    try:
+                        await asyncio.to_thread(
+                            self._append, day,
+                            "⛔ TRADE_LOG_DAILY_CAP_REACHED (%d lines) - remaining events today "
+                            "are counted, not written (suppressed in atom 720 health details)"
+                            % self._max_lines_per_day)
+                    except OSError:
+                        pass
+                return
+            line = "%s | %s" % (
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(when)), body)
+            try:
+                await asyncio.to_thread(self._append, day, line)
+            except OSError as exc:
+                self._io_failures += 1
+                self._last_io_error = str(exc)
+                return
+            self._last_io_error = ""
+            self._lines_today += 1
+            self._total_lines += 1
+            self._last_lines.append(line)
+            await self._context.publish(EVENT_STATE, {
+                "file": str(self._today_path(day)),
+                "date": day,
+                "kind": kind,
+                "lines_today": self._lines_today,
+                "total_lines": self._total_lines,
+                "last_lines": list(self._last_lines),
+                "timestamp": when})
 
     def _remember_row(self, row_id: int) -> bool:
         seen = row_id in self._seen_rows

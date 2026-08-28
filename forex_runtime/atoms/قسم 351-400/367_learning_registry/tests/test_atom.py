@@ -30,3 +30,19 @@ async def test_registry_rejects_tampered_artifact():
     await atom._on_selected(model)
     assert not bus.payloads(module.EVENT_PERSIST)
     assert (await atom.health_check()).details["invalid"] == 1
+
+
+@pytest.mark.asyncio
+async def test_load_response_not_found_does_not_crash():
+    """Item 14/27 of the 27-atom review ("crash reading payload['data'] if
+    the model is not found"): 706's response omits "data" entirely when
+    found=False -- {"request_id":..., "model_name":..., "found": False}.
+    _on_load_response was already guarded (`or not payload.get("found")`
+    short-circuits before any data access) but had zero coverage on this
+    path. Locks the guarantee in rather than leaving it unverified."""
+    module, atom, bus = await make_atom(367, {"mode": "shadow",
+                                               "rollback_cooldown_seconds": 0})
+    await atom._on_load_response({"request_id": "registry-load",
+                                  "model_name": module.MODEL_NAME, "found": False})
+    assert atom._active is None
+    assert not bus.payloads(module.EVENT_ACTIVE)

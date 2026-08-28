@@ -50,14 +50,16 @@ def main() -> int:
     print(f"ملفات الخبراء المترجمة: {len(ex5_files)}")
     print(f"Documentation: {'INCOMPLETE' if documentation_missing else 'COMPLETE'}")
     if documentation_missing:
-        print(f"Documentation warnings: {len(documentation_missing)}")
+        # إصلاح م-29 (ورقة ٤١، بأمر المالك 2026-08-28): التوثيق العربي الناقص
+        # عاد **حاجبًا للإصدار** كما كان — لا تحذيرًا صامتًا. الفجوة نفسها
+        # سُدّت (81 ملف الشرح.md وُلّدت من المانيفستات بنفس صيغة البطاقة المقيسة).
         for item in documentation_missing:
-            print("⚠ " + item)
+            problems.append("توثيق عربي مفقود: " + item)
     if problems:
         for problem in problems:
             print("❌ " + problem)
         return 1
-    print("✅ الفحص البنيوي للملفات والمانيفستات ناجح — التوثيق منفصل ولا يحجب Release.")
+    print("✅ الفحص البنيوي للملفات والمانيفستات ناجح — والتوثيق العربي حاجب إصدار (م-29).")
     return 0
 
 

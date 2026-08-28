@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
+from core.contracts.atom import AtomBase, AtomContext
 from failure_view import DeltaFailures
+import health_view
 from flood_guard import DEFAULT_RESEND_HOLD_S, FloodGuard
 from pair_events import PairEventMixin
 from pair_memory import check_against_broker, seal, unseal
@@ -12,7 +14,7 @@ from request_identity import request_identity
 from stop_support import STOP_FROM_FALLBACK, catastrophe_stop
 from shared.financial_scope import text
 
-ATOM_VERSION = "5.3.1"
+ATOM_VERSION = "5.4.0"
 # v5.3.0 (2026-08-25): pair memory is DURABLE (pair_store) -- every pair
 # mutation is written through immediately and boot prefers the durable
 # record over the clean-stop snapshot. Measured root: an unclean death
@@ -72,7 +74,6 @@ STATUS_REQUESTED = "REQUESTED"
 STATUS_RETRY = "RETRY_REQUESTED"
 STATUS_ACTUAL = "ACTUAL"
 STATUS_FAILED = "FAILED"
-STATUS_EXHAUSTED = "EXHAUSTED"
 STATUS_COMPLETE = "COMPLETE"
 STATUS_PARTIAL = "PARTIAL"
 
@@ -149,6 +150,7 @@ class Atom(PairEventMixin, AtomBase):
         self._pair_store_path = pair_store.DEFAULT_PATH
         self._pair_store_error = ""
         self._durable_pairs_loaded = False
+        self._persist_lock = asyncio.Lock()
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
@@ -177,7 +179,8 @@ class Atom(PairEventMixin, AtomBase):
         context.subscribe(EVENT_GATE_PASSED, self._on_gate_passed)
         context.subscribe(EVENT_HALT, self._on_halt)
         context.subscribe(EVENT_RESET, self._on_halt_reset)
-        # v5.3.0: الذاكرة الدائمة تُحمَّل أولًا — تسبق اللقطة وتغلبها.
+        # v5.3.0: durable memory loads first -- it precedes and outranks
+        # the clean-stop snapshot.
         self._pair_store_path = str(cfg.get("pair_store_path",
                                             pair_store.DEFAULT_PATH))
         sealed = pair_store.load(self._pair_store_path)
@@ -196,11 +199,15 @@ class Atom(PairEventMixin, AtomBase):
                 self._durable_pairs_loaded = True
                 self._restore_grade = "DURABLE"
 
-    def _persist_pairs(self) -> None:
-        sealed = seal(ATOM_VERSION, self._counter, self._pairs,
-                      self._official_time, self._watermark,
-                      self._flood_guard.snapshot())
-        self._pair_store_error = pair_store.save(self._pair_store_path, sealed)
+    async def _persist_pairs(self) -> None:
+        # Every pair transition calls this (blocking sqlite write, found
+        # during the 304-atom audit): the lock makes writes commit in the
+        # same order they were issued -- off the event loop thread, but a
+        # slower-to-schedule older snapshot can never land on disk after a
+        # newer one and silently roll the durable record backward.
+        async with self._persist_lock:
+            sealed = seal(ATOM_VERSION, self._counter, self._pairs, self._official_time, self._watermark, self._flood_guard.snapshot())
+            self._pair_store_error = await asyncio.to_thread(pair_store.save, self._pair_store_path, sealed)
 
     async def start(self) -> None:
         self._running = True
@@ -234,8 +241,9 @@ class Atom(PairEventMixin, AtomBase):
                     self._watermark, self._flood_guard.snapshot())
 
     async def restore(self, state: dict[str, Any]) -> None:
-        # v5.3.0: الدائم أحدث من لقطة الإيقاف النظيف دائمًا — إن حُمّل،
-        # تُتجاهل أزواج اللقطة (قد تكون أقدم) ويبقى الباقي كما كان.
+        # v5.3.0: the durable record is always newer than the clean-stop
+        # snapshot -- once loaded, the snapshot's pairs are ignored (they
+        # may be older) and everything else stays as it was.
         if self._durable_pairs_loaded:
             return
         loaded = unseal(state)
@@ -436,37 +444,4 @@ class Atom(PairEventMixin, AtomBase):
         self._order_requests_emitted += 1
 
     async def health_check(self):
-        if not self._running: return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED")
-        details = {"seen_targets": self._seen, "order_requests_emitted": self._order_requests_emitted, "entries_blocked": self._entries_blocked,
-                   "snapshot_blocked": self._snapshot_blocked,
-                   "position_picture_blocked":self._position_picture_blocked,
-                   "position_picture_scopes":len(self._position_picture),
-                   "fallback_stops": self._fallback_stops, "no_stop_skipped": self._no_stop_skipped,
-                     "no_identity_skipped": self._no_identity_skipped,
-                     "identity_incomplete": self._identity_incomplete,
-                     "gate_blocked_unverified": self._gate_blocked,
-                     "no_identity_entries": self._no_identity_entries,
-                     "pair_store_error": self._pair_store_error,
-                     "gate_window": len(self._gate_window),
-                   "catastrophe_multiple": self._catastrophe_multiple, "fallback_stop_frac": self._fallback_stop_frac,
-                   "pairs": len(self._pairs), "retries": self._retries, "actual": self._actual,
-                   "exhausted": self._exhausted, "flood_suppressed": self._flood_guard.suppressed,
-                   "resend_hold_s": self._flood_guard.hold_s}
-        details.update(self._delta_failures.view(self._flood_guard, self._flood_guard.hold_s))
-        # v5.3.1: الصحة تحكي حالة أحدث زوج لكل نطاق، لا تاريخ العدّاد — عدّاد
-        # الاستنفاد التراكمي كان يُبقي الذرّة «متدهورة» للأبد بعد أي استنفاد
-        # قديم رغم زوج جديد سليم يعمل (والذاكرة الدائمة تحفظ الموتى أيضًا).
-        # أحدث تسجيل لكل (حساب، رمز) هو الحاضر؛ التاريخ يبقى في التفاصيل.
-        latest: dict[tuple[str, str], dict[str, Any]] = {}
-        for p in self._pairs.values():
-            key = (str((p or {}).get("account_id")), str((p or {}).get("symbol")))
-            latest[key] = p or {}
-        exhausted_now = any(p.get("status") == STATUS_EXHAUSTED
-                            for p in latest.values())
-        if exhausted_now: return HealthStatus(state=HealthState.DEGRADED, message="PAIR_RETRY_EXHAUSTED", details=details)
-        if not self._seen and not self._pairs:
-            return HealthStatus(state=HealthState.HEALTHY,
-                                message="READY_AWAITING_FIRST_TARGET_OR_PAIR | requests_emitted=0 pairs=0",
-                                details=details)
-        return HealthStatus(state=HealthState.HEALTHY, details=details,
-                            message="requests_emitted=%d pairs=%d delta_failed=%d" % (self._order_requests_emitted, len(self._pairs), self._delta_failures.total))
+        return health_view.build(self)

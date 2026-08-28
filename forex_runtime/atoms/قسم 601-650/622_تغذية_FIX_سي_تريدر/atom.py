@@ -9,7 +9,20 @@ from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from ctrader_stream_state import ACTIVE, DEAD, NEVER_SEEN, STALE, StreamTracker
 from shared import fix_session as fx
 
-ATOM_VERSION = "1.3.3"
+ATOM_VERSION = "1.4.0"
+# v1.4.0 (2026-08-27, item 20/27 of the 27-atom review -- a synchronous
+# TLS connect freezes the loop, no connection timeout): _connect() called
+# stream.connect() (TCP handshake + TLS handshake, up to
+# transport.DEFAULT_TIMEOUT_S=5.0s in the ordinary case -- and DNS
+# resolution inside socket.create_connection has NO timeout bound at
+# all) directly on the atom's own coroutine, i.e. on the shared core
+# event loop. transport/client.py's own docstring states the design
+# principle this violated: "an unbounded outbound call is how a
+# pulse-driven atom turns into a hung one" -- true here even bounded,
+# since ANY multi-second block on the shared loop stalls every other
+# atom. _teardown() (called as _connect()'s own first line) had the same
+# problem via stream.close()'s thread.join(timeout=...). Both now run
+# via asyncio.to_thread.
 EVENT_TIME = "SYS_SECOND"
 EVENT_TICK = "feed.ctrader.tick"
 EVENT_SPECS = "market.ctrader.symbol_specs"
@@ -121,15 +134,15 @@ class Atom(AtomBase):
             except asyncio.CancelledError:
                 pass
         self._task = None
-        self._teardown()
+        await self._teardown()
 
     async def shutdown(self) -> None:
         await self.stop()
 
-    def _teardown(self) -> None:
+    async def _teardown(self) -> None:
         stream, self._stream = self._stream, None
         if stream is not None:
-            stream.close()
+            await asyncio.to_thread(stream.close)
         self._link = STATE_DOWN
         self._buffer = b""
 
@@ -155,12 +168,12 @@ class Atom(AtomBase):
                 return
             except Exception as exc:  # noqa: BLE001
                 self._last_error = "%s: %s" % (type(exc).__name__, exc)
-                self._teardown()
+                await self._teardown()
                 await self._announce(STATE_DOWN, {"error": self._last_error})
                 await asyncio.sleep(self._reconnect_backoff_s)
 
     async def _connect(self) -> None:
-        self._teardown()
+        await self._teardown()
         self._link = STATE_CONNECTING
         password = self._password()
         if not password:
@@ -169,7 +182,9 @@ class Atom(AtomBase):
             self._host, self._port, use_tls=self._use_tls,
             max_buffer_bytes=self._max_backlog,
         )
-        stream.connect()
+        # v1.4.0: TCP connect + TLS handshake (up to several seconds, DNS
+        # resolution unbounded) moved off the shared event loop.
+        await asyncio.to_thread(stream.connect)
         self._stream = stream
         self._transport_dropped_seen = 0
         self._session = fx.FixSession(self._session.sender_comp_id, self._session.target_comp_id,

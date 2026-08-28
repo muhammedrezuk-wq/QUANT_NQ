@@ -1,6 +1,6 @@
 id: 840
 name: "Drift Engine"
-version: "1.1.0"
+version: "1.0.1"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -12,7 +12,6 @@ publishes:
   - "recalibration.proposed"
 
 subscribes:
-  - "recalibration.applied"
   - "measurement.latency.state"
   - "measurement.health.state"
   - "market.regime.state"

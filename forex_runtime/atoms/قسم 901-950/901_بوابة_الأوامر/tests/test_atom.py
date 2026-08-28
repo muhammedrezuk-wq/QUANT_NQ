@@ -375,6 +375,46 @@ async def test_gate_command_executes_and_closes_row(tmp):
     print("OK — أمر البوّابة نُشر مرّة واحدة والصفّ خُتم DONE")
 
 
+async def test_batch_commit_per_row_no_replay_on_mid_batch_failure(tmp):
+    """v2.7.0: قبل هذا الإصلاح كان commit() يحصل مرّة واحدة لكل الدفعة، فأي
+    فشل sqlite بمنتصفها (هنا: من ParameterRegistry) يُسقط الالتزام حتى على
+    الصفوف الناجحة سابقاً بنفس الدفعة — فتُعاد للنشر بالنبضة التالية. نفس
+    فئة عطل ٢٧٩+١٢٠ مرّة الموثَّقة أعلاه، لكن بمسار تحفيزٍ مختلف."""
+    print("\n--- test_batch_commit_per_row_no_replay_on_mid_batch_failure ---")
+    db = os.path.join(tmp, "c15.db")
+    registry_db = os.path.join(tmp, "params_fail.db")
+    _insert(db, "halt", 1000.0)  # الصفّ١: ينجح بسهولة، لا علاقة له بالسجلّ
+    _insert(db, "parameter_approve", 1000.0,
+            payload={"name": "CONFIDENCE_BLEND", "value": 0.5})  # الصفّ٢: سيُفشَّل
+
+    def failing_approve(self, *a, **k):
+        raise sqlite3.OperationalError("simulated registry failure")
+
+    with _temp_registry(registry_db):
+        atom, bus = await _new(db)
+        real_approve = _mod.ParameterRegistry.approve
+        _mod.ParameterRegistry.approve = failing_approve
+        await atom._on_pulse({"official_time": 1001.0})
+        _mod.ParameterRegistry.approve = real_approve
+
+        assert len(_named(bus, EVENT_HALT_REQUEST)) == 1, "الصفّ الناجح نُشر"
+        assert _status_of(db, 1) == "DONE", \
+            "الصفّ الناجح يُختم فوراً، لا ينتظر نجاح الدفعة كلها"
+        assert _status_of(db, 2) == "PENDING", "الصفّ الفاشل وحده يبقى معلَّقاً"
+
+        await atom._on_pulse({"official_time": 1002.0})
+        await atom.stop()
+    # الجوهر: الصفّ الناجح (halt) لا يتكرّر أبداً -- هذا ما يضمنه هذا الإصلاح.
+    assert len(_named(bus, EVENT_HALT_REQUEST)) == 1, \
+        "لا إعادة نشر لأمرٍ سبق تنفيذه بنجاح، مهما فشل غيره بنفس الدفعة"
+    # الصفّ الفاشل نفسه يُعاد بطبيعة الحال (لم يكتمل بعد) -- الحالة المؤكَّدة
+    # بالسجلّ (idempotent عبر command_id) هي الدليل على نجاحه مرّة واحدة فعلاً.
+    assert len(_named(bus, EVENT_PARAMETER_STATE)) == 1, \
+        "الاعتماد الفعلي بالسجلّ يحصل مرّة واحدة بعد نجاح إعادة المحاولة"
+    assert _status_of(db, 2) == "DONE"
+    print("OK — فشل سطرٍ بمنتصف الدفعة لا يُعيد نشر ما نُشر بنجاح قبله بنفس الدفعة")
+
+
 async def test_every_action_has_a_counter(tmp):
     # الجذر: _executed كان نسخة يدويّة من ACTIONS فافترقا. المصدر صار واحدًا.
     print("\n--- test_every_action_has_a_counter ---")
@@ -394,7 +434,10 @@ async def main():
              test_parameter_approve_rejects_undeclared,
              test_tilt_rule_publishes_command,
              test_tilt_rule_allows_empty_and_abs,
-             test_tilt_rule_rejects_invalid]
+             test_tilt_rule_rejects_invalid,
+             test_gate_command_executes_and_closes_row,
+             test_every_action_has_a_counter,
+             test_batch_commit_per_row_no_replay_on_mid_batch_failure]
     failed = []
     # ignore_cleanup_errors: سجل المُعامِلات (sqlite WAL) يُغلق بالـGC لا يدويًّا،
     # وويندوز يرفض حذف ملف بمقبض حي — فشل التنظيف ليس فشل اختبار.

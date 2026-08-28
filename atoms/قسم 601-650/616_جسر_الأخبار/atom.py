@@ -7,7 +7,21 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.3.0"
+ATOM_VERSION = "1.4.0"
+# v1.4.0 (2026-08-27, item 21/27 of the 27-atom review -- same event
+# name, two conflicting shapes between 615 and 616, both publishing
+# market.news by deliberate design: 615's own history (v1.0.0) records
+# the owner's own decision that 615 is a parallel path alongside 616,
+# not a replacement -- 108 stays untouched. This atom's own
+# "symbols" convention (omit when empty, NQ seal item 22 batch A -- see
+# below) turned out to be the more deliberately-reasoned of the two, so
+# 615 was aligned to IT, not the reverse. "written_at" (always sent, even
+# as None) was the one field 615 had more deliberately -- aligned this
+# atom to that. Also namespaced "id" by atom id -- 615 and 616 read
+# separate databases with independent row-id sequences, and the only
+# confirmed consumer (108) dedups by this field; an id collision across
+# the two sources would silently drop a real, distinct headline as a
+# false duplicate.
 
 EVENT_PULSE = "SYS_SECOND"
 EVENT_NEWS = "market.news"
@@ -200,13 +214,21 @@ class Atom(AtomBase):
         row_id = row.get("id")
         if isinstance(row_id, int) and row_id > self._last_news_id:
             self._last_news_id = row_id
+        # v1.4.0: published "id" is namespaced by atom -- 615 reads a
+        # separate database with its own independent row-id sequence, and
+        # the only confirmed consumer (108) dedups by this field.
+        published_id = "616:%s" % row_id if row_id is not None else None
         published_at = _to_float(row.get("published_at"))
         body: dict[str, Any] = {
-            "id": row_id, "headline": row.get("headline"), "link": row.get("link"),
+            "id": published_id, "headline": row.get("headline"), "link": row.get("link"),
             "source": row.get("source"),
             "sentiment_score": _to_float(row.get("sentiment_score")),
             "impact_level": row.get("impact_level") or IMPACT_UNKNOWN,
             "published_at": published_at}
+        # NQ seal, item 22 batch A: absent column = absent field, not a
+        # claimed empty list -- absence of knowledge is not a claim of
+        # "zero symbols". Kept as the reference convention for this field
+        # (item 21/27 of the 27-atom review aligned 615 to it instead).
         symbols = _symbols_of(row.get("symbols"))
         if symbols:
             body["symbols"] = symbols
@@ -217,9 +239,7 @@ class Atom(AtomBase):
         # minutes" question. Measured on the bridge table: 20 of 214 rows carry
         # no publish time. When it is unknown the event has NO time: written_at
         # rides along under its own name so nothing is lost and nothing lies.
-        written_at = _to_float(row.get("written_at"))
-        if written_at is not None:
-            body["written_at"] = written_at
+        body["written_at"] = _to_float(row.get("written_at"))
         if published_at is not None:
             body["timestamp"] = published_at
         self._news_published += 1

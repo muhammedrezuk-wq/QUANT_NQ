@@ -144,10 +144,14 @@ class Atom(AtomBase):
         self.results_acked = 0
         self.results_failed = 0
         self.identity_incomplete = 0
+        # م-34: مسار مؤشر قابل للضبط — الافتراضي كما كان، والاختبارات وقواعد
+        # أخرى تعزله لكل قاعدة فلا يبتلع مؤشرُ قاعدةٍ نتائجَ أخرى.
+        self._cursor_db = _CURSOR_DB
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
         configured = str(context.config["account_id"]).strip()
+        self._cursor_db = str(context.config.get("cursor_db") or _CURSOR_DB).strip() or _CURSOR_DB
         env_account = os.environ.get("NQ_ACCOUNT_ID", "").strip()
         self._configured_account_id = configured
         self._current_account_mode = not env_account and configured.upper() in {"CURRENT", "CURRENT_ACCOUNT", "AUTO_CURRENT"}
@@ -351,19 +355,19 @@ class Atom(AtomBase):
                 # v4.2.0: المؤشر الدائم أولًا — يستأنف من حيث توقفت آخر حياة
                 # فتُنشر نتائج فترة الغياب بدل ابتلاعها. أول تشغيل على
                 # الإطلاق فقط يتأسس عند الذيل ويُثبت دائمًا.
-                durable = _load_durable_cursor(_CURSOR_DB)
+                durable = _load_durable_cursor(self._cursor_db)
                 if durable is not None:
                     self._result_cursor = durable
                 else:
                     row = conn.execute("SELECT COALESCE(MAX(done_at),0),COALESCE(MAX(id),0) FROM commands"
                         f" WHERE done_at IS NOT NULL AND account_id IN ({marks})", accounts).fetchone()
                     self._result_cursor = (float(row[0] or 0.0), int(row[1] or 0))
-                    _save_durable_cursor(_CURSOR_DB, self._result_cursor)
+                    _save_durable_cursor(self._cursor_db, self._result_cursor)
                     return []
             elif not self._cursor_reconciled:
                 # لقطة مستعادة: الأبعد بين اللقطة والدائم يمنع إعادة النشر
                 # المزدوج وابتلاع الفجوة معًا.
-                durable = _load_durable_cursor(_CURSOR_DB)
+                durable = _load_durable_cursor(self._cursor_db)
                 if durable is not None and durable > self._result_cursor:
                     self._result_cursor = durable
             self._cursor_reconciled = True
@@ -405,7 +409,7 @@ class Atom(AtomBase):
                         **body, "reason": "UNKNOWN_RESULT_STATUS_%s" % str(status or "")})
             # v4.2.0: المؤشر يثبت دائمًا بعد كل دفعة منشورة.
             if rows and self._result_cursor is not None:
-                _save_durable_cursor(_CURSOR_DB, self._result_cursor)
+                _save_durable_cursor(self._cursor_db, self._result_cursor)
         finally:
             self._results_busy = False
 

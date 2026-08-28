@@ -253,6 +253,79 @@ async def test_health():
     print("OK — الصحة تتدرّج UNHEALTHY→HEALTHY(جاهز، صفر مدخل)→HEALTHY(يعمل)")
 
 
+async def test_direct_path_unguarded_stop_is_caught_by_584_downstream():
+    """Item 22/27 of the 27-atom review ("2 payload shapes + an unguarded
+    stop on one path -- adjusted later by 584"): _direct_order() builds an
+    order from an already-priced/sized validated payload with ZERO
+    validation on stop_loss -- payload.get("stop_loss") passes straight
+    through, even as None or on the wrong side of reference_price (the
+    sized path DOES validate this via risk_dist <= 0.0; the direct path
+    never does). Traced the real pipeline wiring in the manifests, not
+    assumed: 552 and 601 (the atom that actually writes to the broker
+    bridge) subscribe only to 584's execution.order.legal /
+    trading.final_decision -- never to this atom's raw
+    execution.order.built. So 584 genuinely gates real execution; this
+    end-to-end test proves it with the real 551+584 code, not a
+    hand-simulated payload."""
+    print("\n--- test_direct_path_unguarded_stop_is_caught_by_584_downstream ---")
+    import importlib.util as ilu
+    root584 = _Path(__file__).resolve().parents[2] / "584_شرعية_الستوب"
+    spec584 = ilu.spec_from_file_location("_cross22_584", root584 / "atom.py")
+    mod584 = ilu.module_from_spec(spec584)
+    sys.modules["_cross22_584"] = mod584
+    spec584.loader.exec_module(mod584)
+
+    class _DispatchBus:
+        def __init__(self):
+            self.published = []
+            self._handlers = {}
+
+        def subscribe(self, name, handler):
+            self._handlers.setdefault(name, []).append(handler)
+
+        async def publish(self, name, payload):
+            self.published.append((name, payload))
+            for h in list(self._handlers.get(name, [])):
+                await h(payload)
+
+        def make_context(self, atom_id, config):
+            return AtomContext(atom_id=atom_id, config=config, logger=_NullLogger(),
+                               publish=self.publish, subscribe=self.subscribe)
+
+    bus = _DispatchBus()
+    atom551 = Atom()
+    await atom551.initialize(bus.make_context(551, dict(CFG)))
+    await atom551.start()
+
+    atom584 = mod584.Atom()
+    await atom584.initialize(bus.make_context(584, {"stop_buffer": 0, "reward_risk": 2.0}))
+    await atom584.start()
+    await atom584._on_specs({"symbols": [{"account_id": "ACC", "symbol": "NQ100",
+                                          "point": 1.0, "stops_level": 2,
+                                          "volume_min": 0.1, "volume_step": 0.1,
+                                          "volume_max": 10}]})
+
+    # مسار مباشر: الحمولة تحمل volume+reference_price جاهزَين، فـ_direct_order
+    # تبني الأمر بلا أي نظرة على stop_loss إطلاقاً -- مُسقَط عمدًا هنا.
+    direct_payload = {
+        "request_id": "R-direct", "account_id": "ACC", "broker": "BR",
+        "symbol": "NQ100", "side": "BUY", "action": "OPEN",
+        "approved": True, "reason": "", "kill_switch_state": False,
+        "volume": 1.0, "reference_price": 100.0,
+    }
+    await atom551._on_validated(direct_payload)
+
+    built = [p for n, p in bus.published if n == EVENT_OUT]
+    assert built and built[-1]["stop_loss"] is None, (
+        "551 يجب أن يبني الأمر بلا أي تحقّق من الستوب على المسار المباشر: %r" % built)
+    legal = [p for n, p in bus.published if n == mod584.EVENT_LEGAL]
+    rejected = [p for n, p in bus.published if n == mod584.EVENT_REJECTED]
+    assert not legal, "584 لا يجوز أن يُجيز أمراً بستوب غائب: %r" % legal
+    assert rejected and rejected[-1]["reason"] == "INCOMPLETE_ORDER", (
+        "584 يجب أن يرفض الأمر (ستوب غائب) قبل trading.final_decision: %r" % rejected)
+    print("OK — ستوب المسار المباشر غير المحروس بـ٥٥١ يُرفَض فعليًّا بـ٥٨٤ قبل التنفيذ الحقيقي")
+
+
 async def main():
     tests = [test_build_buy, test_build_sell, test_skip_not_approved,
              test_skip_no_size, test_skip_bad_stop_side, test_health,
@@ -262,7 +335,8 @@ async def main():
              test_skip_no_size_without_upstream_reason_stays_honest,
              test_size_rejection_cleared_by_fresh_size,
              test_skip_carries_decision_identity,
-             test_skip_identity_absent_stays_none]
+             test_skip_identity_absent_stays_none,
+             test_direct_path_unguarded_stop_is_caught_by_584_downstream]
     failed = []
     for t in tests:
         try:

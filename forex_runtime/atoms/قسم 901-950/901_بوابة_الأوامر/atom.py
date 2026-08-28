@@ -13,7 +13,7 @@ from shared.live_analysis import TUNABLE_SETTINGS as _ANALYSIS_TUNABLE_TUPLE
 from shared.parameter_registry import DECLARED as _DECLARED_PARAMETERS
 from shared.parameter_registry import SOURCE_OWNER, ParameterRegistry
 
-ATOM_VERSION = "2.6.0"
+ATOM_VERSION = "2.7.0"
 
 # Owner stamp 2026-08-21: the analyser dial list is owned by the calibration
 # store, not copied here. A hardcoded triple was silently rejecting the three
@@ -103,6 +103,13 @@ _SCHEMA = (
 
 
 def _to_float(value: Any) -> float | None:
+    # v2.7.0: bool is an int subclass, so float(True)==1.0 used to pass every
+    # numeric field this feeds (budget, weights, dial/parameter values...) --
+    # a malformed "budget": true payload was silently accepted as 1.0.
+    # _finite_number already excluded bool for the same reason; now so does
+    # this one, since it is the one actually used across command validation.
+    if isinstance(value, bool):
+        return None
     try:
         result = float(value)
     except (TypeError, ValueError):
@@ -221,15 +228,26 @@ class Atom(AtomBase):
                 "SELECT id, action, operator, requested_at, payload_json FROM commands "
                 "WHERE status = ? ORDER BY id LIMIT ?",
                 (STATUS_PENDING, self._batch_limit)).fetchall()
-            for row in rows:
-                await self._handle(conn, row, now)
-            if rows:
-                conn.commit()
-                self._state_dirty = True
         except sqlite3.Error as exc:
             self._last_error = str(exc)
             self._conn = None
             return
+        # v2.7.0: commit each row the instant it's handled, not once for the
+        # whole batch. A failure partway through used to roll back every row
+        # already published earlier in the SAME pulse -- they were then
+        # re-published on the next one, since the DB still read PENDING for
+        # them too. Measured root cause of the historical regression this
+        # atom's own test suite documents (test_gate_command_executes_and_
+        # closes_row: a gate command re-fired 279 then 120 times in a day).
+        for row in rows:
+            try:
+                await self._handle(conn, row, now)
+                conn.commit()
+            except sqlite3.Error as exc:
+                self._last_error = str(exc)
+                self._conn = None
+                return
+            self._state_dirty = True
         self._last_error = ""
         if self._state_dirty:
             self._state_dirty = False

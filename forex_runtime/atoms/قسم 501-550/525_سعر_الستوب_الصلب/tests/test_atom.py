@@ -186,10 +186,28 @@ async def test_health():
     print("OK — الصحة: UNHEALTHY→DEGRADED→HEALTHY")
 
 
+async def test_zero_min_abs_v_net_config_does_not_crash_on_flat_position():
+    """v2.1.0: min_abs_v_net=0 مسموح بالمخطّط القديم (minimum: 0) — قراءة
+    طبيعية لإعداد يظنّه صاحبه «بلا تصفية». يحوّل حارس FLAT_NO_PRICE_STOP
+    إلى abs(v_net) < 0 (لا يصحّ أبداً)، فيصل v_net=0.0 الحقيقي للقسمة
+    مباشرة. أرضية صلبة غير قابلة للإعداد يجب أن تحمي بصرف النظر."""
+    print("\n--- test_zero_min_abs_v_net_config_does_not_crash_on_flat_position ---")
+    bus = FakeEventBus()
+    atom = Atom()
+    await atom.initialize(bus.make_context({"min_abs_v_net": 0}))
+    await atom.start()
+    await _specs(atom)
+    await _feed(atom, _led("XAUUSD", 0.0, 0.0, budget=50.0))
+    s = _stop(bus, "XAUUSD")
+    assert s["computable"] is False and s["reason"] == "FLAT_NO_PRICE_STOP", s
+    print("OK — v_net=0.0 مع min_abs_v_net=0 المُعَدّ: لا انهيار، FLAT_NO_PRICE_STOP صريح")
+
+
 async def main():
     tests = [test_long_stop_basic, test_counter_profit_widens_stop, test_short_stop,
              test_vpu_scaling, test_commission_tightens_stop, test_flat_no_price_stop,
-             test_no_specs, test_no_budget, test_health]
+             test_no_specs, test_no_budget, test_health,
+             test_zero_min_abs_v_net_config_does_not_crash_on_flat_position]
     failed = []
     for t in tests:
         try:
