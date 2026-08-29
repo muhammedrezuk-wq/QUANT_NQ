@@ -52,6 +52,13 @@ export default function Senses() {
     return () => window.clearInterval(h)
   }, [])
 
+  // أمر المالك ٢٠٢٦-٠٨-٢٩: «فيها محذوف ظاهر».
+  // عشر ذرّات من هذا السجلّ `startup_mode: manual` — والمحمّل يحذفها من جدول
+  // التشغيل عند الإقلاع فلا تُسجَّل أصلًا. كانت بطاقاتها تُرسم فارغة («—»)
+  // فتبدو ذرّةً معطوبة، وهي ليست معطوبة ولا مشغَّلة: هي **مستبعَدة**.
+  // فلا تُرسم بطاقة لغير محمَّل — ويُعلَن عددها وأسماؤها بسطر صريح تحت،
+  // كي لا يكون الإخفاء كذبًا بالصمت.
+  const loaded = (id: number) => atoms[id] != null
   const dot = (id: number) => {
     const st = atoms[id]?.health?.state
     return st === 'healthy' ? 'var(--green)' : st === 'degraded' ? 'var(--amber)' : st ? 'var(--red)' : 'var(--dim)'
@@ -66,7 +73,7 @@ export default function Senses() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 10 }}>
-        {SENSES.map(([no, id, name, layer]) => (
+        {SENSES.filter(([, id]) => loaded(id)).map(([no, id, name, layer]) => (
           <div key={id} style={{ border: '1px solid var(--glassb)', borderRadius: 10, padding: 10, display: 'grid', gap: 3 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span className="num" style={{ color: 'var(--dim)', fontSize: 11, width: 20 }}>{String(no).padStart(2, '0')}</span>
@@ -78,7 +85,7 @@ export default function Senses() {
             <div style={{ color: 'var(--dim)', fontSize: 11, paddingInlineStart: 28 }}>{id} · {msg(id) || '—'}</div>
           </div>
         ))}
-        {MICRO.map(([id, name]) => (
+        {MICRO.filter(([id]) => loaded(id)).map(([id, name]) => (
           <div key={id} style={{ border: '1px solid var(--glassb)', borderRadius: 10, padding: 10, display: 'grid', gap: 3, opacity: .95 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ width: 8, height: 8, borderRadius: 8, background: dot(id), display: 'inline-block' }} />
@@ -89,9 +96,22 @@ export default function Senses() {
             <div style={{ color: 'var(--dim)', fontSize: 11, paddingInlineStart: 16 }}>{id} · {msg(id) || '—'}</div>
           </div>
         ))}
-        <div style={{ border: '1px dashed var(--glassb)', borderRadius: 10, padding: 10, color: 'var(--dim)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>🚫 16 تزامن السوق (2160) — محذوفة إلزامياً بالخريطة</span>
-        </div>
+        {SENSES.filter(([, id]) => !loaded(id)).concat(
+          MICRO.filter(([id]) => !loaded(id)).map(([id, name]) => [0, id, name, ''] as [number, string, string, string]),
+        ).length ? (
+          <div style={{ border: '1px dashed var(--glassb)', borderRadius: 10, padding: 10, display: 'grid', gap: 4 }}>
+            <b style={{ fontSize: 13, color: 'var(--dim)' }}>حواسّ مستبعَدة من التشغيل</b>
+            <div style={{ color: 'var(--dim)', fontSize: 11 }}>
+              موجودة بالشجرة وبملفّ أحمد، لكن إعدادها <code>startup_mode: manual</code> —
+              فالمحمّل يستبعدها عند الإقلاع ولا تُسجَّل. ليست معطوبة، وليست شغّالة.
+            </div>
+            <div style={{ color: 'var(--dim)', fontSize: 11 }}>
+              {SENSES.filter(([, id]) => !loaded(id)).map(([, id, name]) => `${name} (${id})`)
+                .concat(MICRO.filter(([id]) => !loaded(id)).map(([id, name]) => `${name} (${id})`))
+                .join(' · ')}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div style={card}>

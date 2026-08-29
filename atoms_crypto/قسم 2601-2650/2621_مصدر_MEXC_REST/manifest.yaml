@@ -79,6 +79,7 @@ config:
   - UNI_USDT
   - ZRO_USDT
   timeframes:
+  - Day1
   - Min1
   - Min5
   - Min15
@@ -87,7 +88,7 @@ config:
   ticker_poll_s: 5
   depth_poll_s: 5
   depth_limit: 100
-  warmup_bars: 600
+  warmup_bars: 200
   max_age_s: 60
 metadata:
   max_idle_s: 120

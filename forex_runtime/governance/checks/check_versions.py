@@ -15,10 +15,24 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from build_registry.paths import RegistryAtomRoot
 ATOMS = RegistryAtomRoot(ROOT)
-CORE_API = "http://127.0.0.1:8010/api/atoms"
+# منفذ نواة السوق الجاري — نكشة ٢٠٢٦-٠٨-٢٩: كان 8010 مسمَّرًا، فزرّ هذا الفحص
+# بلوحة الكريبتو كان يسأل نواة **الفوركس** ويعرض أرقامها. الافتراض يبقى فوركس.
+def _core_api() -> str:
+    import os
+    market = str(os.environ.get("QUANT_GOV_MARKET", "forex")).strip().lower()
+    return "http://127.0.0.1:%d/api/atoms" % (8020 if market == "crypto" else 8010)
+
+
+CORE_API = _core_api()
 
 RE_CODE = re.compile(r'^ATOM_VERSION\s*=\s*"(\d+\.\d+\.\d+)"', re.M)
-RE_MAN = re.compile(r'^version:\s*"(\d+\.\d+\.\d+)"', re.M)
+# ٢٠٢٦-٠٨-٢٩ — نكشة مقيسة: كان النمط يشترط علامتَي تنصيص حول النسخة.
+# منيفستات الكريبتو تكتبها بلا تنصيص (`version: 2.0.1`) وكذلك 37 منيفست فوركس،
+# فكان `man_m` يعود None فلا يتحقّق شرط الاختلاف أبدًا. النتيجة: الفحص أعلن
+# «checked=84 mismatches=0» و«كل نسخة معلَنة تقول حقيقة واحدة» — وهو لم يقارن
+# ولا نسخة كريبتو واحدة. 121 ذرّة (84 كريبتو + 37 فوركس) كانت عمياء عنه.
+# الفحص الذي يمرّ أخضر وهو أعمى أسوأ من غياب الفحص. التنصيص صار اختياريًّا.
+RE_MAN = re.compile(r"""^version:\s*['"]?(\d+\.\d+\.\d+)['"]?\s*$""", re.M)
 
 
 def runtime_versions() -> dict[int, str]:

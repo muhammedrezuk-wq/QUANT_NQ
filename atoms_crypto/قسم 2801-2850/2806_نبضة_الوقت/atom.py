@@ -6,7 +6,7 @@ import math
 import clock
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "3.0.2"
+ATOM_VERSION = "3.0.3"
 SOURCE_LOCAL = "LOCAL_CLOCK"
 SOURCE_NTP = "NTP_SYNCED"
 _SECOND_S = 1.0

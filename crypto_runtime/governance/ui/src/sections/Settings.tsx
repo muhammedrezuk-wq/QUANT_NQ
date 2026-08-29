@@ -6,6 +6,7 @@
 // عبر بوّابة الأوامر (تأكيد بخطوتين action=decision_setting)، وتحديث حي من decision.settings.state.
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../core/store'
+import { useMarket } from '../core/market'
 import { settingLabel } from '../core/settingLabels'
 import { confirmedCommand } from '../core/commands'
 import { SECTIONS } from '../core/sections'
@@ -700,12 +701,19 @@ export default function Settings() {
   const atoms = useStore((s) => s.atoms)
   const [id, setId] = useState<number | ''>('')
   const options = useMemo(() => Object.values(atoms).sort((a, b) => a.id - b.id), [atoms])
+  // أمر المالك ٢٠٢٦-٠٨-٢٩: «شيل هدول من الإعدادات».
+  // «عيارات القرار» و«سرعة التحليل لكل أصل» و«المُعامِلات المعلنة» ثلاثتها
+  // سجلّات فوركسيّة (shared/decision_dials.py كلّه ذرّات فوركس، و/gov/parameters
+  // يردّ available=false على الكريبتو) — فكانت تظهر بقسم أسمر بطاقاتٍ فارغة
+  // بنصوص فوركس. تُخفى هنا بحسب السوق، ولا يتغيّر شيء بالفوركس.
+  const market = useMarket()
+  const governedDials = market === 'forex'
 
   return (
     <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <DecisionDialsCard />
+      {governedDials ? <DecisionDialsCard /> : null}
       {/* بند ٢٢/أ٧ — المُعامِلات المعلنة: تحت عيارات القرار، نفس النمط */}
-      <DeclaredParametersCard />
+      {governedDials ? <DeclaredParametersCard /> : null}
       {/* بند ١٥ — لوحة تخصيص الشكل: مبنيّة حول بطاقة «عيارات القرار» لا فوقها */}
       <AppearancePanel />
       <select className="search" value={id} onChange={(e) => setId(e.target.value === '' ? '' : Number(e.target.value))}>

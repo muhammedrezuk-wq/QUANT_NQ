@@ -1,8 +1,35 @@
 // السكربتات (865) — أدوات فحص حقيقية بضغطة زر (منفذ حقيقي: /gov/tool/*).
 // كلها قراءة/فحص — ولا وحدة بتغيّر شي بالنظام. الخام معروض جنب الترجمة (لا كذب).
 import { useEffect, useState } from 'react'
+import { useMarket } from '../core/market'
 
 interface ToolResult { ok: boolean; code: number; output: string }
+
+// ═══ فحوصات قسم أسمر (الكريبتو) — أمر المالك ٢٠٢٦-٠٨-٢٩ ═══
+// TOOLS كلّها عقود فوركس؛ قسم الكريبتو كان بلا فحص يخصّه. هذه تقيس ما يخصّه
+// وحده، وتظهر بقسمه فقط — كما أنّ فحوص الفوركس تبقى بقسم الفوركس وحده.
+const CRYPTO_TOOLS: Array<{ id: string; title: string; desc: string; slow?: boolean }> = [
+  {
+    id: 'crypto_feed', title: 'فحص تغذية الكريبتو الحيّة', slow: true,
+    desc: 'يراقب أرقام مصادر MEXC وBinance وسجلّ الرموز على نافذة مشتقّة من دورة كل مصدر، ويطالب بأن تتحرّك فعلًا — الأخضر الساكن ليس نجاحًا. ويفرّق بين العدّاد التراكمي والمستوى الثابت.',
+  },
+  {
+    id: 'crypto_chain', title: 'فحص سلسلة الاستراتيجية (حتى بطاقة الإشارة)',
+    desc: 'يمشي على حلقات السلسلة العشر من حواسّ الجلسة حتى بطاقة الإشارة ويقول أين وقفت. يفرّق صراحةً بين حلقة مقطوعة (عطل) وحلقة تنتظر مدخلها (سكوت السوق — ليس عطلًا).',
+  },
+  {
+    id: 'crypto_isolation', title: 'فحص عزل الكريبتو عن الفوركس',
+    desc: 'سبعة حواجز مقيسة: شجرتان منفصلتان · لا تصادم معرّفات · مخزنان مختلفان بعد فكّ وصلات ويندوز · نواتان بمنفذين · لا ذرّة فوركس محمّلة بنواة الكريبتو · ولا عيار قرار فوركسيّ بلوحته.',
+  },
+  {
+    id: 'crypto_manual', title: 'فحص أنّ التنفيذ بشريّ (لا تداول آليّ)',
+    desc: 'حاجز أمان: لا ذرّة كريبتو تَنشر أمر تنفيذ، ولا واحدة تكتب أمرًا على وسيط، ومُخرَج السلسلة بطاقة اقتراح لا أمر. أي خرق يعني أنّ صفقة قد تُفتح بلا يد إنسان.',
+  },
+  {
+    id: 'crypto_ahmad', title: 'فحص مطابقة شجرة أحمد', slow: true,
+    desc: 'يقارن شجرتنا بملفّ أحمد المُسلَّم بايتًا ببايت ويسمّي كل اختلاف. الفرقان المعلَنان بورقة التسليم يمرّان خضراء؛ وأي فرق غير معلَن يُفشل الفحص. غياب نسخة أحمد يُعلَن ولا يُعدّ نجاحًا.',
+  },
+]
 
 const TOOLS: Array<{ id: string; title: string; desc: string; slow?: boolean }> = [
   {
@@ -259,6 +286,15 @@ function summarize(id: string, r: ToolResult): { text: string; good: boolean; wa
       ? { text: '🟢 الفحص ناجح', good: true }
       : { text: '🛑 الفحص فشل', good: false }
   }
+  if (id.startsWith('crypto_')) {
+    // فحوص أسمر تكتب حكمها بآخر سطر معلَّم — تُعرض كما هي بلا إعادة صياغة،
+    // ولها حالة ثالثة صادقة: 🟠 «سليم بنيويًّا وواقف بانتظار مدخله» ليست فشلًا.
+    const lines = out.split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean)
+    const last = [...lines].reverse().find((l) => /^(🟢|🛑|🟠)/.test(l))
+    if (!last) return { text: r.ok ? '🟢 خلصت بنجاح' : `🛑 فشلت (رمز ${r.code})`, good: r.ok }
+    if (last.startsWith('🟠')) return { text: last, good: false, warn: true }
+    return { text: last, good: r.ok && last.startsWith('🟢') }
+  }
   return r.ok
     ? { text: '🟢 خلصت بنجاح', good: true }
     : { text: `🛑 فشلت (رمز ${r.code})`, good: false }
@@ -403,11 +439,39 @@ function RescanCard() {
 }
 
 export default function Scripts() {
+  const market = useMarket()
+  const crypto = market === 'crypto'
+  // فحوص العقود الفوركسيّة (405 · 409 · التحوّط · الجسر · سي-تريدر…) لا معنى لها
+  // بقسم أسمر، وفحوص أسمر لا معنى لها بالفوركس. المشتركة (الختم · المدقّق ·
+  // الملفّات · الإقلاع · الأمان · الصحّة) تبقى للسوقين.
+  const SHARED = ['seal', 'validator', 'tests', 'governance', 'files', 'events',
+    'boot', 'project', 'security', 'health', 'versions', 'storagecap', 'snapbutton']
+  const list = crypto ? TOOLS.filter((t) => SHARED.includes(t.id)) : TOOLS
+
   return (
     <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 14, overflow: 'auto' }}>
       <BackupCard />
       <RescanCard />
-      {TOOLS.map((t) => <ToolCard key={t.id} {...t} />)}
+      {crypto ? (
+        <>
+          <div className="scard">
+            <div className="st" style={{ fontWeight: 700 }}>فحوصات قسم أسمر (الكريبتو)</div>
+            <div className="ss dim">
+              تقيس ما يخصّ هذا السوق وحده: تغذيته · سلسلة استراتيجيّته · عزله عن الفوركس ·
+              بشريّة تنفيذه · ومطابقته لملفّ أحمد. كلّها قراءة فقط على النظام الحيّ.
+            </div>
+          </div>
+          {CRYPTO_TOOLS.map((t) => <ToolCard key={t.id} {...t} />)}
+          <div className="scard">
+            <div className="st" style={{ fontWeight: 700 }}>فحوص عامّة (تصلح للسوقين)</div>
+            <div className="ss dim">
+              فحوص العقود الفوركسيّة (405 · 409 · التحوّط · جسر ميتاتريدر · سي-تريدر…)
+              مخفيّة هنا لأنّها لا تقيس شيئًا بهذا السوق — مكانها قسم الفوركس.
+            </div>
+          </div>
+        </>
+      ) : null}
+      {list.map((t) => <ToolCard key={t.id} {...t} />)}
       <div className="ss dim">
         فحوص الحوكمة والملفات والأحداث والإقلاع والأمان قراءة فقط · ما بتعرض أي قيمة سرية · الاختبارات قد تأخذ دقائق · الترجمة فوق والنتيجة الخام بزر «ورّيني الخام».
       </div>

@@ -454,6 +454,17 @@ class Atom(AtomBase):
             rejected: list[dict[str, Any]] = []
             for row in rows:
                 reasons = self._evaluate(row)
+                # حكم المالك ٢٠٢٦-٠٨-٢٩: «أدخلت BNB_USDT ⇒ مباشرةً تدخل على
+                # تحليل، مو بس مدخل نظري». كان ALLOW يُقبَل بالتحقّق ولا أثر له
+                # في `_evaluate` إطلاقًا (DENY وحده مُنفَّذ) — فزرّ «إدخال»
+                # يسجّل تجاوزًا ولا يُدخل شيئًا. الآن ALLOW يُدخل الرمز فعلًا.
+                # والأقفال التي تجاوزها **لا تُمحى**: تُنقل إلى `manual_allow_bypassed`
+                # فتظهر على اللوحة باسمها ورقمها. إدخالٌ بأمر المالك فوق الفرز،
+                # لا إخفاءٌ لما قاله الفرز.
+                if reasons and str(self._manual_overrides.get(row["symbol"], {})
+                                   .get("decision") or "").upper() == "ALLOW":
+                    row["manual_allow_bypassed"] = reasons
+                    reasons = []
                 if reasons:
                     rejected.append({"symbol": row["symbol"], "reasons": reasons, "metrics": row})
                 else:

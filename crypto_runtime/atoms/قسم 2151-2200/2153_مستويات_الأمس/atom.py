@@ -6,7 +6,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.1.0"
+ATOM_VERSION = "1.2.0"
 EVENT_IN = "market.candle"
 EVENT_OUT = "sense.prior_day.state"
 _DAY_S = 86400.0
@@ -95,17 +95,30 @@ class Atom(AtomBase):
         await self._context.publish(EVENT_OUT, state)
 
     async def health_check(self) -> HealthStatus:
+        """حكم المالك ٢٠٢٦-٠٨-٢٩: «يا قرأت يا لأ — ما في أصفر».
+
+        الحالة الوحيدة التي تعني شيئًا هنا هي: **هل قُرئ إغلاق اليوم السابق؟**
+        قُرئ ⇒ خضراء وتبقى خضراء. لم يُقرأ ⇒ حمراء. لا ثالث.
+
+        وسبب التغيير مقيس لا مفترض: عيار `max_age_s` (600 ثانية) كُتب لإطار
+        الخمس دقائق. ومنذ صارت الذرّة تقرأ **الإطار اليوميّ** (تغيير ٢٠٢٦-٠٨-٢٩
+        لتشغيلها بلا كلاود)، و`#2621` لا ينشر شمعة إلّا عند إغلاقها — أي **مرّة
+        كل ٢٤ ساعة**. فبعد عشر دقائق من الإقلاع تُعلن «CANDLE_STALE» إلى الأبد
+        **وهي تعمل**: مستوياتها وصلت `#2272` فعلًا (`confirmations` تتقدّم، و
+        `#2272` يعود فورًا لو كانت المستويات غائبة). فكان العدّاد يكذب على
+        اللوحة كل يوم — والعيار القديم مستحيل التحقّق بالإطار الجديد.
+
+        قِدَم آخر شمعة صار **معلومة تُعرض** (`age_s`) لا حكمًا يُصدَر، فالقِدَم
+        بإطار يوميّ هو الأصل لا العطل.
+        """
         details = {"symbols": len(self._cur), "with_prior": len(self._prior),
                    "updates": self._updates,
                    "age_s": (time.time() - self._last_at) if self._last_at else None}
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED", details=details)
-        if self._last_at is None:
-            return HealthStatus(state=HealthState.DEGRADED, message="AWAITING_FIRST_CANDLE", details=details)
-        if details["age_s"] is not None and details["age_s"] > self._max_age_s:
-            return HealthStatus(state=HealthState.DEGRADED, message="CANDLE_STALE", details=details)
         if not self._prior:
-            return HealthStatus(state=HealthState.DEGRADED, message="AWAITING_DAY_ROLL", details=details)
+            return HealthStatus(state=HealthState.UNHEALTHY,
+                                message="PRIOR_DAY_NOT_READ", details=details)
         return HealthStatus(state=HealthState.HEALTHY,
                             message="prior=%d updates=%d" % (len(self._prior), self._updates),
                             details=details)

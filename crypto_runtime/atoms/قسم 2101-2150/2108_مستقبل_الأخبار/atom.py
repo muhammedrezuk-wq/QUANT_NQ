@@ -5,7 +5,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "2.0.0"
+ATOM_VERSION = "2.0.1"
 
 EVENT_OUT = "market_data.news_received"
 

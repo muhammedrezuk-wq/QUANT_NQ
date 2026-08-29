@@ -10,7 +10,10 @@ interface Boot {
   started_at: number; finished_at: number; success: boolean
   booted: number[]; failed: number[]; excluded: number[]; scan_failures: unknown[]
 }
-interface Wiring { pubs?: Record<string, number[]>; subs?: Record<string, number[]> }
+interface Wiring {
+  pubs?: Record<string, number[]>; subs?: Record<string, number[]>
+  foreign_pubs?: string[]; foreign_market?: string
+}
 
 // أحداث النبض/الساعة — وصولها لا يعني «وصلها مدخل شغل»، وإلا انفلَغت كل الذرات الدورية
 const PULSE = new Set(['SYS_SECOND', 'SYS_DAY', 'kernel.clock.heartbeat', 'time.utc.synced'])
@@ -89,16 +92,26 @@ export default function Diag() {
     }
 
     // الوصلات المكسورة على مستوى النظام كله
+    // ٢٠٢٦-٠٨-٢٩ (ختم NQ): ذرّات الكريبتو مَنقولة عن الفوركس، فحملت معها
+    // اشتراكات بأحداث منصّة/تنفيذ فوركسيّة لا ناشر لها هنا ولن يكون
+    // (لا MT5 ولا cTrader ولا تنفيذ آليّ — تنفيذ الكريبتو بشريّ على MEXC).
+    // كانت تُعرض كـ«وصلات مكسورة» فيبدو قسم أسمر مليئًا بالفوركس.
+    // تُفرَز الآن في مجموعة مُعلَنة: غيابها صحيح بالتصميم، لا عطل — ولا تُخفى.
+    const foreign = new Set(wiring.foreign_pubs ?? [])
+    const foreignMarket = wiring.foreign_market === 'crypto' ? 'الكريبتو' : 'الفوركس'
     const noPublisher: Array<{ ev: string; who: number[] }> = []
+    const inheritedForex: Array<{ ev: string; who: number[] }> = []
     for (const [ev, ids] of Object.entries(subs)) {
-      if (!(pubs[ev]?.length) && !PULSE.has(ev) && !ev.startsWith('core.')) noPublisher.push({ ev, who: ids })
+      if ((pubs[ev]?.length) || PULSE.has(ev) || ev.startsWith('core.')) continue
+      if (foreign.has(ev)) inheritedForex.push({ ev, who: ids })
+      else noPublisher.push({ ev, who: ids })
     }
     const noListener: string[] = []
     for (const [ev, ids] of Object.entries(pubs)) {
       if (ids.length && !(subs[ev]?.length)) noListener.push(ev)
     }
     const forDashboard = (e: string) => /\.state$|\.snapshot$|\.synced$|\.collected$|\.updated$|\.completed$/.test(e)
-    return { groups, spokeCount: spoke.size, noPublisher, noListener: noListener.filter((e) => !forDashboard(e)) }
+    return { groups, spokeCount: spoke.size, noPublisher, inheritedForex, foreignMarket, noListener: noListener.filter((e) => !forDashboard(e)) }
   }, [wiring, atoms, flows, namesAr])
 
   const bootMs = b ? Math.round((b.finished_at - b.started_at) * 1000) : null
@@ -150,6 +163,28 @@ export default function Diag() {
               </div>
             ) : null}
           </div>
+
+          {/* اشتراكات فوركس موروثة — تُعلَن ولا تُخفى، ولا تُحسب عطلًا (٢٠٢٦-٠٨-٢٩) */}
+          {analysis.inheritedForex.length ? (
+            <div className="scard">
+              <div className="st">اشتراكات موروثة عن {analysis.foreignMarket} — خارج عمل هذا السوق ({analysis.inheritedForex.length})</div>
+              <div className="ss dim">
+                هذه الذرّات منقولة عن {analysis.foreignMarket}، فحملت معها اشتراكات بأحداث
+                <b> لا يَنشرها إلا ذاك السوق</b> (قِيس بالاسم من شجرة ذرّاته، لا بتخمين).
+                لا ناشر لها هنا ولن يكون. <b>غيابها صحيح بالتصميم، لا عطل:</b>
+                اشتراك بحدث لا يُنشَر لا يُستدعى أبدًا — صفر كلفة وصفر أثر.
+              </div>
+              <details style={{ marginTop: 6 }}>
+                <summary className="ss dim" style={{ cursor: 'pointer' }}>عرض التفصيل</summary>
+                {analysis.inheritedForex.map(({ ev, who }) => (
+                  <div key={ev} className="ss dim" style={{ fontSize: 12 }}>
+                    ● {streamAr(ev) === ev ? <>«{ev}»</> : <>{streamAr(ev)} <span className="dim">(«{ev}»)</span></>}
+                    {' '}← {who.slice(0, 4).map(nameOf).join(' · ')}
+                  </div>
+                ))}
+              </details>
+            </div>
+          ) : null}
 
           <div className="scard">
             <div className="st">لماذا الصمت؟ — تصنيف كل ذرة ساكتة بسببها (القياس منذ فتح اللوحة)</div>

@@ -10,6 +10,8 @@ interface AtomRow { id: number; state?: string; health?: { state?: string; messa
 // (مقيس: صفر ذكر لـsignal_card في كامل ui/src). تُعرض هنا بحقولها كما تصل،
 // بلا حساب ولا اشتقاق — الواجهة لا تحسب رقمًا.
 interface SignalCard {
+  from_log?: boolean
+  reason?: string
   symbol?: string; direction?: string; entry_class?: string; grade?: string; ring?: string
   anchor?: number; entry_price?: number; entry_leg_high?: number; entry_leg_low?: number
   stop_loss?: number; stop_pct?: number
@@ -44,6 +46,57 @@ const JUDGES: [number, string, string][] = [
   [2860, 'مفتاح إيقاف التكيّف', 'قاطع التعديلات الذاتية'],
 ]
 
+
+/** بطاقة إشارة واحدة بكل حقولها. كانت مرسومة داخل القسم لبطاقة واحدة فقط؛
+ *  فُصلت هنا (٢٠٢٦-٠٨-٢٩) كي تُرسم لكل عملة لها توصية حيّة — أمر المالك:
+ *  «إذا 1 لازم 5 عملات توصل توصيات». الحقول والصياغة كما كانت حرفيًّا. */
+function FullCard({ c, newest }: { c: SignalCard; newest: boolean }) {
+  return (
+    <div style={{ border: `1px solid ${newest ? 'var(--accent)' : 'var(--glassb)'}`,
+                  borderRadius: 10, padding: 10 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <b style={{ fontSize: 17 }}>{c.symbol}</b>
+        <span style={{ padding: '2px 10px', borderRadius: 8, fontWeight: 700,
+          background: c.direction === 'long' ? 'rgba(38,166,154,.25)' : 'rgba(239,83,80,.25)',
+          color: c.direction === 'long' ? 'var(--green)' : 'var(--red)' }}>
+          {c.direction === 'long' ? 'شراء / LONG' : 'بيع / SHORT'}
+        </span>
+        <span style={{ padding: '2px 8px', borderRadius: 8, border: '1px solid var(--glassb)', fontSize: 12 }}>درجة {c.grade}</span>
+        <span style={{ color: 'var(--dim)', fontSize: 12 }}>{c.entry_class} · حلقة {c.ring}</span>
+        <span style={{ flexGrow: 1 }} />
+        {newest ? <span style={{ color: 'var(--accent)', fontSize: 11 }}>الأحدث</span> : null}
+        {c.from_log ? <span style={{ color: 'var(--dim)', fontSize: 11 }}>من السجلّ — الحقول المحفوظة فقط</span> : null}
+        <span style={{ color: 'var(--dim)', fontSize: 11 }}>{hhmm(c.timestamp)}</span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+        {([
+          ['المرساة', num(c.anchor)],
+          ['الدخول', num(c.entry_price)],
+          ['سلّم الدخول', `${num(c.entry_leg_low)} ← ${num(c.entry_leg_high)}`],
+          ['الوقف', `${num(c.stop_loss)}  (${num(c.stop_pct)}%)`],
+          ['الهدف ١', `${num(c.take_profit)}  · ${c.take_profit_source ?? '—'}`],
+          ['الهدف ٢', `${num(c.take_profit_2)}  · ${c.take_profit_2_source ?? '—'}`],
+          ['الراكض', c.take_profit_runner == null ? 'لا يوجد' : `${num(c.take_profit_runner)} · ${c.take_profit_runner_source ?? ''}`],
+          ['الإلغاء', num(c.cancel_level)],
+          ['وقف زمنيّ', `${c.time_stop_candles ?? '—'} شمعة`],
+          ['أقصى مخاطرة', `${num(c.max_risk_usd)}$ من ${num(c.reference_equity_usd)}$`],
+          ['المتنافسة', `${(c.competing_rank ?? 0) + 1} من ${c.competing_count ?? 1}`],
+          ['خبر طازج', c.news_fresh ? `نعم (${num(c.news_age_min)} د)` : 'لا'],
+        ] as [string, string][]).map(([k, v]) => (
+          <div key={k} style={{ border: '1px solid var(--glassb)', borderRadius: 8, padding: '6px 9px' }}>
+            <div style={{ color: 'var(--dim)', fontSize: 10.5 }}>{k}</div>
+            <div className="num" style={{ fontSize: 13, fontWeight: 600 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {c.grade_target_profile ? (
+        <div style={{ color: 'var(--dim)', fontSize: 11, marginTop: 8 }}>ملف الأهداف: {c.grade_target_profile}</div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function Judgement() {
   const [atoms, setAtoms] = useState<Record<number, AtomRow>>({})
   useEffect(() => {
@@ -72,7 +125,9 @@ export default function Judgement() {
         setLog(rows.map((r) => ({
           symbol: String(r.symbol ?? ''), direction: String(r.direction ?? ''),
           grade: String(r.reason ?? '').split('·')[1]?.trim() || '',
-          entry_price: typeof r.take_profit === 'number' ? undefined : undefined,
+          entry_class: String(r.reason ?? '').split('·')[0]?.trim() || '',
+          reason: String(r.reason ?? ''),
+          from_log: true,
           stop_loss: typeof r.stop_loss === 'number' ? r.stop_loss : undefined,
           take_profit: typeof r.take_profit === 'number' ? r.take_profit : undefined,
           timestamp: typeof r.decided_at === 'number' ? r.decided_at : undefined,
@@ -84,14 +139,39 @@ export default function Judgement() {
     return () => window.clearInterval(h)
   }, [])
 
-  // بطاقة حيّة جديدة ⇒ تتصدّر السجلّ فورًا بلا انتظار الاستطلاع
+  // ٢٠٢٦-٠٨-٢٩ — أمر المالك: «إذا صارت توصيات صفقات، إذا 1 لازم 5 عملات
+  // توصل توصيات». النكشة: `#2277` ينشر **بطاقة لكل رمز** على نفس اسم الحدث،
+  // ومخزن اللوحة يحفظ **آخر قيمة فقط** لكل اسم — فبطاقة العملة الخامسة تدهس
+  // الأربع قبلها ولا يُرى إلا رمز واحد. البطاقات لم تكن تضيع من النظام، بل
+  // من العين — وهذا يكفي لتضيع صفقة.
+  // الآن: تُحفظ بطاقة حيّة **لكل رمز على حدة**، وتُعرض كلّها معًا.
+  const [liveCards, setLiveCards] = useState<Record<string, SignalCard>>({})
+
   useEffect(() => {
     if (!card1) return
     const id = card1.event_id ?? String(card1.timestamp ?? '')
     if (!id || id === lastId.current) return
     lastId.current = id
     setLog((prev) => [card1, ...prev].slice(0, 60))
+    const sym = String(card1.symbol || '')
+    if (sym) setLiveCards((prev) => ({ ...prev, [sym]: card1 }))
   }, [card1])
+
+  // البطاقات الحيّة تتجمّع بعد فتح الصفحة فقط. فلو فُتحت اللوحة بعد صدور
+  // التوصيات ظهرت «ما وصلت بطاقة» — وهي كذبة: النظام أصدر 37 توصية على 18 عملة
+  // (مقيس ٢٠٢٦-٠٨-٢٩). فتُبذَر القائمة من السجلّ الدائم: آخر توصية لكل عملة،
+  // موسومة بأنّها **من السجلّ** بحقوله المحفوظة وحدها — لا تُلبَس ثوب البطاقة
+  // الحيّة الكاملة. وحين تصل بطاقة حيّة لعملة، تحلّ محلّ سطر سجلّها.
+  const bySymbol: Record<string, SignalCard> = {}
+  for (const c of log) {
+    const s = String(c.symbol || '')
+    if (s && !(s in bySymbol)) bySymbol[s] = c     // السجلّ مرتّب بالأحدث أوّلًا
+  }
+  for (const [s, c] of Object.entries(liveCards)) bySymbol[s] = c
+
+  // الأحدث أوّلًا — فأوّل ما تقع عليه العين هو آخر ما وصل
+  const liveList = Object.values(bySymbol)
+    .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
 
   const dot = (id: number) => {
     const st = atoms[id]?.health?.state
@@ -112,51 +192,19 @@ export default function Judgement() {
           <strong style={{ color: 'var(--accent)' }}>بطاقة الإشارة (٢٢٧٧)</strong>
           <span style={{ color: 'var(--dim)', fontSize: 11 }}>توصية — التنفيذ يدويّ على MEXC</span>
           <span style={{ flexGrow: 1 }} />
-          <span style={{ color: 'var(--dim)', fontSize: 11 }}>التوصيات المستلمة: <b className="num">{log.length}</b></span>
+          <span style={{ color: 'var(--dim)', fontSize: 11 }}>
+            عملات لها توصية: <b className="num" style={{ color: 'var(--accent)' }}>{liveList.length}</b>
+            {' · '}التوصيات المستلمة: <b className="num">{log.length}</b>
+          </span>
         </div>
 
-        {!card1 ? (
+        {/* بطاقة كاملة لكل عملة — لا شريط أسماء: توصية بلا أرقامها لا تُنفَّذ */}
+        {!liveList.length ? (
           <div style={{ color: 'var(--dim)', fontSize: 12 }}>ما وصلت بطاقة بعد — تظهر هنا لحظة إصدارها.</div>
         ) : (
-          <>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
-              <b style={{ fontSize: 17 }}>{card1.symbol}</b>
-              <span style={{ padding: '2px 10px', borderRadius: 8, fontWeight: 700,
-                background: card1.direction === 'long' ? 'rgba(38,166,154,.25)' : 'rgba(239,83,80,.25)',
-                color: card1.direction === 'long' ? 'var(--green)' : 'var(--red)' }}>
-                {card1.direction === 'long' ? 'شراء / LONG' : 'بيع / SHORT'}
-              </span>
-              <span style={{ padding: '2px 8px', borderRadius: 8, border: '1px solid var(--glassb)', fontSize: 12 }}>درجة {card1.grade}</span>
-              <span style={{ color: 'var(--dim)', fontSize: 12 }}>{card1.entry_class} · حلقة {card1.ring}</span>
-              <span style={{ flexGrow: 1 }} />
-              <span style={{ color: 'var(--dim)', fontSize: 11 }}>{hhmm(card1.timestamp)}</span>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
-              {([
-                ['المرساة', num(card1.anchor)],
-                ['الدخول', num(card1.entry_price)],
-                ['سلّم الدخول', `${num(card1.entry_leg_low)} ← ${num(card1.entry_leg_high)}`],
-                ['الوقف', `${num(card1.stop_loss)}  (${num(card1.stop_pct)}%)`],
-                ['الهدف ١', `${num(card1.take_profit)}  · ${card1.take_profit_source ?? '—'}`],
-                ['الهدف ٢', `${num(card1.take_profit_2)}  · ${card1.take_profit_2_source ?? '—'}`],
-                ['الراكض', card1.take_profit_runner == null ? 'لا يوجد' : `${num(card1.take_profit_runner)} · ${card1.take_profit_runner_source ?? ''}`],
-                ['الإلغاء', num(card1.cancel_level)],
-                ['وقف زمنيّ', `${card1.time_stop_candles ?? '—'} شمعة`],
-                ['أقصى مخاطرة', `${num(card1.max_risk_usd)}$ من ${num(card1.reference_equity_usd)}$`],
-                ['المتنافسة', `${(card1.competing_rank ?? 0) + 1} من ${card1.competing_count ?? 1}`],
-                ['خبر طازج', card1.news_fresh ? `نعم (${num(card1.news_age_min)} د)` : 'لا'],
-              ] as [string, string][]).map(([k, v]) => (
-                <div key={k} style={{ border: '1px solid var(--glassb)', borderRadius: 8, padding: '6px 9px' }}>
-                  <div style={{ color: 'var(--dim)', fontSize: 10.5 }}>{k}</div>
-                  <div className="num" style={{ fontSize: 13, fontWeight: 600 }}>{v}</div>
-                </div>
-              ))}
-            </div>
-            {card1.grade_target_profile ? (
-              <div style={{ color: 'var(--dim)', fontSize: 11, marginTop: 8 }}>ملف الأهداف: {card1.grade_target_profile}</div>
-            ) : null}
-          </>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {liveList.map((c, i) => <FullCard key={c.symbol ?? i} c={c} newest={i === 0} />)}
+          </div>
         )}
 
         {log.length > 1 ? (

@@ -621,6 +621,15 @@ TOOLS: dict[str, tuple[list[str], int]] = {
     "telegram": (["governance/checks/check_telegram.py"], 90),
     "storagecap": (["governance/checks/check_storage_cap_contract.py"], 180),
     "snapbutton": (["governance/checks/check_snapshot_button_contract.py"], 300),
+    # ═══ فحوصات قسم أسمر (الكريبتو) — أمر المالك ٢٠٢٦-٠٨-٢٩ ═══
+    # كل الفحوص فوقها فوركسيّة العقود؛ قسم الكريبتو كان بلا فحص خاصّ به.
+    # هذه الخمسة تقيس ما يخصّه وحده: تغذيته · سلسلته · عزله · بشريّة تنفيذه ·
+    # ومطابقته لملفّ أحمد. كلّها قراءة فقط على النظام الحيّ.
+    "crypto_feed": (["governance/checks/check_crypto_feed.py"], 180),
+    "crypto_chain": (["governance/checks/check_crypto_chain.py"], 90),
+    "crypto_isolation": (["governance/checks/check_crypto_isolation.py"], 120),
+    "crypto_manual": (["governance/checks/check_crypto_manual_execution.py"], 120),
+    "crypto_ahmad": (["governance/checks/check_crypto_ahmad_parity.py"], 180),
 }
 
 
@@ -1059,8 +1068,29 @@ def system_graph() -> dict:
                 if p != s and (p, s, ev) not in seen:
                     seen.add((p, s, ev))
                     edges.append({"source": p, "target": s, "topic": ev})
+    # ٢٠٢٦-٠٨-٢٩: ذرّات هذا السوق منقولة عن السوق الآخر، فحملت معها اشتراكات
+    # بأحداث ينشرها ذاك وحده. كانت تظهر بالتشخيص «وصلات مكسورة» فيبدو قسم
+    # الكريبتو مليئًا بالفوركس. تُقاس هنا بالاسم من شجرة السوق الآخر — لا
+    # بقائمة بادئات مكتوبة بيدي؛ فالقائمة تخمين يشيخ، والقياس يصحّ من نفسه.
+    other = ROOT.parent / ("atoms" if MARKET == "crypto" else "atoms_crypto")
+    foreign_pubs: list[str] = []
+    if other.is_dir():
+        seen_ev = set()
+        for pattern in ("*/manifest.yaml", "*/*/manifest.yaml"):
+            for mf in sorted(other.glob(pattern)):
+                try:
+                    otext = mf.read_text(encoding="utf-8-sig")
+                except OSError:
+                    continue
+                for ev in _events_block(otext, "publishes"):
+                    if ev not in pubs and ev not in seen_ev:
+                        seen_ev.add(ev)
+                        foreign_pubs.append(ev)
+
     # pubs/subs خام كمان — محلل الصمت الحي بالتشخيص يصنّف بها الذرات الساكتة والوصلات المكسورة
-    return {"nodes": nodes, "edges": edges, "pubs": pubs, "subs": subs}
+    return {"nodes": nodes, "edges": edges, "pubs": pubs, "subs": subs,
+            "foreign_pubs": foreign_pubs,
+            "foreign_market": "forex" if MARKET == "crypto" else "crypto"}
 
 
 # ── جوع الذرّات: هل تتقدّم فعلًا، أم تمثال أخضر؟ ─────────────────────────────
@@ -1757,6 +1787,18 @@ class Handler(BaseHTTPRequestHandler):
             # مصدر واعتماد ونسخة)، مع بيانات العرض (نسبة/خام/صحيح وحدوده)
             # لتعرضها اللوحة بدقّة عشريتين. التعديل حصراً عبر /gov/command
             # action=decision_setting (تأكيد بخطوتين ثم بوّابة ٩٠١).
+            #
+            # ٢٠٢٦-٠٨-٢٩ (ختم NQ): `shared/decision_dials.py` عيارات **فوركس
+            # حصرًا** (ذرّاتها 150·166·411·452-458·463·581) — وهو ملفّ مشترك
+            # فكان يُخدَم للكريبتو أيضًا، فتظهر ٣١ عيار فوركس في إعدادات قسم
+            # أسمر. أمر المالك: «ما بدّي شي فوركسي بقسم كريبتو».
+            # الكريبتو لا سجلّ عيارات محكومة له بعد ⇒ تُعاد قائمة فارغة
+            # **بسبب مُعلَن**، لا قائمة سوق آخر.
+            if MARKET != "forex":
+                self._json(200, {"dials": [],
+                                 "reason": "لا عيارات قرار محكومة لهذا السوق — "
+                                           "سجلّ العيارات الحاليّ خاصّ بالفوركس"})
+                return
             try:
                 if str(ROOT.parent) not in sys.path:
                     sys.path.insert(0, str(ROOT.parent))

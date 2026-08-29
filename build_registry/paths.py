@@ -21,7 +21,21 @@ _ID_PREFIX = re.compile(r"^(\d+)(?:_|$)")
 class RegistryAtomRoot:
     """Path-like view whose atom lookups are recursive and registry-backed."""
 
-    def __init__(self, project_root: Path | str, scope: str = "forex") -> None:
+    def __init__(self, project_root: Path | str, scope: str | None = None) -> None:
+        # ٢٠٢٦-٠٨-٢٩ — نكشة مقيسة: كان السكوب الافتراضي "forex" ثابتًا، وكل فاحص
+        # يكتب `RegistryAtomRoot(ROOT)` بلا سكوب (المدقّق · الملفّات · الأحداث ·
+        # الاختبارات · النسخ). فأزرار «فحوصات الحوكمة» بلوحة **الكريبتو** كانت
+        # تمسح شجرة **الفوركس** وتعرض أرقامها: `versions` أعلن `checked=233`
+        # وهو عدد ذرّات الفوركس، و`health` ردّ بذرّة `#7` وهي فوركسيّة.
+        # فحصٌ يقيس السوق الخطأ أسوأ من لا فحص — يعطي طمأنينة كاذبة.
+        # الآن: السكوب من بيئة عمليّة الحوكمة (`QUANT_GOV_MARKET` يضبطه
+        # `scripts/run_governance.py`)، والافتراض يبقى «فوركس» عند غيابه —
+        # فسلوك سطر الأوامر وسلوك الفوركس لم يتغيّرا حرفًا.
+        import os as _os
+        if scope is None:
+            scope = str(_os.environ.get("QUANT_GOV_MARKET", "forex")).strip().lower()
+            if scope not in {"forex", "crypto"}:
+                scope = "forex"
         self.project_root = Path(project_root).resolve()
         self.scope = scope
         self.root = self.project_root / ("atoms_crypto" if scope == "crypto" else "atoms")
