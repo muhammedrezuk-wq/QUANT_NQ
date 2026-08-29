@@ -1,6 +1,6 @@
 id: 162
 name: "Velocity Analyzer"
-version: "2.4.1"
+version: "2.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -47,8 +47,8 @@ config_schema:
   additionalProperties: false
 
 config:
-  baseline_window: 20
-  slow_ratio: 0.6
-  fast_ratio: 1.6
+  baseline_window: 24
+  slow_ratio: 0.7
+  fast_ratio: 1.4
 metadata:
   max_idle_s: 301

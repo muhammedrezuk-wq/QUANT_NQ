@@ -9,7 +9,7 @@ from shared.decision_dials import (EVENT_COMMAND as EVENT_DIALS_COMMAND,
 from shared.live_analysis import DEFAULT_WEIGHTS, MODE_LIVE, STATE_READY
 from shared.section_contract import section_atom
 
-ATOM_VERSION = "2.7.0"
+ATOM_VERSION = "2.8.0"
 
 EVENT_IN = "analysis.cycle.collected"
 EVENT_OUT = "analysis.raw.completed"

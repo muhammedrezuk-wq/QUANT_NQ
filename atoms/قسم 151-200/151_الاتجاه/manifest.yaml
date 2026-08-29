@@ -1,6 +1,6 @@
 id: 151
 name: "Trend Analyzer"
-version: "2.4.1"
+version: "2.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -69,14 +69,14 @@ config_schema:
   additionalProperties: false
 
 config:
-  ema_fast: 20
-  ema_slow: 50
-  slope_lookback: 5
-  min_candles: 55
-  flat_slope_pct: 0.02
-  flat_distance_pct: 0.05
-  strong_score: 80
+  ema_fast: 10
+  ema_slow: 20
+  slope_lookback: 3
+  min_candles: 20
+  flat_slope_pct: 0.015
+  flat_distance_pct: 0.04
+  strong_score: 75
   moderate_score: 45
-  emerging_bars: 3
+  emerging_bars: 2
 metadata:
   max_idle_s: 301

@@ -1,6 +1,6 @@
 id: 164
 name: "Volume Quality Analyzer"
-version: "2.4.1"
+version: "2.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -43,7 +43,7 @@ config_schema:
   additionalProperties: false
 
 config:
-  baseline_window: 20
+  baseline_window: 16
   low_ratio: 0.4
 metadata:
   max_idle_s: 301

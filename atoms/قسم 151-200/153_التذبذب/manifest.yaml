@@ -1,6 +1,6 @@
 id: 153
 name: "Volatility Analyzer"
-version: "2.4.1"
+version: "2.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -60,11 +60,11 @@ config_schema:
   additionalProperties: false
 
 config:
-  atr_window: 14
-  baseline_window: 50
+  atr_window: 16
+  baseline_window: 32
   stddev_window: 20
-  high_mult: 1.5
-  low_mult: 0.6
-  min_candles: 20
+  high_mult: 1.35
+  low_mult: 0.7
+  min_candles: 16
 metadata:
   max_idle_s: 301
