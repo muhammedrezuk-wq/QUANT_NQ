@@ -1,6 +1,11 @@
 // اللوحة الجديدة — البناء من الصفر حول أربعة أسئلة (أمر المالك ٢٠٢٦-٠٨-٢٣)
 // القواعد الـ21 من ورقة إعادة البناء + رؤية المالك المسجّلة حرفيًا.
 // ⛔ الواجهة لا تحسب رقمًا واحدًا — كل معروض وصل بالحدث.
+// ٢٠٢٦-٠٨-٢٩ (ختم NQ): أنماط هذه اللوحة (`dl-*`) كانت في `styles-dashboard.css`
+// **بلا استيراد من أي ملف** — فلم تدخل حزمة البناء إطلاقًا، فظهر التبويب نصًّا
+// خامًا بلا ألوان ولا تقطيع (مقيس: صفر ذكر لـ`dl-` في built/assets/*.css).
+// يُستورَد هنا بنفس نمط `CryptoDashboard.tsx` مع `crypto-dashboard.css`.
+import '../styles-dashboard.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../core/store'
 import { isWaitingMessage } from '../core/i18n'

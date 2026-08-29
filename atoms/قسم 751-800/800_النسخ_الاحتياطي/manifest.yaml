@@ -44,7 +44,7 @@ config_schema:
   additionalProperties: false
 
 config:
-  backup_dir: 'D:/النسخ احتياطي QUANT_NQ'
+  backup_dir: 'var/backups'
   source_dirs:
     - 'var/store'
     - 'config'
