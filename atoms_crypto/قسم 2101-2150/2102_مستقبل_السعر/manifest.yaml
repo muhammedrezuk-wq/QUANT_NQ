@@ -9,7 +9,7 @@ publishes:
 - market_data.price_received
 subscribes:
 - market.tick.validated
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 15000
   timeout_ms: 5000

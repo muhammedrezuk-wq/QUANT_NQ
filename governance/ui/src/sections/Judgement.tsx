@@ -1,8 +1,35 @@
 // ═══ قسم أسمر — الحكم والقرار (الطبقات 4-5 بالخريطة الهندسية) ═══
 // النظام يقرر توقيت الصفقة وحده (محرك 8 خطوات) — والتنفيذ لأسمر بضغطة زر.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useStore } from '../core/store'
 
 interface AtomRow { id: number; state?: string; health?: { state?: string; message?: string } | null }
+
+// ٢٠٢٦-٠٨-٢٩ (ختم NQ): `crypto.decision.signal_card.state` كانت تُنشر من ٢٢٧٧
+// **بلا أي مستهلك في الواجهة** — التوصيات تصدر ولا تظهر للمالك إطلاقًا
+// (مقيس: صفر ذكر لـsignal_card في كامل ui/src). تُعرض هنا بحقولها كما تصل،
+// بلا حساب ولا اشتقاق — الواجهة لا تحسب رقمًا.
+interface SignalCard {
+  symbol?: string; direction?: string; entry_class?: string; grade?: string; ring?: string
+  anchor?: number; entry_price?: number; entry_leg_high?: number; entry_leg_low?: number
+  stop_loss?: number; stop_pct?: number
+  take_profit?: number; take_profit_source?: string
+  take_profit_2?: number; take_profit_2_source?: string
+  take_profit_runner?: number | null; take_profit_runner_source?: string | null
+  cancel_level?: number; time_stop_candles?: number
+  max_risk_usd?: number; reference_equity_usd?: number
+  competing_rank?: number; competing_count?: number
+  news_fresh?: boolean; news_age_min?: number; gate_margin?: number
+  grade_target_profile?: string; timestamp?: number; event_id?: string
+}
+
+const num = (v: unknown): string =>
+  typeof v === 'number' && isFinite(v)
+    ? (Math.abs(v) < 0.001 && v !== 0 ? v.toExponential(3) : String(Number(v.toFixed(8))))
+    : '—'
+
+const hhmm = (t?: number): string =>
+  typeof t === 'number' ? new Date(t * 1000).toLocaleTimeString('ar-EG-u-nu-latn', { hour12: false }) : '—'
 
 const card: React.CSSProperties = { border: '1px solid var(--glassb)', background: 'var(--glass)', borderRadius: 12, padding: 14 }
 
@@ -31,6 +58,41 @@ export default function Judgement() {
     return () => window.clearInterval(h)
   }, [])
 
+  // آخر بطاقة إشارة (حيّة من التيار) + سجلّ دائم من `/gov/decisions`.
+  // التيار وحده لا يكفي: البطاقة تُنشر لحظيًّا، فمن يفتح اللوحة بعدها لا يرى شيئًا.
+  // السجلّ الدائم يجعل التوصيات باقية بعد إعادة الفتح.
+  const card1 = useStore((s) => s.streams['crypto.decision.signal_card.state']) as SignalCard | undefined
+  const [log, setLog] = useState<SignalCard[]>([])
+  const lastId = useRef<string>('')
+
+  useEffect(() => {
+    const load = () => fetch('/gov/decisions?limit=60', { cache: 'no-store' }).then((r) => r.json())
+      .then((d: { available?: boolean; decisions?: Record<string, unknown>[] }) => {
+        const rows = (d.decisions || []).filter((r) => String(r.stage) === 'APPROVED')
+        setLog(rows.map((r) => ({
+          symbol: String(r.symbol ?? ''), direction: String(r.direction ?? ''),
+          grade: String(r.reason ?? '').split('·')[1]?.trim() || '',
+          entry_price: typeof r.take_profit === 'number' ? undefined : undefined,
+          stop_loss: typeof r.stop_loss === 'number' ? r.stop_loss : undefined,
+          take_profit: typeof r.take_profit === 'number' ? r.take_profit : undefined,
+          timestamp: typeof r.decided_at === 'number' ? r.decided_at : undefined,
+          event_id: `db-${r.id}`,
+        })))
+      }).catch(() => {})
+    load()
+    const h = window.setInterval(load, 20000)
+    return () => window.clearInterval(h)
+  }, [])
+
+  // بطاقة حيّة جديدة ⇒ تتصدّر السجلّ فورًا بلا انتظار الاستطلاع
+  useEffect(() => {
+    if (!card1) return
+    const id = card1.event_id ?? String(card1.timestamp ?? '')
+    if (!id || id === lastId.current) return
+    lastId.current = id
+    setLog((prev) => [card1, ...prev].slice(0, 60))
+  }, [card1])
+
   const dot = (id: number) => {
     const st = atoms[id]?.health?.state
     return st === 'healthy' ? 'var(--green)' : st === 'degraded' ? 'var(--amber)' : st ? 'var(--red)' : 'var(--dim)'
@@ -42,6 +104,79 @@ export default function Judgement() {
       <div style={{ ...card, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <strong style={{ color: 'var(--accent)' }}>الحكم والقرار — هل تُلغى؟</strong>
         <span style={{ color: 'var(--dim)', fontSize: 12 }}>النظام داخل حلقة القرار وحده · أسمر خارجها — تنفيذ فقط (MEXC)</span>
+      </div>
+
+      {/* بطاقة الإشارة الحيّة + سجلّ التوصيات — من ٢٢٧٧ مباشرة */}
+      <div style={{ ...card, borderColor: card1 ? 'var(--accent)' : 'var(--glassb)' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+          <strong style={{ color: 'var(--accent)' }}>بطاقة الإشارة (٢٢٧٧)</strong>
+          <span style={{ color: 'var(--dim)', fontSize: 11 }}>توصية — التنفيذ يدويّ على MEXC</span>
+          <span style={{ flexGrow: 1 }} />
+          <span style={{ color: 'var(--dim)', fontSize: 11 }}>التوصيات المستلمة: <b className="num">{log.length}</b></span>
+        </div>
+
+        {!card1 ? (
+          <div style={{ color: 'var(--dim)', fontSize: 12 }}>ما وصلت بطاقة بعد — تظهر هنا لحظة إصدارها.</div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+              <b style={{ fontSize: 17 }}>{card1.symbol}</b>
+              <span style={{ padding: '2px 10px', borderRadius: 8, fontWeight: 700,
+                background: card1.direction === 'long' ? 'rgba(38,166,154,.25)' : 'rgba(239,83,80,.25)',
+                color: card1.direction === 'long' ? 'var(--green)' : 'var(--red)' }}>
+                {card1.direction === 'long' ? 'شراء / LONG' : 'بيع / SHORT'}
+              </span>
+              <span style={{ padding: '2px 8px', borderRadius: 8, border: '1px solid var(--glassb)', fontSize: 12 }}>درجة {card1.grade}</span>
+              <span style={{ color: 'var(--dim)', fontSize: 12 }}>{card1.entry_class} · حلقة {card1.ring}</span>
+              <span style={{ flexGrow: 1 }} />
+              <span style={{ color: 'var(--dim)', fontSize: 11 }}>{hhmm(card1.timestamp)}</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+              {([
+                ['المرساة', num(card1.anchor)],
+                ['الدخول', num(card1.entry_price)],
+                ['سلّم الدخول', `${num(card1.entry_leg_low)} ← ${num(card1.entry_leg_high)}`],
+                ['الوقف', `${num(card1.stop_loss)}  (${num(card1.stop_pct)}%)`],
+                ['الهدف ١', `${num(card1.take_profit)}  · ${card1.take_profit_source ?? '—'}`],
+                ['الهدف ٢', `${num(card1.take_profit_2)}  · ${card1.take_profit_2_source ?? '—'}`],
+                ['الراكض', card1.take_profit_runner == null ? 'لا يوجد' : `${num(card1.take_profit_runner)} · ${card1.take_profit_runner_source ?? ''}`],
+                ['الإلغاء', num(card1.cancel_level)],
+                ['وقف زمنيّ', `${card1.time_stop_candles ?? '—'} شمعة`],
+                ['أقصى مخاطرة', `${num(card1.max_risk_usd)}$ من ${num(card1.reference_equity_usd)}$`],
+                ['المتنافسة', `${(card1.competing_rank ?? 0) + 1} من ${card1.competing_count ?? 1}`],
+                ['خبر طازج', card1.news_fresh ? `نعم (${num(card1.news_age_min)} د)` : 'لا'],
+              ] as [string, string][]).map(([k, v]) => (
+                <div key={k} style={{ border: '1px solid var(--glassb)', borderRadius: 8, padding: '6px 9px' }}>
+                  <div style={{ color: 'var(--dim)', fontSize: 10.5 }}>{k}</div>
+                  <div className="num" style={{ fontSize: 13, fontWeight: 600 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {card1.grade_target_profile ? (
+              <div style={{ color: 'var(--dim)', fontSize: 11, marginTop: 8 }}>ملف الأهداف: {card1.grade_target_profile}</div>
+            ) : null}
+          </>
+        )}
+
+        {log.length > 1 ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>سجلّ التوصيات (آخر {log.length})</div>
+            <div style={{ display: 'grid', gap: 4 }}>
+              {log.map((c, i) => (
+                <div key={c.event_id ?? i} style={{ display: 'flex', gap: 10, fontSize: 12, borderBottom: '1px solid var(--glassb)', padding: '3px 0', flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--dim)', minWidth: 62 }} className="num">{hhmm(c.timestamp)}</span>
+                  <b style={{ minWidth: 96 }}>{c.symbol}</b>
+                  <span style={{ color: c.direction === 'long' ? 'var(--green)' : 'var(--red)', minWidth: 46 }}>
+                    {c.direction === 'long' ? 'شراء' : 'بيع'}
+                  </span>
+                  <span style={{ color: 'var(--dim)', minWidth: 40 }}>{c.grade}</span>
+                  <span className="num" style={{ color: 'var(--dim)' }}>دخول {num(c.entry_price)} · وقف {num(c.stop_loss)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 10 }}>

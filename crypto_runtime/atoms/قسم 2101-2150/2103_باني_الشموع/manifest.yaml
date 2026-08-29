@@ -9,7 +9,7 @@ publishes:
 - market_data.candle_closed
 subscribes:
 - market.tick.validated
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 5000

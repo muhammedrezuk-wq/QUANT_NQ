@@ -15,7 +15,7 @@ subscribes:
 - time.utc.drift
 - time.utc.synced
 - kernel.clock.heartbeat
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 5000

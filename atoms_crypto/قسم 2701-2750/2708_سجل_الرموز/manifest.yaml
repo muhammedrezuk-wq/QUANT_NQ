@@ -16,7 +16,7 @@ subscribes:
 - market.symbol_specs
 - market.ctrader.symbol_specs
 - platform.account.state
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 10000
   timeout_ms: 5000

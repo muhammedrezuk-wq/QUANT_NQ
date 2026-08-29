@@ -9,7 +9,7 @@ publishes:
 - micro.price_impact.state
 subscribes:
 - market.trade
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 15000
   timeout_ms: 5000

@@ -11,7 +11,7 @@ subscribes:
 - market.structure.updated
 - SYS_DAY
 - SYS_SECOND
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 60000
   timeout_ms: 10000

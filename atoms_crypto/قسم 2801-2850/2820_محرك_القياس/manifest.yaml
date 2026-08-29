@@ -16,7 +16,7 @@ subscribes:
 - probability.section.live
 - strategy.section.live
 - analysis.section.live
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 10000

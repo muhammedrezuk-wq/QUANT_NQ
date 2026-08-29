@@ -9,7 +9,7 @@ publishes:
 - market_data.normalized
 subscribes:
 - market_data.cleaned
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 5000

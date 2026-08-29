@@ -11,7 +11,7 @@ subscribes:
 - drift.vector.state
 - measurement.latency.state
 - adaptation.kill_switch.command
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 10000

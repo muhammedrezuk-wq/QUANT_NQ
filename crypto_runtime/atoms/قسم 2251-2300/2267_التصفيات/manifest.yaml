@@ -9,7 +9,7 @@ publishes:
 - sense.liquidations.state
 subscribes:
 - feed.binance.liquidation
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 15000
   timeout_ms: 5000

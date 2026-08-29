@@ -9,7 +9,7 @@ publishes:
 - market_data.volume_received
 subscribes:
 - market.volume
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 5000

@@ -10,7 +10,7 @@ publishes:
 - telemetry.carrier.state
 subscribes:
 - SYS_SECOND
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 10000

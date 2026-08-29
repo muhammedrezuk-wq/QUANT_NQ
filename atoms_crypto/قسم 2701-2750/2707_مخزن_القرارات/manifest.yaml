@@ -21,7 +21,7 @@ subscribes:
 - execution.command.failed
 - platform.trade_event
 - crypto.decision.sized_entry.state
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 5000

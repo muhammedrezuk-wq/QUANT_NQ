@@ -9,7 +9,7 @@ publishes:
 - storage.trading_data_integrity_checked
 subscribes:
 - storage.trading_data_cleaned
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 60000
   timeout_ms: 10000

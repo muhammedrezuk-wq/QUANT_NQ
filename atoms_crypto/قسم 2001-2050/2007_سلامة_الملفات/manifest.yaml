@@ -9,7 +9,7 @@ publishes:
 - tools.integrity.violation
 subscribes:
 - SYS_HOUR
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 300000
   timeout_ms: 15000

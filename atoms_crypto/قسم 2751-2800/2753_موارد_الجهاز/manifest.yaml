@@ -9,7 +9,7 @@ publishes:
 - tools.device_resources.state
 subscribes:
 - SYS_5MIN
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 30000
   timeout_ms: 5000

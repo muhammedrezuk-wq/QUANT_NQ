@@ -5,7 +5,7 @@ core_version: '>=1.0.0,<2.0.0'
 critical: true
 entrypoint: atom:Atom
 dependencies:
-- id: 2608
+- id: 608
   version: '>=2.3.0,<3.0.0'
 publishes:
 - time.utc.synced
@@ -16,7 +16,7 @@ publishes:
 - kernel.clock.minute_elapsed
 subscribes:
 - time.ntp.samples.state
-startup_mode: auto
+startup_mode: manual
 health:
   interval_ms: 2000
   timeout_ms: 1000
