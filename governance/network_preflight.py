@@ -49,9 +49,10 @@ def _load_api_key_from_vault(market: str, cfg: dict[str, Any]) -> str | None:
     secrets = cfg.get("secrets") or {}
     if not bool(secrets.get("enabled", True)):
         return None
-    vault_raw = secrets.get("vault_path")
-    if not vault_raw:
-        return None
+
+    # Keep the exact runtime default used by run_core.py. Market configs may
+    # override this path when their runtime layout is different.
+    vault_raw = secrets.get("vault_path", "runtime/secrets.enc")
     vault_path = _resolve_runtime_path(vault_raw, market)
     if not vault_path.exists():
         return None
