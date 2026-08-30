@@ -1,8 +1,8 @@
 """Deployment-network preflight for externally previewable services.
 
-This module does not open ports or manage the runtime. It validates the
-configuration that the launchers are about to use and fails closed when a
-publicly bound Core API has no credential configured.
+The public Core APIs use the existing QUANT_NQ secret vault. This module
+loads only the API credential needed for the process, never writes the secret
+into the repository, and keeps it in the child process environment.
 """
 from __future__ import annotations
 
@@ -15,8 +15,14 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise RuntimeError("PyYAML is required for network preflight") from exc
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_API_SECRET_NAMES = (
+    "api_key",
+    "core_api_key",
+    "gov_api_key",
+    "quant_core_api_key",
+    "quant_gov_api_key",
+)
 
 
 def _config(path: Path) -> dict[str, Any]:
@@ -27,18 +33,78 @@ def _config(path: Path) -> dict[str, Any]:
     return data
 
 
-def _is_public_host(host: str) -> bool:
-    return host in {"0.0.0.0", "::", "::0"} or host not in {"127.0.0.1", "localhost", "::1"}
+def _runtime_base(market: str) -> Path:
+    return PROJECT_ROOT / ("forex_runtime" if market == "forex" else "crypto_runtime")
 
 
-def _api_key_present() -> bool:
-    return bool(
+def _resolve_runtime_path(raw: str | Path, market: str) -> Path:
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    return (_runtime_base(market) / path).resolve()
+
+
+def _load_api_key_from_vault(market: str, cfg: dict[str, Any]) -> str | None:
+    """Read the API key from the existing encrypted vault without logging it."""
+    secrets = cfg.get("secrets") or {}
+    if not bool(secrets.get("enabled", True)):
+        return None
+    vault_raw = secrets.get("vault_path")
+    if not vault_raw:
+        return None
+    vault_path = _resolve_runtime_path(vault_raw, market)
+    if not vault_path.exists():
+        return None
+
+    try:
+        from security import FileSecretProvider
+    except ImportError:
+        return None
+
+    dpapi_raw = secrets.get("dpapi_blob")
+    dpapi_path = _resolve_runtime_path(dpapi_raw, market) if dpapi_raw else None
+    provider = FileSecretProvider(
+        vault_path,
+        dpapi_blob=dpapi_path,
+        allow_prompt=False,
+        auto_open=True,
+    )
+    try:
+        for name in _API_SECRET_NAMES:
+            value = provider.get_secret(name)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    finally:
+        provider.clear()
+    return None
+
+
+def ensure_api_credential(market: str, cfg: dict[str, Any]) -> str:
+    """Ensure the API credential is available to the running process.
+
+    Explicit environment configuration remains supported for managed
+    deployments; otherwise the existing encrypted vault is the source of
+    truth. The returned credential is never printed.
+    """
+    existing = (
         os.environ.get("QUANT_CORE_API_KEY")
         or os.environ.get("QUANT_GOV_API_KEY")
     )
+    if existing and existing.strip():
+        return existing.strip()
+
+    value = _load_api_key_from_vault(market, cfg)
+    if value:
+        os.environ["QUANT_CORE_API_KEY"] = value
+        return value
+
+    raise RuntimeError(
+        f"{market}: public API binding requires an API key from the configured "
+        "secret vault or QUANT_CORE_API_KEY/QUANT_GOV_API_KEY"
+    )
 
 
-def validate_config(path: Path, expected_port: int) -> dict[str, Any]:
+def validate_config(path: Path, expected_port: int, market: str) -> dict[str, Any]:
     data = _config(path)
     api = data.get("api") or {}
     if not bool(api.get("enable_api", True)):
@@ -53,19 +119,16 @@ def validate_config(path: Path, expected_port: int) -> dict[str, Any]:
         raise RuntimeError(
             f"{path}: expected api.port={expected_port}; found {port}"
         )
-    if not _api_key_present():
-        raise RuntimeError(
-            f"{path}: public API binding requires QUANT_GOV_API_KEY or QUANT_CORE_API_KEY"
-        )
+    ensure_api_credential(market, data)
     return {"host": host, "port": port}
 
 
 def validate_market(market: str) -> dict[str, Any]:
     market = str(market).strip().lower()
     if market == "forex":
-        return validate_config(PROJECT_ROOT / "config" / "core_forex.yaml", 8010)
+        return validate_config(PROJECT_ROOT / "config" / "core_forex.yaml", 8010, market)
     if market == "crypto":
-        return validate_config(PROJECT_ROOT / "config" / "core_crypto.yaml", 8020)
+        return validate_config(PROJECT_ROOT / "config" / "core_crypto.yaml", 8020, market)
     raise ValueError(f"unknown market: {market}")
 
 
@@ -92,7 +155,7 @@ def main() -> int:
     for market, cfg in result.items():
         print(
             f"NETWORK PREFLIGHT: PASS — {market} API {cfg['host']}:{cfg['port']} "
-            "authentication=environment"
+            "authentication=vault-or-environment"
         )
     return 0
 
