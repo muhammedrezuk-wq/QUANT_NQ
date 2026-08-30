@@ -38,6 +38,21 @@ def prepare() -> None:
         raise SystemExit("Unified release verification failed")
 
 
+def network_preflight(start_forex: bool, start_crypto: bool) -> None:
+    markets = []
+    if start_forex:
+        markets.append("forex")
+    if start_crypto:
+        markets.append("crypto")
+    for market in markets:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "governance" / "network_preflight.py"), "--market", market],
+            cwd=ROOT,
+        )
+        if result.returncode:
+            raise SystemExit(f"Network preflight failed for {market}")
+
+
 def spawn(label: str, command: list[str], port: int, *, extra_env: dict[str, str] | None = None) -> subprocess.Popen | None:
     if listening(port):
         print(f"{label}: already running on {port}")
@@ -78,10 +93,11 @@ def main() -> int:
     if args.crypto_only and args.forex_only:
         parser.error("--crypto-only and --forex-only cannot be combined")
 
-    prepare()
-    python = sys.executable
     start_forex = not args.crypto_only
     start_crypto = not args.forex_only
+    network_preflight(start_forex, start_crypto)
+    prepare()
+    python = sys.executable
     processes: list[subprocess.Popen] = []
     if start_forex:
         for label, script, port, extra in (
