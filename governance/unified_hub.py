@@ -248,11 +248,12 @@ class HubHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    # إصلاح الملعب 2026-08-27: السماح بالربط على 0.0.0.0 للمعاينة الخارجية
-    # (QUANT_HUB_HOST) — الافتراضي يبقى 127.0.0.1 كما في النسخة الأصلية.
-    host = os.environ.get("QUANT_HUB_HOST", "127.0.0.1")
+    # Public-preview safe default: the single visible dashboard origin is
+    # reachable outside localhost when the environment supports it. The market
+    # governance backends remain localhost-only implementation details.
+    host = os.environ.get("QUANT_HUB_HOST", "0.0.0.0")
     server = ThreadingHTTPServer((host, PORT), HubHandler)
-    print(f"Unified dashboard: http://127.0.0.1:{PORT}")
+    print(f"Unified dashboard listening on {host}:{PORT}")
     print("Internal market dashboards: 8092=forex, 8093=crypto")
     try:
         server.serve_forever()
