@@ -1,4 +1,8 @@
-"""Launch both isolated market cores, governance, dashboard, and Telegram owner surface."""
+"""Launch both isolated market cores and both governance dashboards.
+
+This launcher avoids Windows ``start`` quoting/encoding issues and does not
+start a second copy when a service is already listening on its port.
+"""
 from __future__ import annotations
 
 import argparse
@@ -118,22 +122,17 @@ def main() -> int:
             if process is not None:
                 processes.append(process)
 
+    # One visible origin: the hub owns 8090. Internal governance backends are
+    # localhost-only implementation details and are never exposed in the UI.
     hub_market = "crypto" if args.crypto_only else "forex"
-    hub = spawn(
-        "Unified Dashboard Hub",
-        [python, str(ROOT / "governance" / "unified_hub.py")],
-        8090,
-        extra_env={"QUANT_HUB_DEFAULT_MARKET": hub_market},
-    )
+    hub = spawn("Unified Dashboard Hub", [python, str(ROOT / "governance" / "unified_hub.py")], 8090,
+                extra_env={"QUANT_HUB_DEFAULT_MARKET": hub_market})
     if hub is not None:
         processes.append(hub)
 
-    # Telegram owner surface: same governed command path, one process only.
-    tg = spawn(
-        "Telegram 610 (owner mobile)",
-        [python, str(ROOT / "governance" / "telegram.py")],
-        8098,
-    )
+    # 610 — owner mobile surface. The bot is governed through the same hub and
+    # uses the existing encrypted secret vault. Port 8098 is only a singleton lock.
+    tg = spawn("Telegram 610 (owner mobile)", [python, str(ROOT / "governance" / "telegram.py")], 8098)
     if tg is not None:
         processes.append(tg)
 
@@ -146,8 +145,10 @@ def main() -> int:
         webbrowser.open("http://127.0.0.1:8090")
     print("Unified dashboard: http://127.0.0.1:8090")
     print("Internal backends: Forex 8092 / Crypto 8093")
-    print("Telegram 610: owner mobile — lock 8098")
-    print("Switch button: فوركس ⇄ كريبتو")
+    print("Telegram 610     : owner mobile — lock 8098")
+    print("Switch button   : فوركس ⇄ كريبتو")
+    # Child processes have their own console on Windows. On POSIX keep no
+    # artificial foreground wait: this command is also safe for automation.
     return 0 if all(ready.values()) else 2
 
 
