@@ -1,8 +1,4 @@
-"""Launch both isolated market cores and both governance dashboards.
-
-This launcher avoids Windows ``start`` quoting/encoding issues and does not
-start a second copy when a service is already listening on its port.
-"""
+"""Launch both isolated market cores, governance, dashboard, and Telegram owner surface."""
 from __future__ import annotations
 
 import argparse
@@ -122,15 +118,26 @@ def main() -> int:
             if process is not None:
                 processes.append(process)
 
-    # One visible origin: the hub owns 8090. Internal governance backends are
-    # localhost-only implementation details and are never exposed in the UI.
     hub_market = "crypto" if args.crypto_only else "forex"
-    hub = spawn("Unified Dashboard Hub", [python, str(ROOT / "governance" / "unified_hub.py")], 8090,
-                extra_env={"QUANT_HUB_DEFAULT_MARKET": hub_market})
+    hub = spawn(
+        "Unified Dashboard Hub",
+        [python, str(ROOT / "governance" / "unified_hub.py")],
+        8090,
+        extra_env={"QUANT_HUB_DEFAULT_MARKET": hub_market},
+    )
     if hub is not None:
         processes.append(hub)
 
-    wanted = ([8010, 8092] if start_forex else []) + ([8020, 8093] if start_crypto else []) + [8090]
+    # Telegram owner surface: same governed command path, one process only.
+    tg = spawn(
+        "Telegram 610 (owner mobile)",
+        [python, str(ROOT / "governance" / "telegram.py")],
+        8098,
+    )
+    if tg is not None:
+        processes.append(tg)
+
+    wanted = ([8010, 8092] if start_forex else []) + ([8020, 8093] if start_crypto else []) + [8090, 8098]
     ready = {port: wait_port(port) for port in wanted}
     for port, ok in ready.items():
         print(f"port {port}: {'READY' if ok else 'NOT READY'}")
@@ -139,9 +146,8 @@ def main() -> int:
         webbrowser.open("http://127.0.0.1:8090")
     print("Unified dashboard: http://127.0.0.1:8090")
     print("Internal backends: Forex 8092 / Crypto 8093")
-    print("Switch button   : فوركس ⇄ كريبتو")
-    # Child processes have their own console on Windows. On POSIX keep no
-    # artificial foreground wait: this command is also safe for automation.
+    print("Telegram 610: owner mobile — lock 8098")
+    print("Switch button: فوركس ⇄ كريبتو")
     return 0 if all(ready.values()) else 2
 
 
