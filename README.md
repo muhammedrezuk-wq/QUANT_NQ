@@ -33,7 +33,7 @@ it's gone. Without touching a single line of the core.
 | | |
 |---|---|
 | Forex atoms | **233** under `atoms/` |
-| Crypto atoms | **77** under `atoms_crypto/` — isolated, advisory |
+| Crypto atoms | **84** under `atoms_crypto/` — isolated, advisory |
 | Sealed core files | **23** (`core/CORE.lock`) |
 | Core version | **1.27.0** — sealed `2026-08-27` |
 | Governance checks | **71** under `governance/checks/` |
@@ -57,7 +57,7 @@ it's gone. Without touching a single line of the core.
 ```text
 core/           sealed kernel (23 files) — knows no atom
 atoms/          forex atoms (233)
-atoms_crypto/   crypto atoms (76) — isolated, advisory
+atoms_crypto/   crypto atoms (84) — isolated, advisory
 transport/      ownership bus (distribute ownership, not copies)
 governance/     checks (71), dashboards, launchers
 shared/         shared contracts & components

@@ -54,7 +54,11 @@ SCOPES = [
      ROOT / "forex_runtime/atoms/قسم 001-050/007_سلامة_الملفات/manifest.yaml",
      ROOT / "forex_runtime/integrity_baseline.json"),
     (ROOT / "crypto_runtime",
-     ROOT / "crypto_runtime/atoms/2007_سلامة_الملفات/manifest.yaml",
+     # ٢٠٢٦-٠٨-٣٠ — دمج الشريك أعاد توزيع ذرّات الكريبتو في أقسام
+     # (`قسم 2001-2050/`)، فصار مسار الحارس 2007 القديم (مباشرة تحت atoms/)
+     # ميتاً وكانت الفرعة تولد «لا يوجد مانيفست حارس» بلا أن يُكتب خط أساس
+     # كريبتو قط. المسار هنا يطابق بنية الشجرة الحالية.
+     ROOT / "crypto_runtime/atoms/قسم 2001-2050/2007_سلامة_الملفات/manifest.yaml",
      ROOT / "crypto_runtime/integrity_baseline.json"),
 ]
 

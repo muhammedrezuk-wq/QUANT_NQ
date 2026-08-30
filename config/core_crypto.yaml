@@ -18,10 +18,8 @@ discovery:
 
 api:
   enable_api: true
-  host: 0.0.0.0
+  host: 127.0.0.1
   port: 8020
-  # External binding requires an API key from QUANT_GOV_API_KEY or
-  # QUANT_CORE_API_KEY; secrets are never committed to this file.
 
 secrets:
   enabled: true

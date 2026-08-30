@@ -16,6 +16,7 @@ publishes:
 subscribes:
   - "feed.mt5.tick"
   - "feed.ctrader.tick"
+  - "feed.replay.tick"
   - "kernel.clock.heartbeat"
 
 startup_mode: auto
@@ -54,6 +55,7 @@ config:
   routes:
     feed.mt5.tick: "market.tick"
     feed.ctrader.tick: "market.tick"
+    feed.replay.tick: "market.tick"
   provider_timeout_s: 30
   max_input_silence_seconds: 60
   preferred_provider: "CTRADER"

@@ -1,6 +1,6 @@
 id: 156
 name: "Candlestick Analyzer"
-version: "2.4.1"
+version: "2.5.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
