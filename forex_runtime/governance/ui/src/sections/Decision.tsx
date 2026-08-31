@@ -10,6 +10,7 @@ import { arabicVisible, fieldAr } from '../core/arabic'
 import { SectionAtomsHealth, SectionConfigTable } from '../components/SectionAtoms'
 import { blockedByAr } from './Execution'
 import TiltEngine from './TiltEngine'
+import { DecisionDialsCard, DECISION_DIAL_NAMES } from './Settings'
 
 type Rec = Record<string, unknown>
 
@@ -422,6 +423,7 @@ export default function Decision() {
 
   return (
     <div className="section chartsec" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <DecisionDialsCard onlyNames={DECISION_DIAL_NAMES} includeExtras={false} />
       {syms.map((sym) => (
         <div key={sym} className="scard" style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'transparent', border: 'none', padding: 0 }}>
           <DecisionHeaderCard symbol={sym} />

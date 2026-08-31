@@ -3,6 +3,7 @@ import AnalystsPanel from './AnalystsPanel'
 // بند 2ب (دفتر 97، مواصفة المالك الحرفيّة): «حفظ إعدادات الكل» دفعة واحدة ثم
 // «تحديث» يتحقّق بقراءة مستقلّة من الخادم (لا ثقة بتقرير المنفّذ) ثم «تمّ الضبط».
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnalysisSettingsCard } from './Settings'
 import { useStore, type AnalyzerContribution, type AnalysisState, type PathCard, type SectionFusionState } from '../core/store'
 import { ANALYZER_AR, analyzerLabel } from '../core/analyzerLabels'
 import { arabicVisible, fieldAr } from '../core/arabic'
@@ -502,65 +503,6 @@ function SectionPathsCards() {
   )
 }
 
-function SectionRows({ accountId, symbol }: { accountId: string; symbol: string }) {
-  const cards = useStore((s) => s.sectionCards)
-  const wanted = symbol.trim().toUpperCase()
-  const rows = Object.entries(cards)
-    .filter(([key]) => {
-      const parts = key.split('::')
-      return parts[0] === accountId.trim() && parts[2] === wanted
-    })
-    .sort(([a], [b]) => a.localeCompare(b))
-  return (
-    <div className="scard" style={{ overflow: 'hidden', padding: 0 }}>
-      <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--glassb)' }}>
-        <div className="st">الأقسام</div>
-        <div className="ss dim">بطاقة كل قسم كما بناها العقد. الوزن الفعّال صفر حتى تكتمل الجاهزية والاعتماد.</div>
-      </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14.5 }}>
-          <thead><tr className="dim" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-            <th style={{ padding: 8 }}>القسم</th><th style={{ padding: 8 }}>الوسيط</th><th style={{ padding: 8 }}>الاتجاه</th><th style={{ padding: 8 }}>القوّة</th><th style={{ padding: 8 }}>الثقة</th><th style={{ padding: 8 }}>العمق الحالي</th><th style={{ padding: 8 }}>العمق المطلوب</th><th style={{ padding: 8 }}>الوزن</th><th style={{ padding: 8 }}>الوزن الفعّال</th><th style={{ padding: 8 }}>الحالة</th><th style={{ padding: 8 }}>سبب الحجب</th><th style={{ padding: 8 }}>آخر تحديث</th>
-          </tr></thead>
-          <tbody>
-            {rows.length === 0
-              ? <tr><td colSpan={12} style={{ padding: 14 }} className="dim">لم تصل بطاقة قسم لهذا النطاق بعد.</td></tr>
-              : rows.map(([key, card]) => {
-                const u = ((card as Record<string, unknown>).unified ?? {}) as Record<string, unknown>
-                const parts = key.split('::')
-                const rawState = String(u.state ?? (card as Record<string, unknown>).state ?? '—')
-                const st = SECTION_STATE[rawState] ?? { text: rawState, cls: 'grey' }
-                const rawReason = String((card as Record<string, unknown>).missing_reason ?? u.not_ready_reason ?? '')
-                const blocking = (card as Record<string, unknown>).blocking_units
-                const blockingN = Array.isArray(blocking) ? blocking.length : 0
-                const reasonText = rawReason
-                  ? (BLOCK_REASON[rawReason] ?? rawReason) + (rawReason === 'REQUIRED_UNITS' && blockingN ? ` (${blockingN} وحدة)` : '')
-                  : '—'
-                return (
-                  <tr key={key} style={{ borderBottom: '1px solid var(--glassb)' }}>
-                    <td style={{ padding: '9px 8px', fontWeight: 700, whiteSpace: 'nowrap' }}>{SECTION_LABELS[parts[3]] ?? parts[3]} · {parts[3]}</td>
-                    <td style={{ padding: '9px 8px', whiteSpace: 'nowrap' }}>{parts[1]}</td>
-                    <td style={{ padding: '9px 8px' }}>{cell(u.direction)}</td>
-                    <td style={{ padding: '9px 8px' }}>{cell(u.strength)}</td>
-                    <td style={{ padding: '9px 8px' }}>{cell(u.confidence)}</td>
-                    <td style={{ padding: '9px 8px' }}>{cell(u.current_depth)}</td>
-                    <td style={{ padding: '9px 8px' }}>{cell(u.required_depth)}</td>
-                    <td style={{ padding: '9px 8px' }}>{cell(u.weight)}</td>
-                    <td style={{ padding: '9px 8px' }}>{cell(u.weight_effect)}</td>
-                    <td style={{ padding: '9px 8px', whiteSpace: 'nowrap' }}><span className={`pill ${st.cls}`}>{st.text}</span></td>
-                    <td style={{ padding: '9px 8px', whiteSpace: 'nowrap', fontSize: 12.5 }} className="dim"
-                      title={Array.isArray(blocking) && blocking.length ? blocking.join(' · ') : rawReason}>{reasonText}</td>
-                    <td style={{ padding: '9px 8px', whiteSpace: 'nowrap', fontSize: 12 }}>{timeText((card as Record<string, unknown>).timestamp as number | undefined)}</td>
-                  </tr>
-                )
-              })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
 function Summary({ value }: { value?: AnalysisState }) {
   const signal = SIGNALS[value?.signal ?? ''] ?? { text: 'غير جاهز', arrow: '·', cls: 'grey' }
   return (
@@ -700,6 +642,7 @@ export default function Analysis() {
   // «حفظ إعدادات الكل» — دفعة واحدة بتأكيد واحد، كل صفّ يمرّ ببوّابة الأوامر
   const saveAll = async () => {
     if (!accountId.trim() || !symbol.trim()) { setBulkNote({ ok: false, text: 'أدخل الحساب والأصل أولًا' }); return }
+    if (!broker) { setBulkNote({ ok: false, text: 'لا يمكن الحفظ: الوسيط غير معروف لهذا النطاق بعد' }); return }
     const bad = dirtyIds.find((key) => {
       const d = drafts[key]
       return !d || [...DIAL_FIELDS.map((f) => d[f.key] as number), d.weight]
@@ -792,8 +735,12 @@ export default function Analysis() {
 
   return (
     <div className="section chartsec" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {/* إقفال 150 مرحلة ٤: لوحة المحلّلين — كل محلّل يعلن نفسه */}
-      <AnalystsPanel />
+      <div className="scard analysis-intro">
+        <div className="st" style={{ fontWeight: 700, fontSize: 16 }}>قسم التحليل — 150</div>
+        <div className="ss dim" style={{ marginTop: 4 }}>
+          هون منشوف جاهزية التحليل ونتيجة المحلّلين ومساري التكّات والشموع. هذا القسم للبيانات والضبط فقط، وما بيفتح صفقة.
+        </div>
+      </div>
       <div className="scard">
         <div className="st">نطاق التحليل والضبط</div>
         <div className="ss dim" style={{ marginBottom: 10 }}>الإعدادات معزولة بالحساب والأصل والمحلل. اللوحة لا تصنع قرار تداول.</div>
@@ -824,7 +771,8 @@ export default function Analysis() {
 
       <PathWeightsCard />
 
-      <SectionRows accountId={accountId} symbol={symbol} />
+      {/* المحلّلون بعد ملخّص القسم، حتى يقرأ الإنسان الصورة قبل الجدول التفصيلي. */}
+      <AnalystsPanel />
 
       <div className="scard" style={{ overflow: 'hidden', padding: 0 }}>
         <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--glassb)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
@@ -838,8 +786,9 @@ export default function Analysis() {
           {/* بند 2ب — الثلاث قطع بمواصفة المالك الحرفيّة وبترتيبها */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginInlineStart: 'auto', flexWrap: 'wrap' }}>
             {dirtyIds.length ? <span className="amber" style={{ fontSize: 12.5 }}>{dirtyIds.length} تعديل غير محفوظ</span> : null}
-            <button className="btn" disabled={busyAll || dirtyIds.length === 0} onClick={() => void saveAll()}>
-              {busyAll ? '⏳ …' : `💾 حفظ إعدادات الكل${dirtyIds.length ? ` (${dirtyIds.length})` : ''}`}
+            <button className="btn" disabled={busyAll || dirtyIds.length === 0 || !broker} onClick={() => void saveAll()}
+              title={!broker ? 'ينتظر اسم الوسيط من البثّ الحي — لن يُرسل أمرًا ناقصًا' : 'يرسل التعديلات بعد تأكيدك لكل دفعة'}>
+              {busyAll ? '⏳ …' : !broker ? '🔒 بانتظار الوسيط' : `💾 حفظ إعدادات الكل${dirtyIds.length ? ` (${dirtyIds.length})` : ''}`}
             </button>
             <button className="btn" disabled={busyAll} onClick={() => void verifyRefresh()} title="يقرأ من الخادم من جديد ويطابق ما أُرسل — تحقّق مستقلّ، لا ثقة بردّ الحفظ">
               🔄 تحديث
@@ -867,6 +816,11 @@ export default function Analysis() {
           </table>
         </div>
       </div>
+
+      <details className="analysis-settings">
+        <summary>⚙️ إعدادات التحليل والعيارات — افتحها عند الحاجة</summary>
+        <div style={{ marginTop: 10 }}><AnalysisSettingsCard /></div>
+      </details>
     </div>
   )
 }

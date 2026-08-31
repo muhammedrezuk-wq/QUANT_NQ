@@ -90,6 +90,8 @@ class Atom(AtomBase):
 
     async def start(self) -> None:
         self._running = True
+        # انشر خط الأساس فور الإقلاع كي لا تبقى لوحة 850 صامتة حتى أول اقتراح.
+        await self._publish_limits()
 
     async def stop(self) -> None:
         self._running = False

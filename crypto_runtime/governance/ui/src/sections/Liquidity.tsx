@@ -49,6 +49,13 @@ export default function Liquidity() {
               ) : (
                 <>
                   <div style={{ display: 'flex', gap: 10, fontSize: 12, flexWrap: 'wrap' }}>
+                    <span>الثقة <b className="num">{num(d.confidence)}</b></span>
+                    <span>الجاهزية <b className="num">{num(d.current_depth)} / {num(d.required_depth)}</b></span>
+                    <span>الضغط <b className="num">{num(d.liquidity_pressure)}</b></span>
+                    <span>جودة السيولة <b className="num">{num(d.liquidity_quality)}</b></span>
+                    {d.metadata?.timeframe ? <span className="dim">الفريم {d.metadata.timeframe}</span> : null}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, fontSize: 12, flexWrap: 'wrap' }}>
                     <span>التجمّع <b>{POOL[lq.pool] ?? arabicVisible(lq.pool, 'غير مترجَم')}</b></span>
                     <span className="dim">الجودة {d.quality === 'good' ? 'جيّدة' : 'ضعيفة'}</span>
                   </div>

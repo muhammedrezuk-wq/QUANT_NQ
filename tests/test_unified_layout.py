@@ -19,9 +19,9 @@ def test_complete_release_contains_forex_and_full_crypto_source() -> None:
     assert not forex.failures, forex.failures
     assert not crypto.failures, crypto.failures
     assert len(forex.atoms) == 233
-    assert len(crypto.atoms) == 77  # 2026-08-28: دمج الشريك أدخل 2622 (Binance)
+    assert len(crypto.atoms) == 84  # 2026-08-30: آخر عدّ موثّق (2622 + إعادة التوزيع) — كل الـ 84 تُكتشف بلا فشل
     assert {1001, 1002}.issubset({a.manifest.id for a in crypto.atoms})
-    assert len({a.manifest.id for a in crypto.atoms}) == 77  # 2026-08-28: مع 2622
+    assert len({a.manifest.id for a in crypto.atoms}) == 84  # 2026-08-30: 84 معرفًا فريدًا بلا تكرار (فُحص بالاكتشاف)
 
 
 def test_all_packaged_crypto_atoms_have_namespace_above_1000() -> None:

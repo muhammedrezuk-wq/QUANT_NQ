@@ -37,6 +37,7 @@ export default function Diag() {
   const atoms = useStore((s) => s.atoms)
   const flows = useStore((s) => s.flows)
   const namesAr = useStore((s) => s.namesAr)
+  const telemetry = atoms[810]
 
   useEffect(() => {
     const load = () => {
@@ -128,6 +129,12 @@ export default function Diag() {
         <Card t="أقلعت" v={b ? String(b.booted.length) : '—'} c="green" />
         <Card t="فشلت بالإقلاع" v={b ? String(b.failed.length) : '—'} c={b && b.failed.length ? 'red' : 'grey'} />
         <Card t="نطقت منذ فتح اللوحة" v={analysis ? String(analysis.spokeCount) : '—'} c="green" />
+        <Card
+          t="ناقل التلمترية (810)"
+          v={!telemetry ? 'غير محمّل' : telemetry.health?.state === 'healthy' ? 'يعمل' : telemetry.health?.state === 'degraded' ? 'ينتظر بيانات' : 'متوقّف'}
+          c={!telemetry ? 'grey' : telemetry.health?.state === 'healthy' ? 'green' : telemetry.health?.state === 'degraded' ? 'amber' : 'red'}
+          sub={telemetry?.health?.message ?? 'لم تصل حالة الناقل بعد'}
+        />
       </div>
 
       <div className="scard">

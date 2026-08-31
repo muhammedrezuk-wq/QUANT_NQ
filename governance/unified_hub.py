@@ -23,7 +23,15 @@ ROOT = Path(__file__).resolve().parent.parent
 PORT = int(os.environ.get("QUANT_HUB_PORT", "8090"))
 BACKENDS = {"forex": ("127.0.0.1", 8092), "crypto": ("127.0.0.1", 8093)}
 DIST = ROOT / "governance" / "ui" / "built"
-COOKIE = "QUANT_MARKET"
+# منافذ اللوحتين العلنيّتين (نفس جدول scripts/launch_market.py).
+UI_PORTS = {"forex": 8090, "crypto": 8091}
+# ٢٠٢٦-٠٨-٣١ (ختم NQ): الكوكي كان `QUANT_MARKET` مجرّدًا، والمتصفّح **لا يفصل
+# الكوكي بالمنفذ** — 8090 و8091 على نفس المضيف فيتشاركان الجرّة. فأوّل تبديل
+# إلى الكريبتو كان يكتب `QUANT_MARKET=crypto` على `127.0.0.1` كلّه، فيصير
+# منفذ الفوركس نفسه يخدم كريبتو لأنّ الكوكي يسبق افتراض المنفذ في `_market`
+# (مقاس حيًّا: المساران يفتحان كريبتو). الاسم صار مرقّمًا بالمنفذ، فلكلّ لوحة
+# كوكيها، والتبديل داخل الصفحة يبقى كما هو.
+COOKIE = f"QUANT_MARKET_{PORT}"
 _WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -220,7 +228,9 @@ class HubHandler(BaseHTTPRequestHandler):
             self._json(200, {
                 "market": market,
                 "label": "فوركس" if market == "forex" else "كريبتو",
-                "alternate_port": PORT,
+                # كان `PORT` (منفذ هذه اللوحة نفسها)، فزرّ الانتقال للسوق الآخر
+                # يعيدك إلى مكانك. الآن منفذ اللوحة الأخرى فعلًا — ختم NQ ٢٠٢٦-٠٨-٣١.
+                "alternate_port": UI_PORTS[alternate],
                 "alternate_label": "كريبتو" if alternate == "crypto" else "فوركس",
                 "single_origin": True,
             })

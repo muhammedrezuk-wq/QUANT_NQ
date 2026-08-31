@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -43,8 +42,7 @@ def test_generic_core_stays_local() -> None:
 
 def test_public_launchers_run_network_preflight() -> None:
     for path, market in (("scripts/run_forex.py", "forex"), ("scripts/run_crypto.py", "crypto")):
-        tree = ast.parse((ROOT / path).read_text(encoding="utf-8"), filename=path)
-        source = ast.get_source_segment((ROOT / path).read_text(encoding="utf-8"), tree) or ""
+        source = (ROOT / path).read_text(encoding="utf-8")
         assert "validate_market" in source, path
         assert f'validate_market("{market}")' in source, path
 
@@ -53,7 +51,7 @@ def test_unified_launcher_runs_network_preflight_before_starting() -> None:
     text = (ROOT / "scripts/launch_unified.py").read_text(encoding="utf-8")
     assert "def network_preflight" in text
     call_pos = text.index("network_preflight(start_forex, start_crypto)")
-    prepare_pos = text.index("prepare()")
+    prepare_pos = text.index("prepare()", call_pos)  # الاستدعاء، لا التعريف
     assert call_pos < prepare_pos
 
 

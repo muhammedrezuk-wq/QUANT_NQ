@@ -7,6 +7,7 @@
 // القوانين من ورقتَي ٩٩ و٩٧: أرقام أجنبية (١) · صفر إنكليزي خام (١/٢ج) ·
 // لا زرّ ميّت · لا حقل مخترع — والغياب يُعلَن غيابًا.
 import { useEffect, useMemo, useState } from 'react'
+import { DecisionDialsCard } from './Settings'
 import { useStore } from '../core/store'
 import { TileBoard, useLayout, type Layout, type TileDef } from '../components/Tiles'
 import { RoomBar } from '../components/RoomBar'
@@ -15,19 +16,18 @@ import { EarlyWarningStrip } from '../components/EarlyWarning'
 // ── الأقسام تُركَّب كما هي ──
 import Network from './Network'
 import Charts from './Charts'
+import Control from './Control'
 import Analysis from './Analysis'
 import Market from './Market'
 import Risk from './Risk'
 import Alerts from './Alerts'
 import Monitor from './Monitor'
 import Execution from './Execution'
-import Control from './Control'
 import Atoms from './Atoms'
 import Portfolios from './Portfolios'
 import Log from './Log'
 import Connection from './Connection'
 import NQ from './NQ'
-import { DecisionDialsCard } from './Settings'
 
 interface Account { balance?: number; equity?: number }
 interface Pos { symbol: string; profit?: number | null }
@@ -314,7 +314,7 @@ export default function Home({ onGo }: { onGo: (id: string) => void }) {
       </div>),
     },
     {
-      id: 'feed', title: 'التغذية', go: 'connection',
+      id: 'feed', title: 'السوق والاتصال', go: 'market',
       render: () => (<div style={{ paddingTop: 4 }}>
         <Line k="الاتصال بالنواة" v={conn === 'live' ? 'حيّ' : conn === 'down' ? 'مقطوع' : 'جارٍ'} c={conn === 'live' ? 'var(--green)' : 'var(--red)'} />
         {(() => { const f = feedTxt(feedAge('feed.mt5.tick', 'platform.terminal_state', 'platform.account.state')); return <Line k="المنصّة" v={f[0]} c={f[1]} /> })()}
@@ -326,6 +326,7 @@ export default function Home({ onGo }: { onGo: (id: string) => void }) {
       </div>),
     },
 
+    { id: 'control', title: 'تحكّم', go: 'control', render: () => <Control /> },
     // ── الأقسام كما هي، بلا إعادة بناء ──
     { id: 'charts', title: 'الشارت', go: 'charts', render: () => <Charts /> },
     { id: 'risk', title: 'المخاطر', go: 'risk', render: () => <Risk /> },
@@ -334,7 +335,6 @@ export default function Home({ onGo }: { onGo: (id: string) => void }) {
     { id: 'analysis', title: 'التحليل', go: 'analysis', render: () => <Analysis /> },
     { id: 'market', title: 'السوق', go: 'market', render: () => <Market /> },
     { id: 'execution', title: 'التنفيذ', go: 'execution', render: () => <Execution /> },
-    { id: 'control', title: 'تحكّم', go: 'control', render: () => <Control /> },
     { id: 'atoms', title: 'الذرات', go: 'atoms', render: () => <Atoms /> },
     { id: 'portfolios', title: 'المحافظ', go: 'portfolios', render: () => <Portfolios /> },
     { id: 'log', title: 'السجل', go: 'log', render: () => <Log /> },

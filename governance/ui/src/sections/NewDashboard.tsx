@@ -8,6 +8,7 @@
 import '../styles-dashboard.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../core/store'
+import { dangerCommand } from '../core/commands'
 import { isWaitingMessage } from '../core/i18n'
 
 // ═══════════════════════════════════════════════════════════
@@ -45,9 +46,9 @@ function useSafety(): SafetyStatus {
   const conn = useStore((s) => s.conn)
 
   return useMemo(() => {
-    if (conn === 'offline') return { color: 'red', label: 'انقطع الاتصال', detail: 'النواة غير متصلة' }
+    if (conn !== 'live') return { color: 'red', label: 'انقطع الاتصال', detail: 'النواة غير متصلة أو لا يصل بثّها' }
     if (risk?.halted || execution?.halted) return { color: 'red', label: 'متوقف', detail: 'التداول موقوف' }
-    if (gate?.open !== true) return { color: 'amber', label: 'البوّابة مقفلة', detail: 'التداول مسموح لكن البوّاجة مغلقة' }
+    if (gate?.status !== 'LIVE') return { color: 'amber', label: 'البوّابة مقفلة', detail: 'التداول غير مسموح حتى يثبت فتح البوّابة' }
     return { color: 'green', label: 'آمن — التداول مسموح', detail: 'كل الحرّاس سليمون' }
   }, [risk, gate, execution, conn])
 }
@@ -261,6 +262,50 @@ function useSickAtoms(): { sick: SickAtom[]; waiting: SickAtom[] } {
   }, [atoms])
 }
 
+const GUARD_CHAIN: Array<{ id: number; label: string; purpose: string }> = [
+  { id: 586, label: 'حلّ الرمز', purpose: 'الرمز معروف عند الوسيط' },
+  { id: 585, label: 'حارس الهامش', purpose: 'الهامش والاحتياطي معروفان' },
+  { id: 551, label: 'باني الأمر', purpose: 'الأمر مكتمل الهوية والسعر' },
+  { id: 584, label: 'شرعية الوقف', purpose: 'الوقف والهدف صالحان' },
+  { id: 552, label: 'مدقّق الأمر', purpose: 'القرار النهائي قبل الجسر' },
+  { id: 601, label: 'كاتب الجسر', purpose: 'الحساب والرقم السحري ومنع التكرار' },
+  { id: 901, label: 'بوابة الأوامر', purpose: 'أمر المالك وحالة الإيقاف' },
+]
+
+function GuardChainPanel() {
+  const atoms = useStore((s) => s.atoms)
+  const risk = useStore((s) => s.risk)
+  const gate = useStore((s) => s.gate)
+  return (
+    <div className="dl-panel dl-guard-chain">
+      <div className="dl-panel-title">سلسلة فتح الصفقة — لا تخمين</div>
+      <div className="dl-guard-note">كل سطر يبيّن حالة الحارس. «لم تصل» ليست نجاحًا ولا فشلًا.</div>
+      <div className="dl-guard-list">
+        {GUARD_CHAIN.map((g) => {
+          const a = atoms[g.id]
+          const state = (a?.health?.state ?? '').toLowerCase()
+          const healthy = state === 'healthy'
+          const bad = state === 'unhealthy' || state === 'error'
+          const color: Color4 = healthy ? 'green' : bad ? 'red' : state === 'degraded' ? 'amber' : 'grey'
+          const status = healthy ? 'جاهز' : bad ? 'يمنع — ' + (a?.health?.message || 'فشل') : state === 'degraded' ? 'تحذير — ' + (a?.health?.message || 'متعثّر') : 'لم تصل حالته بعد'
+          return (
+            <div key={g.id} className="dl-guard-row" data-color={color}>
+              <span className="dl-guard-light" />
+              <b className="dl-guard-id">{g.id}</b>
+              <span className="dl-guard-name">{g.label}</span>
+              <span className="dl-guard-purpose">{g.purpose}</span>
+              <span className="dl-guard-status">{status}</span>
+            </div>
+          )
+        })}
+      </div>
+      <div className="dl-guard-summary" data-color={risk?.halted || gate?.status === 'HALTED' ? 'red' : 'grey'}>
+        {risk?.halted || gate?.status === 'HALTED' ? 'يوجد إيقاف فعّال — فتح الصفقة ممنوع' : 'الحكم النهائي يُؤخذ من السلسلة نفسها، وليس من لون اللوحة فقط'}
+      </div>
+    </div>
+  )
+}
+
 function WhatBrokenPanel() {
   const { sick, waiting } = useSickAtoms()
   return (
@@ -420,6 +465,7 @@ const EARLY_AR: Record<string, string> = {
 function EarlyWarningBar() {
   const streams = useStore((s) => s.streams)
   const flows = useStore((s) => s.flows)
+  const conn = useStore((s) => s.conn)
   return (
     <div className="dl-early-bar">
       {Object.entries(EARLY_AR).map(([event, ar]) => {
@@ -440,8 +486,8 @@ function EarlyWarningBar() {
           </span>
         )
       })}
-      <span className="dl-conn">
-        {useStore.getState().conn === 'live' ? '🟢' : useStore.getState().conn === 'connecting' ? '🟡' : '🔴'}
+      <span className="dl-conn" title={conn === 'live' ? 'الاتصال حيّ' : conn === 'connecting' ? 'جارٍ الاتصال' : 'الاتصال مقطوع'}>
+        {conn === 'live' ? '🟢' : conn === 'connecting' ? '🟡' : '🔴'}
       </span>
     </div>
   )
@@ -492,7 +538,11 @@ export default function NewDashboard() {
         <button
           ref={emergencyRef}
           className="dl-emergency"
-          onClick={() => { if (window.confirm('⚠️ إيقاف طارئ — إيقاف الدخول الجديد فقط؟')) { /* TODO: send emergency halt */ } }}
+          onClick={async () => {
+            if (!window.confirm('⚠️ إيقاف طارئ — إيقاف الدخول الجديد فقط؟')) return
+            const result = await dangerCommand('halt')
+            window.alert(result.message || (result.ok ? 'تم إرسال الإيقاف الطارئ' : 'تعذّر إرسال الإيقاف الطارئ'))
+          }}
         >
           إيقاف طارئ
         </button>
@@ -504,6 +554,7 @@ export default function NewDashboard() {
       {/* ═══ ٣ — الأقسام الأربعة ═══ */}
       <main className="dl-main">
         <WhyNotPanel />
+        <GuardChainPanel />
         <WhatBrokenPanel />
         <TimelinePanel />
       </main>

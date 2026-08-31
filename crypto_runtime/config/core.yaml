@@ -1,10 +1,10 @@
 # إعداد Core العام فقط — لا يحتوي أي إعداد خاص بذرة بعينها (المادة 8/95).
+# المسار العام للتشغيل محلي فقط. التشغيل المنشور للفوركس/الكريبتو يستخدم
+# core_forex.yaml / core_crypto.yaml مع فحص شبكة مغلق عند الفشل.
 log_level: INFO
 log_json: true
 atoms_root: atoms
 
-# Low-copy production transport: one recursively read-only payload is shared
-# across default consumers.  Use `isolated` only for rollback/debug runs.
 event_bus:
   payload_mode: shared_readonly
   worker_count: 4
@@ -15,24 +15,14 @@ journal:
   path: var/journal.jsonl
 
 discovery:
-  # دورية الفحص الحي لمجلد الذرات (المادة 14).
   rescan_interval_s: 5.0
 
 api:
-  enable_api: true          # يشغّل الـAPI الخام + بثّ WS (الحوكمة تقرا منّو) — النواة بلا لوحة HTML
-  host: 127.0.0.1   # افتراضيًا محلي فقط؛ الوصول البعيد لا يُفتح إلا بإجراء صريح وحماية شبكية
-  port: 8010   # النواة بعيدة عن 8000 (منفذ نظام المالك القديم) — فصلٌ ضروري، ليس من «عمل الحوكمة»
-  # عند الربط البعيد عيّن QUANT_GOV_API_KEY؛ المشغّل يستعمله أيضًا لـREST/WS
-  # (أو QUANT_CORE_API_KEY منفصلًا للاتصالات غير المتصفحية).
-  # للرجوع محليًّا فقط: host: 127.0.0.1 + حذف var\governance\remote_on.txt
+  enable_api: true
+  host: 127.0.0.1
+  port: 8010
 
 secrets:
   enabled: true
-  # لا تطلب عبارة مرور تفاعلياً عند الإقلاع: يمنع تجمّد النواة عند أي
-  # تشغيل غير تفاعلي (خدمة/خلفية/مهمة مجدولة). إن لم يتوفّر مفتاح من
-  # QUANT_MASTER_KEY أو DPAPI يبقى المخزن LOCKED والنواة تُقلع طبيعياً.
-  # لفتح المخزن: عيّن QUANT_MASTER_KEY="pass:<عبارتك>" قبل التشغيل.
   allow_prompt: false
-  # مفتاح مغلَّف بحساب ويندوز — يُنشأ بزرّ «اربطها بحساب ويندوز» بقسم الأمان.
-  # وجوده يجعل الخزنة تُفتح بلا عبارة وبلا QUANT_MASTER_KEY. غيابه لا يضرّ.
   dpapi_blob: runtime/device.key

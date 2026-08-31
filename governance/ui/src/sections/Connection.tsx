@@ -7,13 +7,13 @@ const BRIDGES: Array<[number, string]> = [
   [613, 'تغذية السوق'], [619, 'حالة الحساب'], [609, 'مزامنة المراكز'],
 ]
 
-export default function Connection() {
+export default function Connection({ embedded = false }: { embedded?: boolean }) {
   const term = useStore((s) => s.streams['platform.terminal_state']) as Term | undefined
   const atoms = useStore((s) => s.atoms)
   const conn = useStore((s) => s.conn)
   const yn = (b?: boolean) => (b ? 'نعم' : 'لا')
   return (
-    <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className={embedded ? undefined : 'section'} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="cards">
         {/* بند 6 (دفتر 97): وسم صريح لكل رقم حساب — هذا حساب «التنفيذ»؛
             حساب سي-تريدر (بيانات فقط، لا تنفيذ عليه أبدًا) ظاهر بقسم «التحليل» */}

@@ -95,6 +95,7 @@ class Atom(AtomBase):
     async def start(self) -> None:
         self._running = True
         self._last_flush = time.monotonic()
+        await self._publish_state()
 
     async def stop(self) -> None:
         self._running = False
@@ -134,6 +135,19 @@ class Atom(AtomBase):
                 self._buffer and elapsed >= self._flush_interval_s):
             await self._flush()
 
+    async def _publish_state(self) -> None:
+        if self._context is None:
+            return
+        await self._context.publish(EVENT_STATE, {
+            "id": "telemetry_carrier",
+            "state": "HEALTHY" if self._rows_seen else "DEGRADED",
+            "rows_seen": self._rows_seen,
+            "batches": self._batches,
+            "rows_written": self._rows_written,
+            "buffered": len(self._buffer),
+            "dropped": self._dropped,
+        })
+
     async def _flush(self) -> None:
         if self._context is None or not self._buffer:
             return
@@ -155,6 +169,7 @@ class Atom(AtomBase):
             "rows": len(rows), "file": str(path), "batches": self._batches,
             "dropped": self._dropped,
             "drop_reasons": dict(self._drop_reasons)})
+        await self._publish_state()
 
     def _rotate(self, day: str) -> None:
         files = sorted((self._out_dir / day).glob("telemetry-*.jsonl.gz"))

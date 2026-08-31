@@ -279,5 +279,15 @@ export default function Network() {
     }
   }, [])
 
-  return <div className="network" ref={wrapRef} style={{ position: 'relative', overflow: 'hidden', margin: '26px 0 16px', height: 'calc(100% - 42px)' }} />
+  return (
+    <div className="network" ref={wrapRef} style={{ position: 'relative', overflow: 'hidden', margin: '26px 0 16px', height: 'calc(100% - 42px)' }}>
+      <div className="network-badge">● بيانات حقيقية · الوميض = حدث فعلي</div>
+      <div className="network-legend" aria-label="دليل ألوان عائلات الذرات">
+        {[['#38bdf8', 'المنصّة'], ['#22d3ee', 'بيانات السوق'], ['#34d399', 'التحليل'], ['#fbbf24', 'السيولة'], ['#fb923c', 'الإحصاء'], ['#f472b6', 'الاحتمالات'], ['#c084fc', 'الاستراتيجيات'], ['#818cf8', 'القرار'], ['#ef4444', 'المخاطر'], ['#fb7185', 'التنفيذ']].map(([color, label]) => (
+          <span key={label}><i style={{ background: color }} />{label}</span>
+        ))}
+      </div>
+      <div className="network-hint">اسحب للتدوير · عجلة للزوم · اضغط الذرة لفتح تفاصيلها</div>
+    </div>
+  )
 }

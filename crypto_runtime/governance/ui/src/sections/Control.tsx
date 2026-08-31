@@ -63,6 +63,19 @@ const GROUP_DESC: Record<string, string> = {
 }
 
 type AtomRow = { id: number; state?: string; version?: string; health?: { state?: string; message?: string } }
+type TradingStatus = 'stopped' | 'waiting' | 'open'
+
+// مؤشّر حيّ ملاصق لكل زر: اللون يصف حالة المسار الذي يتحكّم به الزر الآن.
+function TradingLed({ status, text }: { status: TradingStatus; text: string }) {
+  const color = status === 'open' ? '#2ecc71' : status === 'waiting' ? '#f1c40f' : '#e74c3c'
+  const label = status === 'open' ? 'مفتوح' : status === 'waiting' ? 'مفتوح — ينتظر' : 'متوقّف'
+  return (
+    <span title={text} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginInlineEnd: 7, fontSize: 11.5, color, whiteSpace: 'nowrap' }}>
+      <span aria-label={label} style={{ width: 9, height: 9, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${color}`, display: 'inline-block' }} />
+      {text}
+    </span>
+  )
+}
 
 export default function Control() {
   const term = useStore((s) => s.streams['platform.terminal_state']) as { account_id?: string } | undefined
@@ -90,8 +103,10 @@ export default function Control() {
     let alive = true
     const pull = async () => {
       try {
-        const rows = await (await fetch('/api/atoms')).json() as AtomRow[]
+        const body = await (await fetch('/gov/atoms')).json() as { atoms?: AtomRow[] } | AtomRow[]
         if (!alive) return
+        // الحوكمة ترجع {connected, atoms}، مع دعم القائمة القديمة فقط للتوافق.
+        const rows = Array.isArray(body) ? body : (body.atoms ?? [])
         const map: Record<number, AtomRow> = {}
         for (const r of rows) map[r.id] = r
         setAtoms(map)
@@ -118,7 +133,7 @@ export default function Control() {
     if (!window.confirm(`${on ? 'تشغيل' : 'إيقاف'} الذرّة ${id}؟`)) return
     setBusy(true); setMessage('')
     try {
-      const r = await fetch(`/api/atoms/${id}/${on ? 'start' : 'stop'}`, { method: 'POST' })
+      const r = await fetch(`/gov/atoms/${id}/${on ? 'start' : 'stop'}`, { method: 'POST' })
       setMessage(r.ok ? `🟢 الذرّة ${id} ${on ? 'شُغّلت' : 'أُوقفت'}` : `🛑 فشل على الذرّة ${id}`)
     } catch (e) { setMessage(`🛑 ${String(e)}`) }
     setBusy(false)
@@ -129,7 +144,7 @@ export default function Control() {
   const startAtomStep = async (id: number, nm: string): Promise<string> => {
     if (!window.confirm(`تشغيل «${nm}» (${id})؟ — خطوة من المسار`)) return `تخطّيت «${nm}»`
     try {
-      const r = await fetch(`/api/atoms/${id}/start`, { method: 'POST' })
+      const r = await fetch(`/gov/atoms/${id}/start`, { method: 'POST' })
       return r.ok ? `▶️ «${nm}» اشتغلت` : `🛑 «${nm}»: فشل التشغيل`
     } catch (e) { return `🛑 «${nm}»: ${String(e)}` }
   }
@@ -153,9 +168,12 @@ export default function Control() {
       push(r.ok ? '🚪 فُتحت البوّابتان (552 + 575)' : `🛑 توقّف المسار عند البوّابة: ${r.error ?? ''}`)
       if (!r.ok) { setBusy(false); return }
     } else push('البوّابة مفتوحة ✓')
-    if (msgOf(576) && msgOf(576).includes('active=0')) {
+    const connectedAccount = term?.account_id || acct?.account_id
+    if (!connectedAccount) {
+      push('🔴 توقّف المسار: لا يوجد حساب تنفيذ مؤكّد خلف 601 — الكاتب وحده لا يختار حسابًا')
+    } else if (msgOf(576) && msgOf(576).includes('active=0')) {
       push('⚠️ باقي خطوة بإيدك: فعّل الأصل من بطاقة «الأصل» تحت — بدها ميزانيّة وما منخترعها عنّك')
-    } else push('تمّ — ما في شي من هالشاشة بيمنع التداول')
+    } else push(`تمّ — البوّابات مفتوحة للحساب المتصل ${connectedAccount}`)
     setBusy(false)
   }
 
@@ -179,6 +197,27 @@ export default function Control() {
     if (h === 'degraded') return <span className="pill warn">تنتظر</span>
     return <span className="pill unk">—</span>
   }
+
+  const atomStatus = (id: number): TradingStatus => {
+    const row = atoms[id]
+    if (!row || row.state !== 'running') return 'stopped'
+    if (row.health?.state === 'healthy') return 'open'
+    return 'waiting'
+  }
+  const gateStatus = (): TradingStatus => {
+    if (!gate || gate.status !== 'LIVE' || risk?.halted || risk?.kill_switch_state === true) return 'stopped'
+    return 'open'
+  }
+  const tradingStatus = (): TradingStatus => {
+    // 601 كاتب الجسر لا ينشئ حسابًا ولا يختاره. لا نعلن المسار مفتوحًا
+    // ما لم يصل account_id حيّ من المنصّة نفسها.
+    const connectedAccount = term?.account_id || acct?.account_id
+    if (!connectedAccount || gateStatus() === 'stopped' || atomStatus(601) === 'stopped' || atomStatus(618) === 'stopped') return 'stopped'
+    if ([451, 453, 458, 466, 467, 468, 516, 552, 575].some((id) => atomStatus(id) === 'waiting')) return 'waiting'
+    return 'open'
+  }
+  const statusText = (status: TradingStatus, subject = 'مسار التداول') =>
+    status === 'open' ? `${subject}: مفتوح` : status === 'waiting' ? `${subject}: مفتوح — ينتظر` : `${subject}: متوقّف`
 
   const needAsset = busy || !account.trim() || !symbol.trim()
 
@@ -247,11 +286,11 @@ export default function Control() {
         <div className="ss dim">المسار بينفّذ الخطوات الصحيحة بترتيبها الصحيح، ويسألك تأكيدًا عند كل خطوة خطرة. الأزرار الدقيقة كلّها باقية تحت لمن بدّه يمسك التفاصيل.</div>
         <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
           <button className="btn" disabled={busy} onClick={() => void pathOpenTrading()}
-            title="قاطع الأمان ← ذرّتا الجسر ← البوّابتان — وبيقلّك إذا باقي خطوة بإيدك">▶️ افتح التداول (خطوة خطوة)</button>
+            title="قاطع الأمان ← ذرّتا الجسر ← البوّابتان — وبيقلّك إذا باقي خطوة بإيدك"><TradingLed status={tradingStatus()} text={statusText(tradingStatus())} />▶️ افتح التداول (خطوة خطوة)</button>
           <button className="btn" disabled={busy} onClick={() => void pathStopAll()}
-            title="إيقاف طارئ + إقفال البوّابتين">🛑 أوقف كل شيء</button>
+            title="إيقاف طارئ + إقفال البوّابتين"><TradingLed status={tradingStatus()} text={statusText(tradingStatus())} />🛑 أوقف كل شيء</button>
           <button className="btn" disabled={busy} onClick={() => void run('halt', {}, 'أُعلن الإيقاف الطارئ')}
-            title="الإيقاف الطارئ وحده — بلا لمس البوّابات">⛔ مسار الطوارئ فقط</button>
+            title="الإيقاف الطارئ وحده — بلا لمس البوّابات"><TradingLed status={tradingStatus()} text={statusText(tradingStatus())} />⛔ مسار الطوارئ فقط</button>
         </div>
       </div>
 
@@ -261,9 +300,9 @@ export default function Control() {
           والتصفير لا يُرفع تلقائيًّا أبدًا — بيدك وحدها.</div>
         <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
           <button className="btn" disabled={busy}
-            onClick={() => void run('halt', {}, 'أُعلن الإيقاف الطارئ')}>🛑 إيقاف طارئ شامل</button>
+            onClick={() => void run('halt', {}, 'أُعلن الإيقاف الطارئ')}><TradingLed status={tradingStatus()} text={statusText(tradingStatus())} />🛑 إيقاف طارئ شامل</button>
           <button className="btn" disabled={busy}
-            onClick={() => void run('kill_switch_reset', {}, 'صُفّر قاطع الأمان')}>♻️ صفّر قاطع الأمان</button>
+            onClick={() => void run('kill_switch_reset', {}, 'صُفّر قاطع الأمان')}><TradingLed status={atomStatus(516)} text={statusText(atomStatus(516), 'قاطع الأمان')} />♻️ صفّر قاطع الأمان</button>
         </div>
       </div>
 
@@ -273,12 +312,12 @@ export default function Control() {
           <b> مرسل الإدارة (575)</b> يحمل التعديلات على صفقة مفتوحة ولا يفتح صفقة أبدًا.
           <br />فتح البوّابة لا يرفع إيقافًا طارئًا أمرت به.</div>
         <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '552', enabled: true }, 'فُتحت بوّابة الأوامر')}>▶️ افتح بوّابة الأوامر</button>
-          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '552', enabled: false }, 'أُوقفت بوّابة الأوامر')}>⏹️ أوقف بوّابة الأوامر</button>
-          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '575', enabled: true }, 'شُغّل مرسل الإدارة')}>▶️ شغّل مرسل الإدارة</button>
-          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '575', enabled: false }, 'أُوقف مرسل الإدارة')}>⏹️ أوقف مرسل الإدارة</button>
-          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: 'both', enabled: true }, 'فُتح الاثنان')}>▶️ افتح الاثنين</button>
-          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: 'both', enabled: false }, 'أُوقف الاثنان')}>🛑 أوقف الاثنين</button>
+          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '552', enabled: true }, 'فُتحت بوّابة الأوامر')}><TradingLed status={gateStatus()} text={statusText(gateStatus(), 'بوّابة الأوامر')} />▶️ افتح بوّابة الأوامر</button>
+          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '552', enabled: false }, 'أُوقفت بوّابة الأوامر')}><TradingLed status={gateStatus()} text={statusText(gateStatus(), 'بوّابة الأوامر')} />⏹️ أوقف بوّابة الأوامر</button>
+          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '575', enabled: true }, 'شُغّل مرسل الإدارة')}><TradingLed status={atomStatus(575)} text={statusText(atomStatus(575), 'مرسل الإدارة')} />▶️ شغّل مرسل الإدارة</button>
+          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: '575', enabled: false }, 'أُوقف مرسل الإدارة')}><TradingLed status={atomStatus(575)} text={statusText(atomStatus(575), 'مرسل الإدارة')} />⏹️ أوقف مرسل الإدارة</button>
+          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: 'both', enabled: true }, 'فُتح الاثنان')}><TradingLed status={gateStatus()} text={statusText(gateStatus(), 'بوّابتا التنفيذ')} />▶️ افتح الاثنين</button>
+          <button className="btn" disabled={busy} onClick={() => void run('execution_gate', { gate: 'both', enabled: false }, 'أُوقف الاثنان')}><TradingLed status={gateStatus()} text={statusText(gateStatus(), 'بوّابتا التنفيذ')} />🛑 أوقف الاثنين</button>
         </div>
       </div>
 
@@ -302,17 +341,17 @@ export default function Control() {
         </div>
         <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
           <button className="btn" disabled={needAsset || !(Number(budget) > 0)}
-            onClick={() => void run('activate_asset', { account_id: account.trim(), symbol: symbol.trim().toUpperCase(), budget: Number(budget) }, 'طُلب زوج البداية المحايد')}>▶️ فعّل الأصل</button>
+            onClick={() => void run('activate_asset', { account_id: account.trim(), symbol: symbol.trim().toUpperCase(), budget: Number(budget) }, 'طُلب زوج البداية المحايد')}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />▶️ فعّل الأصل</button>
           <button className="btn" disabled={needAsset}
-            onClick={() => void run('deactivate_asset', { account_id: account.trim(), symbol: symbol.trim().toUpperCase() }, 'أُلغي التفعيل')}>⏹️ ألغِ التفعيل</button>
-          <button className="btn" disabled={needAsset} onClick={() => void asset('PAUSE')}>⏸️ إيقاف مؤقت</button>
-          <button className="btn" disabled={needAsset} onClick={() => void asset('RESUME')}>▶️ متابعة</button>
-          <button className="btn" disabled={needAsset} onClick={() => void asset('FREEZE')}>🧊 جمّد الزيادات</button>
-          <button className="btn" disabled={needAsset} onClick={() => void asset('UNFREEZE')}>🔥 ارفع التجميد</button>
-          <button className="btn" disabled={needAsset} onClick={() => void asset('FORCE_RECONCILE')}>🔄 مطابقة فوريّة</button>
-          <button className="btn" disabled={needAsset || !(Number(dial) >= 0)} onClick={() => void asset('CALIBRATE', { dial: Number(dial) })}>🎚️ اضبط العيار</button>
-          <button className="btn" disabled={needAsset || !(Number(budget) > 0)} onClick={() => void asset('SET_BUDGET', { risk_budget: Number(budget) })}>💵 اضبط الميزانية</button>
-          <button className="btn" disabled={needAsset || !(Number(maxPer) >= 1)} onClick={() => void asset('SET_MAX_PER_SYMBOL', { max_per_symbol: Number(maxPer) })}>🔢 اضبط أقصى مراكز للرمز</button>
+            onClick={() => void run('deactivate_asset', { account_id: account.trim(), symbol: symbol.trim().toUpperCase() }, 'أُلغي التفعيل')}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />⏹️ ألغِ التفعيل</button>
+          <button className="btn" disabled={needAsset} onClick={() => void asset('PAUSE')}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />⏸️ إيقاف مؤقت</button>
+          <button className="btn" disabled={needAsset} onClick={() => void asset('RESUME')}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />▶️ متابعة</button>
+          <button className="btn" disabled={needAsset} onClick={() => void asset('FREEZE')}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />🧊 جمّد الزيادات</button>
+          <button className="btn" disabled={needAsset} onClick={() => void asset('UNFREEZE')}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />🔥 ارفع التجميد</button>
+          <button className="btn" disabled={needAsset} onClick={() => void asset('FORCE_RECONCILE')}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />🔄 مطابقة فوريّة</button>
+          <button className="btn" disabled={needAsset || !(Number(dial) >= 0)} onClick={() => void asset('CALIBRATE', { dial: Number(dial) })}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />🎚️ اضبط العيار</button>
+          <button className="btn" disabled={needAsset || !(Number(budget) > 0)} onClick={() => void asset('SET_BUDGET', { risk_budget: Number(budget) })}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />💵 اضبط الميزانية</button>
+          <button className="btn" disabled={needAsset || !(Number(maxPer) >= 1)} onClick={() => void asset('SET_MAX_PER_SYMBOL', { max_per_symbol: Number(maxPer) })}><TradingLed status={atomStatus(576)} text={statusText(atomStatus(576), 'الأصل')} />🔢 اضبط أقصى مراكز للرمز</button>
         </div>
       </div>
 
@@ -331,8 +370,8 @@ export default function Control() {
                   <td className="ss dim" style={{ padding: '6px 8px' }}>
                     {arabicHealth(atoms[id]?.health?.message)}</td>
                   <td style={{ padding: '6px 8px', width: 200, textAlign: 'left' }}>
-                    <button className="btn" disabled={busy} onClick={() => void atomPower(id, true)}>▶️ شغّل</button>{' '}
-                    <button className="btn" disabled={busy} onClick={() => void atomPower(id, false)}>⏹️ أوقف</button>
+                    <button className="btn" disabled={busy} onClick={() => void atomPower(id, true)}><TradingLed status={atomStatus(id)} text={statusText(atomStatus(id), name)} />▶️ شغّل</button>{' '}
+                    <button className="btn" disabled={busy} onClick={() => void atomPower(id, false)}><TradingLed status={atomStatus(id)} text={statusText(atomStatus(id), name)} />⏹️ أوقف</button>
                   </td>
                 </tr>
               ))}

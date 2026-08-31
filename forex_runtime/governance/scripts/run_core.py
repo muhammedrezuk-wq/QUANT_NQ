@@ -362,9 +362,12 @@ def _start_api(registry, event_bus, metrics, journal, latest_report_box, api_cfg
     import uvicorn
     from core.api.app import create_app
 
-    host, port = api_cfg.get("host", "127.0.0.1"), int(api_cfg.get("port", 8000))
+    local_mode = os.environ.get("QUANT_LOCAL_MODE", "").strip() == "1"
+    host, port = ("127.0.0.1" if local_mode else api_cfg.get("host", "127.0.0.1")), int(api_cfg.get("port", 8000))
     api_key = (os.environ.get("QUANT_CORE_API_KEY")
                or os.environ.get("QUANT_GOV_API_KEY") or api_cfg.get("api_key"))
+    if local_mode:
+        api_key = None
     if api_key is None and host != "127.0.0.1":
         log.warning(
             "⚠️ api_key غير مُعدَّة و host=%s (ليس 127.0.0.1) — المادة 28 (Secure by Default) "

@@ -14,3 +14,7 @@ cryptography>=42.0
 argon2-cffi>=23.1
 pytest>=8.2
 pytest-asyncio>=0.23
+# ترجمة عناوين الأخبار إلى العربيّة في لوحة الحوكمة. غيابها كان يُبتلع بصمت
+# (`except Exception: return` في `_translate_worker`) فتبقى كل العناوين
+# إنكليزيّة — والمالك لا يقرأ الإنكليزيّة. ختم NQ ٢٠٢٦-٠٨-٣١.
+deep-translator>=1.9

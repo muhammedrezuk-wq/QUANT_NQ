@@ -7,6 +7,8 @@ export default defineConfig({
   base: './',
   server: {
     port: 5173,
+    // يسمح بمعاينة Arena عبر اسم المضيف الممرّر، مع إبقاء API خلف proxy.
+    allowedHosts: true,
     // أثناء التطوير: نمرّر طلبات الحوكمة للخادم المحلي (يقرأ النواة + يترجم للعربي)
     proxy: { '/gov': 'http://127.0.0.1:8090' },
   },

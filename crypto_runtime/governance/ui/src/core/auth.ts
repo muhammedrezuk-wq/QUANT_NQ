@@ -21,7 +21,9 @@ function installAuthenticatedFetch(key: string): void {
 export async function bootstrapAuth(): Promise<boolean> {
   const nativeFetch = window.fetch.bind(window)
   const probe = await nativeFetch('/gov/version', { cache: 'no-store' }).catch(() => null)
-  if (probe?.status !== 401) return probe?.ok ?? true
+  // إذا كانت النواة غير مشغّلة، لا نحجب معاينة الواجهة؛ ستظهر القيم كـ «—».
+  // التوثيق يُطلب فقط عندما تردّ النواة صراحةً بـ 401.
+  if (!probe || probe.status !== 401) return true
   for (;;) {
     const key = window.prompt('أدخل مفتاح واجهة الحوكمة لهذا الجهاز')
     if (key === null) return false

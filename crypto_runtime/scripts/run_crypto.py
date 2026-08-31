@@ -9,6 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) in sys.path:
     sys.path.remove(str(ROOT))
 sys.path.insert(0, str(ROOT))
+
+from governance.network_preflight import validate_market  # noqa: E402
+
+validate_market("crypto")
+
 os.chdir(ROOT / "crypto_runtime")
 os.environ.setdefault("QUANT_CORE_CONFIG", str(ROOT / "config" / "core_crypto.yaml"))
 os.environ.setdefault("QUANT_ATOMS_ROOT", str(ROOT / "atoms_crypto"))

@@ -113,10 +113,40 @@ export function saveZoom(pct: number): void {
 // المعروف — فلا يختفي قسم أبدًا بسبب ترتيب قديم محفوظ.
 export function getTabOrder(defaultIds: string[]): string[] {
   const saved = readJson<string[]>(KEY_TABS)
-  if (!Array.isArray(saved) || saved.length === 0) return defaultIds
-  const known = saved.filter((id) => defaultIds.includes(id))
+  const known = Array.isArray(saved) && saved.length
+    ? saved.filter((id) => defaultIds.includes(id))
+    : []
   const missing = defaultIds.filter((id) => !known.includes(id))
-  return [...known, ...missing]
+  const ordered = [...known, ...missing]
+
+  // أقسام التحليل تُعرض بترتيب أرقامها، والاحتمالات 350 قبل الاستراتيجيات 400
+  // والقرار 450 — لا نترك ترتيبًا قديمًا يخلطها بين أقسام أخرى.
+  const numbered = ['analysis', 'structure', 'liquidity', 'statistics', 'probability', 'strategies', 'decision']
+    .filter((id) => ordered.includes(id))
+  if (numbered.length > 1) {
+    const first = Math.min(...numbered.map((id) => ordered.indexOf(id)))
+    for (const id of numbered) {
+      const i = ordered.indexOf(id)
+      if (i >= 0) ordered.splice(i, 1)
+    }
+    ordered.splice(first, 0, ...numbered)
+  }
+
+  // التبويب الخامس «الذرات» ثابت مكانه — لا يتأثر بترتيب التخصيص المحفوظ.
+  const atomsIndex = ordered.indexOf('atoms')
+  if (atomsIndex >= 0) {
+    ordered.splice(atomsIndex, 1)
+    ordered.splice(Math.min(4, ordered.length), 0, 'atoms')
+  }
+
+  // طلب المالك: لوحة NQ، وهي آخر لوحة فوركس، تكون أول تبويب دائمًا.
+  // لا ينطبق هذا على قائمة الكريبتو المستقلة.
+  const nqIndex = ordered.indexOf('nq')
+  if (nqIndex >= 0) {
+    ordered.splice(nqIndex, 1)
+    ordered.unshift('nq')
+  }
+  return ordered
 }
 
 export function saveTabOrder(ids: string[]): void {

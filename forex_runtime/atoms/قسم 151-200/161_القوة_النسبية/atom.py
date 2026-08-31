@@ -8,7 +8,7 @@ from shared.live_analysis import live_analyzer
 from shared.section_contract import section_atom
 from shared.cycle_identity import cycle_key_of
 
-ATOM_VERSION = "2.4.1"
+ATOM_VERSION = "2.5.0"
 
 EVENT_IN = "market_data.candle_closed"
 EVENT_OUT = "analysis.relative_strength.state"

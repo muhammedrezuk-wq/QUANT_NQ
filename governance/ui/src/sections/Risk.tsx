@@ -4,6 +4,7 @@
 import { useStore } from '../core/store'
 import { dangerCommand } from '../core/commands'
 import { SectionConfigTable } from '../components/SectionAtoms'
+import { DecisionDialsCard, RISK_DIAL_NAMES } from './Settings'
 
 const money = (n?: number) => (n == null ? '—' : n.toLocaleString('ar-EG-u-nu-latn', { maximumFractionDigits: 2 }))
 
@@ -46,6 +47,8 @@ export default function Risk() {
         {resetBtn}
         <div className="ss dim" style={{ marginTop: 6 }}>{gw ? `بوّابة الأوامر: إيقاف ${gw.executed_halt ?? 0} · تصفير ${gw.executed_reset ?? 0}` : 'بوّابة الأوامر: ما وصلها أمر بعد'}</div>
       </div>
+
+      <DecisionDialsCard onlyNames={RISK_DIAL_NAMES} includeExtras={false} />
 
       <div className="cards">
         <div className="scard"><div className="st">الخسارة اليومية</div><div className={`sv num ${(risk.daily_loss_pct ?? 0) < 0 ? 'red' : ''}`}>{money(risk.daily_loss_pct)}%</div></div>

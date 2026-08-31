@@ -2,32 +2,31 @@
 // ومحرّر ترتيب التبويبات في «الإعدادات › تخصيص الشكل» (بند ١٥ج بورقة ٩٩).
 // «الشبكة» = النظام العام (مبني). الباقي يُركّب فوق نفس البنية.
 export const SECTIONS: [string, string, boolean][] = [
-  ['dashboard', 'اللوحة الجديدة', true],
+  ['dashboard', 'غرفة النظام', true],
   ['home', 'الرئيسية', true],
   // حكم المالك 2026-08-16: شاشة واحدة فيها كل مفتاح في النظام.
   ['control', 'تحكّم', true],
+  ['change', 'حاكم التغيير', true],
   ['network', 'الشبكة', true],
   ['atoms', 'الذرات', true],
-  ['manager', 'المدير', true],
   ['charts', 'الشارت', true],
-  ['market', 'السوق', true],
+  ['market', 'السوق والاتصال', true],
   ['analysis', 'التحليل', true],
   ['structure', 'البنية', true],
   ['liquidity', 'السيولة', true],
   ['statistics', 'الإحصاء التحليلي', true],
+  ['probability', 'الاحتمالات', true],
   ['strategies', 'الاستراتيجيات', true],
   ['decision', 'القرار', true],
   ['risk', 'المخاطر', true],
   ['execution', 'التنفيذ', true],
   ['portfolios', 'المحافظ', true],
-  ['connection', 'الاتصال', true],
   ['monitor', 'المراقبة', true],
   ['log', 'السجل', true],
   ['alerts', 'التنبيهات', true],
   // بند 7 (دفتر 97): الاسم يطابق المحتوى — هالصفحة عدّادات ناقل النواة
   // (إقلاعات · أحداث نُشرت/سُلّمت)، لا الإحصاء التحليلي؛ الإحصاء الحقيقي بقسمه فوق.
   ['stats', 'عدّادات النواة', true],
-  ['probability', 'الاحتمالات', true],
   ['scripts', 'فحوصات الحوكمة', true],
   ['security', 'الأمان', true],
   ['settings', 'الإعدادات', true],

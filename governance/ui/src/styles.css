@@ -184,7 +184,7 @@ select.search { cursor: pointer; max-width: 340px; }
 select.search option { background: var(--bg2); color: var(--ink); }
 
 /* ── الشارتات (TradingView) ── */
-.chartsec { display: flex; flex-direction: column; gap: 6px; }
+.chartsec { display: flex; flex-direction: column; gap: 4px; height: 100%; min-height: 0; overflow: hidden; }
 /* ⛔ عطل مقيس: البطاقة كانت عنصرًا مرنًا قابلًا للانكماش داخل قسم مرن،
    فتنكمش إلى 169px بينما محتواها 1215px، و`overflow:hidden` يقصّ الباقي
    بلا شريط تمرير — أي أنّ ١٠٤٨ بكسل من جدول المحلّلات كانت غير قابلة
@@ -192,9 +192,9 @@ select.search option { background: var(--bg2); color: var(--ink); }
    فيعمل `overflow-y:auto` القائم عليه.
    القياس: secScroll 517=517 (لا تمرير) ⇒ 1565>517 (يمرّر). */
 .chartsec > .scard { flex-shrink: 0; }
-.chbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; flex: 0 0 auto; }
-.chtfs, .chsyms { display: flex; gap: 4px; flex-wrap: wrap; }
-.chbar button { background: var(--glassh); border: 1px solid var(--glassb); color: var(--dim); font-family: inherit; font-size: 11px; padding: 3px 9px; border-radius: 7px; cursor: pointer; transition: .15s; }
+.chbar { display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; flex: 0 0 auto; min-height: 30px; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: thin; }
+.chtfs, .chsyms { display: flex; gap: 4px; flex-wrap: nowrap; flex: 0 0 auto; }
+.chbar button { flex: 0 0 auto; white-space: nowrap; background: var(--glassh); border: 1px solid var(--glassb); color: var(--dim); font-family: inherit; font-size: 11px; padding: 3px 9px; border-radius: 7px; cursor: pointer; transition: .15s; }
 .chbar button:hover { color: var(--ink); }
 .chbar button.on { color: #06121c; background: var(--accent); border-color: var(--accent); font-weight: 700; }
 .chsyms button.on { color: var(--accent); background: var(--glass); }
@@ -204,7 +204,7 @@ select.search option { background: var(--bg2); color: var(--ink); }
 .chgrid[data-n="3"] { grid-template-columns: repeat(2, 1fr); }
 @media (max-width: 900px) { .chgrid, .chgrid[data-n="3"] { grid-template-columns: 1fr; } }
 .chartpanel { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--glassb); border-radius: 12px; background: var(--glass); backdrop-filter: blur(10px); overflow: hidden; }
-.chhead { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--glassb); font-size: 13px; }
+.chhead { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--glassb); font-size: 13px; }
 .chsym { font-weight: 700; color: var(--ink); }
 .chlast { color: var(--accent); font-size: 15px; }
 .chtrade { color: var(--amber); font-size: 12px; }
@@ -248,3 +248,30 @@ select.search option { background: var(--bg2); color: var(--ink); }
 .section::-webkit-scrollbar-thumb:hover, .workspace::-webkit-scrollbar-thumb:hover,
 .loglist::-webkit-scrollbar-thumb:hover, .modal::-webkit-scrollbar-thumb:hover,
 .modal pre::-webkit-scrollbar-thumb:hover { background: var(--accent); background-clip: content-box; }
+
+/* قسم التحليل: ملخص بشري أولًا، والتفاصيل الثقيلة داخل لوحة قابلة للفتح. */
+.analysis-intro { border-inline-start: 3px solid var(--accent); }
+.analysis-settings { background: var(--glass); border: 1px solid var(--glassb); border-radius: 10px; padding: 10px 12px; }
+.analysis-settings summary { cursor: pointer; color: var(--ink); font-weight: 700; font-size: 13.5px; }
+.analysis-settings[open] summary { color: var(--accent); margin-bottom: 4px; }
+
+/* لمسات بصرية لتبويب إعدادات الفوركس فقط — لا تغيّر أي مسار أو أمر. */
+.settings-hero { display: flex; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid var(--glassb); border-inline-start: 4px solid var(--accent); border-radius: 12px; background: linear-gradient(110deg, var(--glassh), var(--glass)); }
+.settings-hero-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--accent); color: #06121c; font-size: 19px; }
+.settings-legend { display: flex; gap: 10px; margin-inline-start: auto; flex-wrap: wrap; color: var(--dim); font-size: 11.5px; }
+.settings-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-inline-end: 3px; }
+.settings-dot.green { background: var(--green); } .settings-dot.amber { background: var(--amber); } .settings-dot.red { background: var(--red); }
+@media (max-width: 700px) { .settings-legend { flex-basis: 100%; margin-inline-start: 45px; } }
+
+.network-badge, .network-legend, .network-hint { position: absolute; z-index: 5; pointer-events: none; font-size: 11.5px; color: var(--dim); background: rgba(5, 10, 20, .72); border: 1px solid var(--glassb); border-radius: 8px; backdrop-filter: blur(5px); }
+.network-badge { top: 10px; inset-inline-start: 12px; padding: 5px 9px; color: var(--green); }
+.network-legend { top: 10px; inset-inline-end: 12px; display: flex; flex-wrap: wrap; gap: 5px 10px; max-width: min(560px, 55%); padding: 7px 10px; }
+.network-legend span { white-space: nowrap; } .network-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 4px; }
+.network-hint { bottom: 10px; inset-inline-start: 50%; transform: translateX(-50%); padding: 5px 10px; white-space: nowrap; }
+@media (max-width: 700px) { .network-legend { max-width: 68%; font-size: 10.5px; } .network-hint { font-size: 10.5px; } }
+
+.settings-mode { font-size: 11.5px; padding: 3px 8px; border-radius: 99px; border: 1px solid var(--glassb); }
+.settings-mode.base { color: var(--green); } .settings-mode.custom { color: var(--accent); }
+
+.change-nav { display: flex; gap: 7px; flex-wrap: wrap; padding: 8px; border: 1px solid var(--glassb); border-radius: 10px; background: var(--glass); }
+.change-nav .btn.active { color: var(--accent); border-color: var(--accent); background: var(--glassh); }

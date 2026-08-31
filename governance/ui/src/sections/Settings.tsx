@@ -211,12 +211,15 @@ export function DialRow({ dial }: { dial: Dial }) {
 
 /** يجلب العيارات المحكومة ويعيد الجلب مع كل نشرة اعتماد حيّة — مشترك بين
  *  بطاقة «عيارات القرار» هنا وبطاقات البوابات بصفحة «التنفيذ» (بند ١٨). */
-export function useDecisionDials(): { dials: Dial[] | null; err: string } {
+export function useDecisionDials(onlyNames?: string[], excludeNames: string[] = []): { dials: Dial[] | null; err: string } {
   const [dials, setDials] = useState<Dial[] | null>(null)
   const [err, setErr] = useState('')
   // الحدث الحي decision.settings.state يصل عبر المحرّك إلى streams تلقائيًّا؛
   // كل نشرة (لحظة تطبيق الذرّة اعتماد المالك) تعيد الجلب من سجلّ المُعامِلات.
   const live = useStore((s) => s.streams['decision.settings.state'])
+  // مفاتيح ثابتة حتى لا يعيد المكوّن جلب السجل في كل إعادة رسم بسبب مصفوفة جديدة.
+  const onlyKey = onlyNames?.join('|') ?? ''
+  const excludeKey = excludeNames.join('|')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -224,18 +227,22 @@ export function useDecisionDials(): { dials: Dial[] | null; err: string } {
       .then((r) => r.json())
       .then((d: { dials?: Dial[] }) => {
         const order = Object.keys(DIAL_AR)
-        setDials((d.dials ?? []).slice().sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)))
+        const filtered = (d.dials ?? []).filter((dial) =>
+          (!onlyNames || onlyNames.includes(dial.name)) && !excludeNames.includes(dial.name))
+        setDials(filtered.slice().sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)))
         setErr('')
       })
       .catch(() => setErr('تعذّر جلب العيارات — تأكّد أن خادم الحوكمة شغّال'))
     return () => controller.abort()
-  }, [live])
+  }, [live, onlyKey, excludeKey])
 
   return { dials, err }
 }
 
-export function DecisionDialsCard() {
-  const { dials, err } = useDecisionDials()
+export function DecisionDialsCard({ excludeNames = [], onlyNames, includeExtras = true }: {
+  excludeNames?: string[]; onlyNames?: string[]; includeExtras?: boolean
+}) {
+  const { dials, err } = useDecisionDials(onlyNames, excludeNames)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -254,8 +261,32 @@ export function DecisionDialsCard() {
           : <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
               {dials.map((d) => <DialRow key={d.name} dial={d} />)}
             </div>}
-      <SpeedPerAssetCard />
-      <HorizonShadowCard />
+      {includeExtras ? <SpeedPerAssetCard /> : null}
+      {includeExtras ? <HorizonShadowCard /> : null}
+    </div>
+  )
+}
+
+// كل ما يخص قسم التحليل يُدار من قسم التحليل نفسه، لا من الإعدادات العامة.
+export const ANALYSIS_DIAL_NAMES = [
+  'HORIZON_PROFILE_ACTIVE', 'ANALYSIS_SPEED', 'TRADING_HORIZON', 'QUALITY_BAR',
+  'ANALYSIS_FAST_WEIGHT', 'ANALYSIS_SLOW_WEIGHT',
+  'ANALYSIS_FAST_REQUIRED_DEPTH', 'ANALYSIS_SLOW_REQUIRED_DEPTH',
+]
+
+export const DECISION_DIAL_NAMES = [
+  'DECISION_NEUTRAL_BAND', 'DECISION_CONFLICT_RATIO', 'DECISION_MIN_PARTICIPATION',
+  'DECISION_DIRECTIONAL_WEIGHT', 'DECISION_CONTEXT_WEIGHT', 'DECISION_MIN_CONFIDENCE',
+  'DECISION_LOW_QUALITY_FACTOR', 'DECISION_MIN_SCORE', 'DECISION_FILTER_TTL_S',
+  'DECISION_MAX_PER_SYMBOL',
+]
+export const RISK_DIAL_NAMES = ['RISK_DIAL']
+
+export function AnalysisSettingsCard() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <DecisionDialsCard onlyNames={ANALYSIS_DIAL_NAMES} includeExtras />
+      <DeclaredParametersCard />
     </div>
   )
 }
@@ -619,6 +650,8 @@ function AppearancePanel() {
     const next = order.slice()
     const j = idx + dir
     if (j < 0 || j >= next.length) return
+    // «الذرات» هو التبويب الخامس الثابت، ولا يُسمح بسحبه أو تبديل مكانه.
+    if (next[idx] === 'atoms' || next[j] === 'atoms') return
     ;[next[idx], next[j]] = [next[j], next[idx]]
     setOrder(next)
     saveTabOrder(next) // يُطبَّق على شريط الملاحة فورًا (App يستمع للحدث)
@@ -631,15 +664,18 @@ function AppearancePanel() {
       <div className="st" style={{ fontWeight: 700 }}>🎨 تخصيص الشكل</div>
       <div className="ss dim">
         كل شي هون بإيدك وبيتطبّق فورًا وبيتحفظ على هالجهاز — ما بتحتاج تطلب من حدا.
-        الألوان الحرّة تعلو كل الإطلالات الجاهزة؛ «رجوع للافتراضي» يرجّع حكم الإطلالة المختارة.
+        الألوان الحرّة تعلو كل الإطلالات الجاهزة؛ زر «رجوع للون الأساسي» يمسح كل تعديلاتك ويرجّع ألوان الفوركس الأصلية فورًا.
       </div>
 
       {/* (أ) لوح الألوان الحرّ */}
       <div style={{ marginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>لوح الألوان — اختر اللون يلي بدّك ياه</div>
+          <span className={customized ? 'settings-mode custom' : 'settings-mode base'}>
+            {customized ? '● وضع مخصّص' : '● الوضع الأساسي'}
+          </span>
           <button className="btn" style={{ fontSize: 12 }} disabled={!customized}
-            onClick={() => { resetColors(); setColors({}) }}>↩️ رجوع للافتراضي (الألوان)</button>
+            onClick={() => { resetColors(); setColors({}) }}>🎨 رجوع للون الأساسي</button>
         </div>
         <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', marginTop: 8 }}>
           {COLOR_VARS.map((def) => (
@@ -662,7 +698,7 @@ function AppearancePanel() {
       <div style={{ marginTop: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>🔍 تكبير عام</div>
-          <input type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={5} value={zoom}
+          <input type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={1} value={zoom}
             style={{ flex: 1, minWidth: 180, maxWidth: 380 }}
             onChange={(e) => { const v = Number(e.target.value); setZoomState(v); saveZoom(v) }} />
           <span className="num" style={{ fontWeight: 700, minWidth: 48 }}>{zoom}%</span>
@@ -710,10 +746,18 @@ export default function Settings() {
   const governedDials = market === 'forex'
 
   return (
-    <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {governedDials ? <DecisionDialsCard /> : null}
-      {/* بند ٢٢/أ٧ — المُعامِلات المعلنة: تحت عيارات القرار، نفس النمط */}
-      {governedDials ? <DeclaredParametersCard /> : null}
+    <div className={`section settings-page${governedDials ? ' settings-forex' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {governedDials ? (
+        <div className="settings-hero">
+          <div className="settings-hero-mark">⚙️</div>
+          <div>
+            <div className="st" style={{ fontSize: 17, fontWeight: 700 }}>إعدادات الفوركس</div>
+            <div className="ss dim">تخصيص الشكل والإعدادات العامة — كل قسم يحتفظ بمفاتيحه الخاصة.</div>
+          </div>
+          <div className="settings-legend"><span><i className="settings-dot green" /> حيّ</span><span><i className="settings-dot amber" /> يحتاج انتباه</span><span><i className="settings-dot red" /> خطر</span></div>
+        </div>
+      ) : null}
+      {governedDials ? <DecisionDialsCard excludeNames={[...ANALYSIS_DIAL_NAMES, ...DECISION_DIAL_NAMES, ...RISK_DIAL_NAMES]} includeExtras={false} /> : null}
       {/* بند ١٥ — لوحة تخصيص الشكل: مبنيّة حول بطاقة «عيارات القرار» لا فوقها */}
       <AppearancePanel />
       <select className="search" value={id} onChange={(e) => setId(e.target.value === '' ? '' : Number(e.target.value))}>

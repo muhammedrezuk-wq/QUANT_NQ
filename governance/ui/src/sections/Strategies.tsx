@@ -7,6 +7,7 @@ import { SectionAtomsHealth, SectionConfigTable } from '../components/SectionAto
 const SECTION_LABEL = '400'
 const pct = (n?: number) => (n == null ? '—' : `${Math.round(n * 100)}%`)
 const num = (n?: number) => (n == null ? '—' : n.toLocaleString('ar-EG-u-nu-latn', { maximumFractionDigits: 3 }))
+const SIGNAL: Record<string, string> = { positive_strategic_lean: 'ميل استراتيجي صاعد', negative_strategic_lean: 'ميل استراتيجي هابط', balanced_strategic_context: 'سياق استراتيجي متوازن' }
 
 // حالة البطاقة
 const STATE: Record<string, { t: string; c: string }> = {
@@ -58,6 +59,14 @@ export default function Strategies() {
             const ratio = u['ratio'] as number | undefined
             const weightApplied = u['weight_applied'] as number | undefined
             const ready = u['ready'] as boolean | undefined
+            const complete = u['complete'] as boolean | undefined
+            const warnings = Array.isArray(u['warnings']) ? u['warnings'] as unknown[] : []
+            const missing = Array.isArray(u['missing']) ? u['missing'] as unknown[] : []
+            const activeWeight = u['active_weight'] as number | undefined
+            const availableWeight = u['available_weight'] as number | undefined
+            const missingWeight = u['missing_weight'] as number | undefined
+            const contextFactor = u['context_factor'] as number | undefined
+            const timeframe = u['timeframe'] as string | undefined
 
             return (
               <div className="scard" key={key} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -70,9 +79,8 @@ export default function Strategies() {
                 {/* الاتجاه الوصفي */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <b className={`num ${dirCls}`} style={{ fontSize: 15 }}>{dirArrow} {dir == null ? '—' : num(dir)}</b>
-                  <span className="dim" style={{ fontSize: 11 }}>
-                    {ready ? 'مفعّل' : 'غير مفعّل'}{dir != null && dir > 0 ? ' — ميل استراتيجي صاعد' : dir != null && dir < 0 ? ' — ميل استراتيجي هابط' : ' — ميل محايد'}
-                  </span>
+                  <span className="dim" style={{ fontSize: 11 }}>{SIGNAL[String(u['signal'] ?? '')] ?? 'اتجاه غير معروف'}</span>
+                  <span className="dim" style={{ fontSize: 11 }}>{ready ? 'مفعّل' : 'غير مفعّل'}</span>
                 </div>
 
                 {/* القوة / الثقة / العمق */}
@@ -89,7 +97,14 @@ export default function Strategies() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: 12 }}>
                   <span>الوزن <b className="num">{pct(weight)}</b></span>
                   {weightApplied != null ? <span>فعّال <b className="num">{pct(weightApplied)}</b></span> : null}
+                  {activeWeight != null ? <span>نشط <b className="num">{pct(activeWeight)}</b></span> : null}
+                  {availableWeight != null ? <span>متاح <b className="num">{pct(availableWeight)}</b></span> : null}
+                  {missingWeight != null ? <span>غائب <b className="num">{pct(missingWeight)}</b></span> : null}
+                  {contextFactor != null ? <span>عامل السياق <b className="num">{pct(contextFactor)}</b></span> : null}
                   {ratio != null ? <span>الحصّة <b className="num">{num(ratio)}</b></span> : null}
+                </div>
+                <div className="ss dim" style={{ fontSize: 11 }}>
+                  الجاهزية {complete ? 'مكتملة' : 'غير مكتملة'}{timeframe ? ` · الفريم ${timeframe}` : ''}{missing.length ? ` · ناقص ${missing.length}` : ''}{warnings.length ? ` · تحذير ${warnings.length}` : ''}
                 </div>
               </div>
             )

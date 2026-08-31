@@ -28,7 +28,8 @@ export default function Probability() {
       ) : (
       <div className="cards" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
         {syms.map((sym) => {
-          const res = probability[sym]?.results ?? {}
+          const card = probability[sym] as typeof probability[string] & Record<string, unknown>
+          const res = card?.results ?? {}
           const hurst = res['hurst']?.metadata
           const conf = res['confidence_aggregator']?.metadata?.probability
           const merged = res['models_merged']?.metadata
@@ -37,6 +38,13 @@ export default function Probability() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{sym}</span>
                 {conf != null ? <span className="pill green" style={{ marginInlineStart: 'auto', fontSize: 11 }}>الثقة {pct(conf)}</span> : null}
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
+                <span>الاتجاه <b className="num">{fx(card.direction)}</b></span>
+                <span>القوة <b className="num">{fx(card.strength)}</b></span>
+                <span>الجاهزية <b className="num">{fx(card.current_depth)} / {fx(card.required_depth)}</b></span>
+                <span className={card.ready === true ? 'green' : 'amber'}>{card.ready === true ? 'جاهز' : 'غير جاهز'}</span>
+                {typeof card.timeframe === 'string' ? <span className="dim">الفريم {card.timeframe}</span> : null}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 10px', fontSize: 12 }}>
@@ -62,9 +70,10 @@ export default function Probability() {
                 })}
               </div>
 
-              <div style={{ display: 'flex', gap: 10, fontSize: 12, marginTop: 1 }}>
+              <div style={{ display: 'flex', gap: 10, fontSize: 12, marginTop: 1, flexWrap: 'wrap' }}>
+                {merged?.direction ? <span>الاتجاه المدمج <b className={DIR[merged.direction]?.c ?? 'grey'}>{DIR[merged.direction]?.a ?? ''} {pct(merged.probability)}</b></span> : null}
                 {hurst ? <span>هيرست <b className="num">{fx(hurst.value)}</b> <span className="dim">{hurst.band ?? ''}</span></span> : null}
-                {merged?.direction ? <span className="dim">الدمج {DIR[merged.direction]?.a ?? ''} {pct(merged.probability)}</span> : null}
+                {res['confidence_aggregator']?.confidence != null ? <span>ثقة الدمج <b className="num">{pct(res['confidence_aggregator'].confidence)}</b></span> : null}
               </div>
             </div>
           )

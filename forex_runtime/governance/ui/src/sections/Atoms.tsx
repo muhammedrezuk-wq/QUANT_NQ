@@ -7,8 +7,6 @@ import { registerWidget } from '../core/widgets'
 
 registerWidget({ id: 'atoms-grid', section: 'atoms', streams: ['snapshot:atoms'], title: 'شبكة الذرات' })
 
-const ORDER: Record<string, number> = { red: 0, amber: 1, green: 2, grey: 3 }
-
 // أصغر خليّة تبقى مقروءة: اسم عربي بخط .cnm (13.5px) بلا قصّ فاضح + رقم المعرّف.
 const MIN_CELL_W = 132
 const MIN_CELL_H = 56
@@ -31,9 +29,9 @@ export default function Atoms() {
   const [page, setPage] = useState(0)
 
   const list = useMemo(() => {
-    const arr = Object.values(atomsMap)
-    arr.sort((a, b) => ORDER[a.color ?? 'grey'] - ORDER[b.color ?? 'grey'] || a.id - b.id)
-    return arr
+    // ترتيب ثابت بالمعرّف: تغيّر لون/حالة الذرّة لا ينقل الزر إلى مكان آخر.
+    // هكذا يستطيع المالك متابعة نفس الزر حتى مع وصول النبضات الحيّة.
+    return Object.values(atomsMap).sort((a, b) => a.id - b.id)
   }, [atomsMap])
 
   const counts = useMemo(() => {

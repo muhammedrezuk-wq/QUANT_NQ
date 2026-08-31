@@ -1,12 +1,9 @@
 // السوق (٨٥٢) — أسعار الرموز الحيّة حسب الرمز (بثّ market.tick، مُجمَّع بالمحرّك).
 import { useEffect, useState } from 'react'
 import { useStore } from '../core/store'
-import { SectionAtomsHealth, SectionConfigTable } from '../components/SectionAtoms'
-
-// بوّابة التغذية أخطر مكان بالمشروع: منها يدخل كل سعر يُبنى عليه قرار. فحالتها
-// ومفاتيحها تُعرضان بالصفحة نفسها — لا إعداد محفور بالكود لا يصله المالك.
-const FEED_NOTE = 'السعر يجي من هدول: سي-تريدر عبر FIX مباشرة (622) · ميتاتريدر 5 (618)'
-  + ' · ياهو (620). سكوتها = ما في تكّات. والجسر القديم (617) أُرشف بيد المالك.'
+import Connection from './Connection'
+// تفاصيل الذرّات والإعدادات تبقى في «الاتصال» و«الذرات»؛ السوق يعرض
+// واجهة القراءة المفهومة فقط، لا الحمولة الخام القادمة من النواة.
 
 const fmt = (n: number) => n.toLocaleString('ar-EG-u-nu-latn', { maximumFractionDigits: 2, minimumFractionDigits: 2 })
 
@@ -32,11 +29,9 @@ export default function Market() {
   if (rows.length === 0) {
     // بند ١٠ (ورقة ٩٩): بدل الفراغ — حالة ذرّات التغذية التي تجيب الأسعار نفسها
     return (
-      <div className="section chartsec">
-        <div className="empty">جارِ استقبال أسعار السوق من نواتك…</div>
-        <SectionAtomsHealth ids={[622, 618, 620]} title="ذرّات تغذية الأسعار — حالتها الحيّة الآن"
-          note={FEED_NOTE} />
-        <SectionConfigTable from={600} to={650} title="🔌 مفاتيح بوّابة التغذية — كل إعداد معلن بذرّته" />
+      <div className="section">
+        <div className="empty">جارِ استقبال أسعار السوق من النواة…</div>
+        <div className="ss dim" style={{ marginTop: 10 }}>عند وصول أول تكّة ستظهر الرموز والأسعار هنا بشكل مبسّط.</div>
       </div>
     )
   }
@@ -45,9 +40,6 @@ export default function Market() {
       <div className="ss dim" style={{ marginBottom: 10 }}>
         {rows.length} رمز يبثّ حيًّا الآن — كل رمز مضاف هنا يظهر تلقائيًّا فور وصول أوّل تكّة له من الوسيط.
       </div>
-      <SectionAtomsHealth ids={[622, 618, 620]} title="ذرّات تغذية الأسعار — حالتها الحيّة الآن"
-        note={FEED_NOTE} />
-      <SectionConfigTable from={600} to={650} title="🔌 مفاتيح بوّابة التغذية — كل إعداد معلن بذرّته" />
       <div className="cards">
         {rows.map(([sym, p]) => {
           const age = ageText(p.ts, now)
@@ -60,6 +52,9 @@ export default function Market() {
             </div>
           )
         })}
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <Connection embedded />
       </div>
     </div>
   )

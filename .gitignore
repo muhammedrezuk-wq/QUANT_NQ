@@ -17,3 +17,11 @@ runtime/device.key
 runtime/device.key.*
 runtime/secrets.enc
 runtime/secrets.enc.*
+
+# --- بوت الأخبار: المصدر يُرفع، والسرّ والبيئة والحالة لا تُرفع أبداً ---
+# `news_bot/.env` يحمل `BOT_TOKEN` بنصّ صريح (بعكس منصّة ٦١٠ التي تأخذ توكنها
+# من الخزنة المشفّرة). و`data/` فيه قفل التشغيل ومعرّفات محادثات المستخدمين.
+news_bot/.env
+news_bot/.venv/
+news_bot/data/
+news_bot/logs/

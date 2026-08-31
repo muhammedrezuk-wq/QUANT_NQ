@@ -130,7 +130,15 @@ def main() -> int:
     if hub is not None:
         processes.append(hub)
 
-    wanted = ([8010, 8092] if start_forex else []) + ([8020, 8093] if start_crypto else []) + [8090]
+    # 610 — تلغرام: منصّة المالك المتنقلة. نسخة واحدة (قفل 8098)، والتوكن من
+    # الخزنة المشفّرة حصراً (runtime/secrets.enc). بلا توكن يُطبع الخطوات
+    # ويخرج بهدوء — بقيّة الستاك ما تتأثر.
+    tg = spawn("Telegram 610 (owner mobile)",
+               [python, str(ROOT / "governance" / "telegram.py")], 8098)
+    if tg is not None:
+        processes.append(tg)
+
+    wanted = ([8010, 8092] if start_forex else []) + ([8020, 8093] if start_crypto else []) + [8090, 8098]
     ready = {port: wait_port(port) for port in wanted}
     for port, ok in ready.items():
         print(f"port {port}: {'READY' if ok else 'NOT READY'}")
@@ -138,6 +146,8 @@ def main() -> int:
     if not args.no_browser and listening(8090):
         webbrowser.open("http://127.0.0.1:8090")
     print("Unified dashboard: http://127.0.0.1:8090")
+    print("Telegram 610     : owner mobile — lock 8098 "
+          "(token: governance/scripts/secrets_admin.py set telegram_bot_token)")
     print("Internal backends: Forex 8092 / Crypto 8093")
     print("Switch button   : فوركس ⇄ كريبتو")
     # Child processes have their own console on Windows. On POSIX keep no

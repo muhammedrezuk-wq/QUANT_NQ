@@ -159,6 +159,13 @@ def _news_ar_save() -> None:
 
 _tr_lock = threading.Lock()
 _tr_busy = False
+_tr_warned = False       # يُعلَن غياب مكتبة الترجمة مرّة واحدة لا كل طلب
+
+
+def _has_arabic(text: str) -> bool:
+    """هل في النصّ حرف عربيّ؟ — شرط قبول أي ترجمة قبل تخزينها للعمر."""
+    return any("؀" <= ch <= "ۿ" or "ﭐ" <= ch <= "﻿"
+               for ch in text)
 
 
 def _translate_worker(missing: list) -> None:
@@ -167,10 +174,19 @@ def _translate_worker(missing: list) -> None:
     القياس الذي فرض هذا: الترجمة نداء شبكة (~ثانية للعنوان)، وترجمة خمسة
     داخل الطلب كانت تُجمّد اللوحة خمس ثوانٍ لكل تحديث.
     """
-    global _tr_busy
+    global _tr_busy, _tr_warned
     try:
         from deep_translator import GoogleTranslator
-    except Exception:
+    except Exception as exc:
+        # ٢٠٢٦-٠٨-٣١ (ختم NQ): كان `except Exception: return` صامتًا تمامًا.
+        # `deep_translator` لم تكن منصَّبة ولا مذكورة في `requirements.txt`،
+        # فبقيت كل العناوين إنكليزيّة بلا أيّ أثر في أيّ سجلّ — والمالك لا
+        # يقرأ الإنكليزيّة. حارس بلا مفتاح. يُعلَن مرّة واحدة ولا يُغرق السجلّ.
+        if not _tr_warned:
+            _tr_warned = True
+            print("[حوكمة] ⚠️ ترجمة العناوين معطّلة — %s: %s. "
+                  "نصّب: venv\\Scripts\\python.exe -m pip install deep-translator"
+                  % (type(exc).__name__, exc), flush=True)
         with _tr_lock:
             _tr_busy = False
         return
@@ -180,7 +196,12 @@ def _translate_worker(missing: list) -> None:
             out = GoogleTranslator(source="auto", target="ar").translate(src[:4500])
         except Exception:
             continue
-        if out and out.strip() and out.strip() != src.strip():
+        # ٢٠٢٦-٠٨-٣١ (ختم NQ): الشرط القديم كان «غير فارغ ويختلف عن الأصل»،
+        # فمرّت صفحة خطأ من الخدمة نصُّها «Error 500 (Server Error)!!1…» وخُزّنت
+        # كترجمة دائمة (الذاكرة تُخزّن مرّة للعمر) — قناع لا قاموس. الترجمة إلى
+        # العربيّة يجب أن تحمل حرفًا عربيًّا واحدًا على الأقلّ؛ وما لا يحمله
+        # يُرفض ولا يُخزَّن، فتُعاد محاولته لاحقًا.
+        if out and out.strip() and out.strip() != src.strip() and _has_arabic(out):
             cache[src] = out.strip()
             changed = True
     if changed:

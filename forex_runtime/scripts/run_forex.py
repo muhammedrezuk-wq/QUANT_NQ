@@ -9,13 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) in sys.path:
     sys.path.remove(str(ROOT))
 sys.path.insert(0, str(ROOT))
+
+from governance.network_preflight import validate_market  # noqa: E402
+
+validate_market("forex")
+
 os.chdir(ROOT / "forex_runtime")
 os.environ.setdefault("QUANT_CORE_CONFIG", str(ROOT / "config" / "core_forex.yaml"))
 os.environ.setdefault("QUANT_ATOMS_ROOT", str(ROOT / "atoms"))
 os.environ.setdefault("QUANT_CORE_DOMAIN", "forex")
 os.environ.setdefault("QUANT_ANALYSIS_SETTINGS_DB", str(ROOT / "var" / "forex" / "analysis_settings.db"))
-# NQ_NEWS_DB يشير لـnq_brain.db حيث يكتب بوت الأخبار المنفصل (QUANT_NQ_NEWS) الأخبار
-# والأجندة فعلًا — لا var/forex/news.db الفارغة (كان يخفي الأخبار عن الذرّة 615).
 os.environ.setdefault("NQ_NEWS_DB", str(Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal" / "Common" / "Files" / "nq_brain.db"))
 # NQ_BRIDGE_DB مقصوص عمدًا: ذرّات جسر MetaTrader (618/619/601) لازم تقرأ/تكتب
 # nq_brain.db في مجلّد MetaTrader المشترك حيث يكتب الـEA، لا bridge.db المعزولة

@@ -109,6 +109,24 @@ def port_open(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def lock_held(port: int) -> bool:
+    """هل منفذ القفل محجوز؟ — أصدق من محاولة الاتصال به.
+
+    ٢٠٢٦-٠٨-٣١ (ختم NQ): قفل المنصّة في `telegram.py` سوكِت صامت — يَبِند
+    ويستمع بطابور 1 و**لا يقبل أيّ اتصال أبدًا** (وظيفته منع نسخة ثانية لا
+    خدمة أحد). فأوّل `connect_ex` يشغل مكان الطابور الوحيد ويبقى معلّقًا،
+    وكلّ فحص تالٍ يسقط بالمهلة — فكان الفحص يقول «متوقّفة» والمنصّة تعمل
+    (مقاس: المنفذ LISTENING بحوزة العملية والفحص يعلن التوقّف).
+    الحجز نفسه هو السؤال الصحيح: إن عجزنا عن الحجز فأحدهم يمسكه.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
 def main() -> int:
     print("=" * 58)
     print("  فحص منصّة تلغرام (٦١٠)")
@@ -194,7 +212,7 @@ def main() -> int:
 
     # ٥ — التشغيل
     print("\n٥) التشغيل")
-    running = port_open(LOCK_PORT)
+    running = lock_held(LOCK_PORT)
     print("  %s المنصّة: %s" % ("✓" if running else "○",
                                 "شغّالة" if running else "متوقّفة"))
     gov_up = False

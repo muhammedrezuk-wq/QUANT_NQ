@@ -34,7 +34,10 @@ export default function Statistics() {
           const results = stats[sym]?.results ?? {}
           return (
             <div className="scard" key={sym} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>{sym}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{sym}</div>
+                {stats[sym]?.timeframe ? <span className="pill grey" style={{ marginInlineStart: 'auto', fontSize: 11 }}>الفريم {stats[sym].timeframe}</span> : null}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 10px', fontSize: 11.5 }}>
                 {ORDER.map((uid) => {
                   const u = results[uid]

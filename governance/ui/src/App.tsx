@@ -13,7 +13,6 @@ import Log from './sections/Log'
 import Portfolios from './sections/Portfolios'
 import Connection from './sections/Connection'
 import Alerts from './sections/Alerts'
-import Manager from './sections/Manager'
 import Market from './sections/Market'
 import Monitor from './sections/Monitor'
 import Settings from './sections/Settings'
@@ -32,6 +31,7 @@ import Execution from './sections/Execution'
 import Home from './sections/Home'
 import Scripts from './sections/Scripts'
 import Control from './sections/Control'
+import ChangeGovernor from './sections/ChangeGovernor'
 import NQ from './sections/NQ'
 import News from './sections/News'
 import Mexc from './sections/Mexc'
@@ -55,6 +55,13 @@ type MarketInfo = {
 
 export default function App() {
   const [active, setActive] = useState('dashboard')
+  const ACTIVE_TAB_KEY = 'nq.active_tab'
+  const goTo = (id: string) => {
+    setActive(id)
+    if (marketInfo?.market === 'forex') {
+      try { localStorage.setItem(`${ACTIVE_TAB_KEY}.forex`, id) } catch { /* التخزين المحلي اختياري */ }
+    }
+  }
   const [cryptoEntered, setCryptoEntered] = useState(false)
   const [marketInfo, setMarketInfo] = useState<MarketInfo | null>(() => (
     window.location.port === '8091'
@@ -67,6 +74,18 @@ export default function App() {
       .then((info) => { if (info) setMarketInfo(info) })
       .catch(() => {})
   }, [])
+  // تذكّر آخر تبويب للفوركس فقط؛ التحديث الكامل لا يعيد المالك إلى البداية.
+  useEffect(() => {
+    if (marketInfo?.market !== 'forex') return
+    try {
+      const saved = localStorage.getItem(`${ACTIVE_TAB_KEY}.forex`)
+      if (saved) setActive(saved)
+    } catch { /* التخزين المحلي اختياري */ }
+  }, [marketInfo?.market])
+  useEffect(() => {
+    if (marketInfo?.market !== 'forex') return
+    try { localStorage.setItem(`${ACTIVE_TAB_KEY}.forex`, active) } catch { /* التخزين المحلي اختياري */ }
+  }, [active, marketInfo?.market])
 
   const switchMarket = async () => {
     const next = marketInfo?.market === 'crypto' ? 'forex' : 'crypto'
@@ -185,11 +204,9 @@ export default function App() {
           <small>محمد رزوق</small>
         </div>
         {marketInfo && (
-          <button
-            className="market-switch"
-            title={`الانتقال إلى لوحة ${marketInfo.alternate_label}`}
-            onClick={() => { void switchMarket() }}
-          >{marketInfo.label} ⇄ {marketInfo.alternate_label}</button>
+          <div className="market-switch" title="هذه اللوحة معزولة عن السوق الآخر">
+            {marketInfo.label} · لوحة مستقلة
+          </div>
         )}
         <button
           className="refreshbtn"
@@ -207,7 +224,7 @@ export default function App() {
       <nav className="nav">
         {isCrypto ? <span style={{ alignSelf: 'center', padding: '0 10px', color: 'var(--accent)', fontWeight: 700, fontSize: 12 }}>قسم أسمر · كريبتو</span> : null}
         {orderedSections.map(([id, label, on]) => (
-          <button key={id} className={active === id ? 'active' : ''} disabled={!on} onClick={() => on && setActive(id)}>
+          <button key={id} className={active === id ? 'active' : ''} disabled={!on} onClick={() => on && goTo(id)}>
             {on ? label : `${label} · قريبًا`}
           </button>
         ))}
@@ -225,15 +242,15 @@ export default function App() {
         ) : active === 'dashboard' ? (
           <NewDashboard />
         ) : active === 'home' ? (
-          <Home onGo={setActive} />
+          <Home onGo={goTo} />
         ) : active === 'control' ? (
           <Control />
+        ) : active === 'change' ? (
+          <ChangeGovernor />
         ) : active === 'network' ? (
           <Network />
         ) : active === 'atoms' ? (
           <Atoms />
-        ) : active === 'manager' ? (
-          <Manager />
         ) : active === 'market' ? (
           <Market />
         ) : active === 'charts' ? (
