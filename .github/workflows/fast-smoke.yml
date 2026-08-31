@@ -6,9 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -16,8 +13,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,22 +26,27 @@ jobs:
       - name: Run fast smoke suite
         run: python scripts/run_smoke.py
 
-      - name: Reseal scheduler core
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: Print exact core seal
         shell: bash
         run: |
-          set -euo pipefail
-          latest="$(git log -1 --pretty=%s)"
-          if [[ "$latest" == "chore(core): reseal scheduler core" ]]; then
-            exit 0
-          fi
-          python governance/scripts/freeze_core.py freeze --reseal
-          python governance/scripts/freeze_core.py verify
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/CORE.lock
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "chore(core): reseal scheduler core"
-          git push origin HEAD:fix/global-scheduler-final
+          python - <<'PY'
+          import hashlib, json, re
+          from pathlib import Path
+
+          root = Path('core')
+          suffixes = {'.py','.html','.css','.js','.json','.yaml','.yml'}
+          files = {}
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name != 'CORE.lock' and p.suffix.lower() in suffixes:
+                  data = p.read_bytes().replace(b'\r\n', b'\n')
+                  files[str(p.relative_to(Path('.'))).replace('\\','/')] = hashlib.sha256(data).hexdigest()
+          entries = sorted(files.items())
+          joined = '\n'.join(f'{name}:{digest}' for name,digest in entries)
+          root_digest = hashlib.sha256(joined.encode()).hexdigest()
+          version_text = Path('core/__version__.py').read_text(encoding='utf-8')
+          version = re.search(r'CORE_VERSION\s*=\s*[\"\']([^\"\']+)[\"\']', version_text).group(1)
+          print('CORE_VERSION=' + version)
+          print('FILE_COUNT=' + str(len(entries)))
+          print('ROOT_DIGEST=' + root_digest)
+          print('FILES_JSON=' + json.dumps(dict(entries), ensure_ascii=False, sort_keys=True))
+          PY
