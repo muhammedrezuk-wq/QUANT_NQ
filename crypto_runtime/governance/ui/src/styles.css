@@ -184,7 +184,17 @@ select.search { cursor: pointer; max-width: 340px; }
 select.search option { background: var(--bg2); color: var(--ink); }
 
 /* ── الشارتات (TradingView) ── */
-.chartsec { display: flex; flex-direction: column; gap: 4px; height: 100%; min-height: 0; overflow: hidden; }
+/* ⛔ عطل مقيس ٢٠٢٦-٠٨-٣١ (ختم NQ) — «دولاب الماوس ما عم ينزل»:
+   `overflow: hidden` اختصارٌ يضبط المحورين معًا، وهو يأتي بعد
+   `.section { overflow-y: auto }` وبنفس قوّتها — فيدوسها. والنتيجة أنّ عشرة
+   أقسام تستعمل `chartsec` (التحليل · القرار · السيولة · الاحتمالات · الإحصاء
+   · الاستراتيجيات · البنية · المحافظ …) كانت تُقصّ بلا شريط تمرير ولا استجابة
+   للدولاب. القياس على قسم التحليل: المحتوى 5711px داخل إطار 630px و
+   `overflow-y: hidden` — أي 5081 بكسل غير قابلة للوصول إطلاقًا.
+   وهذا أيضًا ما أبطل الإصلاح السابق أدناه (`flex-shrink: 0`): جعل المحتوى
+   أطول من إطاره فعلًا، لكنّ التمرير كان مقفولًا من هنا.
+   الفصل بين المحورين: الأفقيّ يبقى مقصوصًا (الشارتات)، والرأسيّ يمرّر. */
+.chartsec { display: flex; flex-direction: column; gap: 4px; height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; }
 /* ⛔ عطل مقيس: البطاقة كانت عنصرًا مرنًا قابلًا للانكماش داخل قسم مرن،
    فتنكمش إلى 169px بينما محتواها 1215px، و`overflow:hidden` يقصّ الباقي
    بلا شريط تمرير — أي أنّ ١٠٤٨ بكسل من جدول المحلّلات كانت غير قابلة

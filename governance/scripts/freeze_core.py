@@ -91,7 +91,15 @@ def freeze(reseal: bool = False) -> int:
     version = _core_version()
     previous = None
     if LOCK_FILE.exists():
-        previous = json.loads(LOCK_FILE.read_text(encoding="utf-8")).get("root_digest")
+        old = json.loads(LOCK_FILE.read_text(encoding="utf-8"))
+        previous = old.get("root_digest")
+        # ٢٠٢٦-٠٨-٣١: ختمٌ ثانٍ بلا تغيير كود كان **يمسح حلقة السلسلة**.
+        # `previous` تُقرأ من الختم القائم؛ فإن أُعيد الختم مرّتين تواليًا صار
+        # `previous == root` وضاع الرابط إلى الختم الحقيقي قبله. والسلسلة هي
+        # كل قيمة السجلّ: بها يُعرَف أن ختمًا وارد من الخارج امتدادٌ لنواتنا
+        # لا فرعٌ عنها. ختمٌ بلا تغيير = لا حلقة جديدة، فيُبقى الرابط كما هو.
+        if previous == manifest["root_digest"]:
+            previous = old.get("previous_root_digest")
 
     lock = {
         "_": "ختم تجميد النواة — المادة 1/41/100. لا يُعدَّل يدويًا إطلاقًا.",

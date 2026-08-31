@@ -645,6 +645,15 @@ def main() -> int:
                            SEV_ERROR, f"{pct}% < {MIN_COVERAGE_PCT}%")
 
     if args.json:
+        # ٢٠٢٦-٠٩-٠١: التقرير عربيّ، ومخرَج العمليّة على ويندوز يرث ترميز
+        # الطرفيّة (cp1256 هنا) لا UTF-8. فكان `print` ينهار بـ
+        # `UnicodeEncodeError` كلّما نودي المدقّق من عمليّة فرعيّة — تخرج
+        # العمليّة بلا مخرَج، ويسقط فاحصه بـ`JSONDecodeError` وكأن المدقّق
+        # لا يعمل. المخرَج المُعلَن JSON يُثبَّت على UTF-8 صراحةً.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):  # مخرَج غير قابل للضبط
+            pass
         print(json.dumps({
             "checked": report.checked,
             "waived": report.waived,

@@ -7,7 +7,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from pathlib import Path as _Path
-sys.path.insert(0, str(_Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(_Path(__file__).resolve().parents[4]))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.contracts.atom import AtomContext, HealthState  # noqa: E402

@@ -124,14 +124,24 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
           poll(); const th = setInterval(poll, 15000)
           cleanup2.push(() => clearInterval(th))
         })
-        // ٣) الفوركس يكمل من المتجر (كما كان)
-        const t0 = useStore.getState().market[symbol]; if (t0) applyTick(t0.bid, t0.ask, t0.ts)
+        // ٣) الفوركس يكمل من المتجر — المرجع أوّلًا، وسعر الوسيط بديلًا للعرض.
+        // ٢٠٢٦-٠٨-٣١ (ختم NQ): مسار التحليل صار مقصورًا على سي‑تريدر، فلو
+        // بقي الشارت على `market` وحده لانطفأ كلّما سقط المرجع — وغزارة
+        // تِكّات الوسيط تُرمى. الشارت **عرض**، فيكمل بسعر التنفيذ عند غياب
+        // المرجع؛ ولا أثر لذلك على أي حكم أو تحليل.
+        const s0 = useStore.getState()
+        const t0 = s0.market[symbol] ?? s0.brokerMarket[symbol]
+        if (t0) applyTick(t0.bid, t0.ask, t0.ts)
       })
       .catch(() => { if (!disposed) setHist('empty') })
 
     const unsub = useStore.subscribe((state, prev) => {
       const t = state.market[symbol]
-      if (t && t !== prev.market[symbol]) applyTick(t.bid, t.ask, t.ts)
+      if (t && t !== prev.market[symbol]) { applyTick(t.bid, t.ask, t.ts); return }
+      if (!state.market[symbol]) {
+        const b = state.brokerMarket[symbol]
+        if (b && b !== prev.brokerMarket[symbol]) applyTick(b.bid, b.ask, b.ts)
+      }
     })
 
     return () => { disposed = true; unsub(); chart.remove(); chartRef.current = null; seriesRef.current = null; linesRef.current = []; cleanup2.forEach((f) => f()) }

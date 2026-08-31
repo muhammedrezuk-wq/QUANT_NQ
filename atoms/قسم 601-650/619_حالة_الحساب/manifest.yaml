@@ -11,6 +11,9 @@ publishes:
   - "platform.account.state"
   - "platform.terminal_state"
 
+subscribes:
+  - "SYS_SECOND"
+
 startup_mode: auto
 
 health:

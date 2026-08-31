@@ -54,6 +54,12 @@ class Atom(AtomBase):
         cfg = context.config
         self._stores = [dict(s) for s in cfg["stores"]]
         self._warn_on_empty = bool(cfg["warn_on_empty_table"])
+        # ٢٠٢٦-٠٩-٠١ (توحيد الشغلين): هذا السطر كان محذوفًا في النسخة الواردة
+        # مع إصلاح الساعة، فصارت الذرّة **طرشاء**: لا تشترك على حدث دخلها
+        # إطلاقًا، فلا تُشغَّل ولا تنشر تقرير سلامة واحدًا — أي حارس بيانات
+        # قائم على الورق وغائب فعليًّا. (مقيس: `test_16_integrity_guard_...`
+        # يسقط بـ`IndexError` لأن `EVENT_OUT` لم يُنشَر قطّ.) أُعيد كما كان.
+        context.subscribe(EVENT_IN, self._on_cleaned)
         self._initialized = True
 
     async def start(self) -> None:

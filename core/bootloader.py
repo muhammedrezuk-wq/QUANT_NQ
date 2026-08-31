@@ -86,6 +86,13 @@ class Bootloader:
         excluded: list[int] = []
         critical_failures: list[str] = []
 
+        # ٢٠٢٦-٠٨-٣١ (ختم nq — توحيد الشغلين): ورقة ٠٥ القديمة كانت توصّل
+        # إزاحة الساعة من حدث `time.utc.synced` إلى الناقل، فيصير للنظام
+        # **مصدرا حقيقة زمنيّة**: `OfficialClock` وإزاحة داخل الناقل. أُلغيت
+        # الملكية الثانية نهائيًّا — الوقت كلّه من `clock` وحده، والحدث إعلانٌ
+        # لا مصدر. الذرّة 003 تصحّح الساعة بـ`clock.accept_sample` مباشرة،
+        # فتأخّر الإعلان ما بعاد يؤخّر الساعة نفسها.
+
         discovery = scan(self._atoms_root)
         for failure in discovery.failures:
             _log.error("فشل تحميل manifest في %s: %s", failure.path, failure.error)
@@ -93,7 +100,7 @@ class Bootloader:
         working: dict[int, DiscoveredAtom] = {a.manifest.id: a for a in discovery.atoms}
 
         # ورقة ٠٦ (المادة 21): startup_mode — الذرة manual/lazy تُكتشف ولا تُشغَّل
-        # تلقائيًا (نفس فلتر hot_reload حرفيًا). المُقلع كان يتجاهلها تمامًا فتعود
+        # تلقائيًا (نفس فلتر hot_reload حرفيًا). المُقلِع كان يتجاهلها تمامًا فتعود
         # حيّة كل إقلاع (باگ مقيس: صفر ذكر لـstartup_mode في bootloader). تُستبعد من
         # التشغيل وتظهر في «استُبعدت»، ويبقى تشغيلها اليدوي متاحًا عبر API.
         for aid in sorted(working):
@@ -113,6 +120,8 @@ class Bootloader:
             try:
                 instance = self.instantiate(discovered)
             except Exception as exc:  # noqa: BLE001 — كود ذرة خارجي
+                # المادة 21 + 81: فشل أي ذرة (حتى الحرجة) لا يوقف Core ولا
+                # يوقف إقلاع بقية الذرات. تُستبعد وحدها ويُسجَّل السبب.
                 msg = f"تعذّر تحميل الذرة {atom_id}: {exc}"
                 if discovered.manifest.critical:
                     critical_failures.append(msg)
@@ -146,8 +155,9 @@ class Bootloader:
         self._abort_reason = "؛ ".join(critical_failures) if critical_failures else None
         return BootReport(
             started_at=started, finished_at=time.time(),
-            success=not critical_failures, booted=booted, failed=failed,
-            excluded=excluded, scan_failures=discovery.failures,
+            success=not critical_failures,
+            booted=booted, failed=failed, excluded=excluded,
+            scan_failures=discovery.failures,
             abort_reason=self._abort_reason,
         )
 
@@ -201,6 +211,8 @@ class Bootloader:
         try:
             return resolve(manifests).boot_order
         except CoreError as exc:
+            # دفاع من الدرجة الثانية: لا يجوز أن يصل التنفيذ إلى هنا بعد
+            # حلقة الاستبعاد أعلاه. حتى لو وصل، Core لا يتوقف.
             critical_failures_out.append(f"تعذّر حل رسم الاعتماديات نهائيًا: {exc}")
             _log.critical("تعذّر حل رسم الاعتماديات نهائيًا: %s — لن تُقلع أي ذرة", exc)
             excluded_out.extend(sorted(working))
@@ -233,8 +245,14 @@ class Bootloader:
         if spec is None or spec.loader is None:
             raise AtomInitializationError(f"تعذّر تحميل {module_file}")
         module = importlib.util.module_from_spec(spec)
+        # تسجيل الموديول قبل التنفيذ: dataclasses/pickle/inspect وبعض
+        # المكتبات تبحث عن الموديول في sys.modules أثناء تنفيذه نفسه.
         sys.modules[unique_name] = module
 
+        # الذرة وحدة مكتفية بذاتها وقد تتكوّن من أكثر من ملف
+        # (`from my_helper import X`). مجلدها يُضاف لمسار البحث **أثناء
+        # التنفيذ فقط**، ثم يُسحب فورًا: لا تلوّث دائم لمسار المفسّر، ولا
+        # حاجة لأن تحقن الذرة `sys.path` بنفسها (المادة 1 و 30).
         atom_dir = str(discovered.directory.resolve())
         before = set(sys.modules)
         sys.path.insert(0, atom_dir)
@@ -259,12 +277,9 @@ class Bootloader:
         record = self._registry.get(atom_id)
         log = self._logger_factory(atom_id)
         config = record.manifest.config
-        unavailable = [
-            dep.id
-            for dep in record.manifest.dependencies
-            if self._registry.find(dep.id) is None
-            or self._registry.find(dep.id).state != AtomState.RUNNING
-        ]
+        unavailable = [dep.id for dep in record.manifest.dependencies
+                       if self._registry.find(dep.id) is None
+                       or self._registry.find(dep.id).state != AtomState.RUNNING]
         if unavailable:
             exc = AtomInitializationError(f"dependencies not running: {unavailable}")
             self._mark_failed(atom_id, log, exc)
@@ -287,32 +302,29 @@ class Bootloader:
 
         self._registry.set_state(atom_id, AtomState.INITIALIZING)
         try:
-            await call_lifecycle(
-                record.instance.initialize(context),
-                "initialize",
-                timeout=self._atom_boot_timeout_s,
-            )
+            # ٢٠٢٦-٠٨-٣١ (ختم nq): الإقلاع كان المسار الوحيد الباقي خارج
+            # سياسة دورة الحياة الموحّدة (ورقة ٠٦) — مهلته الخاصّة ترفع
+            # `TimeoutError` عامًّا بلا اسم طور، فطبقة ٢ ما بتميّز «مات
+            # بمهلة» عن «انهار». صار الإقلاع يمرّ من `call_lifecycle` مثل
+            # كل المسارات، فالسبب يصير `LIFECYCLE_TIMEOUT:<الطور>`.
+            await call_lifecycle(record.instance.initialize(context), "initialize",
+                                 timeout=self._atom_boot_timeout_s)
             self._registry.set_state(atom_id, AtomState.INITIALIZED)
             if self._restore_hook is not None:
-                await call_lifecycle(
-                    self._restore_hook(atom_id),
-                    "restore",
-                    timeout=self._atom_boot_timeout_s,
-                )
+                await call_lifecycle(self._restore_hook(atom_id), "restore",
+                                     timeout=self._atom_boot_timeout_s)
             self._registry.set_state(atom_id, AtomState.STARTING)
-            await call_lifecycle(
-                record.instance.start(),
-                "start",
-                timeout=self._atom_boot_timeout_s,
-            )
-        except Exception as exc:  # noqa: BLE001 — كود ذرة خارجي
+            await call_lifecycle(record.instance.start(), "start",
+                                 timeout=self._atom_boot_timeout_s)
+        except Exception as exc:  # noqa: BLE001
+            # المادة 16/85/86: ذرة تعثّرت بعد initialize قد تكون فتحت
+            # موارد فعلًا. لا نتركها معلّقة — تنظيف بأفضل جهد قبل وسمها
+            # FAILED، مهما فشل التنظيف نفسه.
             await self._cleanup_failed_atom(atom_id, record.instance, log)
             self._mark_failed(atom_id, log, exc)
             self._event_bus.unsubscribe_all(str(atom_id))
             await self._event_bus.publish(
-                "core.atom.failed",
-                {"atom_id": atom_id, "error": str(exc)},
-                publisher="core.bootloader",
+                "core.atom.failed", {"atom_id": atom_id, "error": str(exc)}, publisher="core.bootloader"
             )
             return False
 
@@ -334,6 +346,11 @@ class Bootloader:
         `client` في `sys.modules`؛ فمن حُمِّلت أولًا يفوز ملفها بالاسم،
         وتستورد الثانية كود الأولى بصمت — تسريب معرفة بين ذرتين محظور
         نصًا (المادة 4 و 6 و 43).
+
+        بعد تنفيذ الذرة تُعاد فهرسة كل موديول جديد جاء من مجلدها تحت
+        مفتاح خاص بها، ويُحرَّر الاسم المجرد لمن يأتي بعدها. كائن
+        الموديول نفسه يبقى حيًا لأن globals الذرة تحمل مرجعًا له، فلا
+        ينكسر شيء.
         """
         for name in set(sys.modules) - before:
             mod = sys.modules.get(name)
@@ -351,6 +368,8 @@ class Bootloader:
     async def _cleanup_failed_atom(
         self, atom_id: int, instance: AtomBase, log: logging.LoggerAdapter
     ) -> None:
+        """تحرير موارد ذرة فشلت أثناء الإقلاع — بأفضل جهد، بمهلة، ولا
+        يُسمح لأي استثناء من الذرة بالخروج من هنا (المادة 27/81)."""
         for phase, fn in (("stop", instance.stop), ("shutdown", instance.shutdown)):
             try:
                 await call_lifecycle(fn(), phase, timeout=self._atom_boot_timeout_s)

@@ -84,18 +84,26 @@ async def main():
     b5 = EventBus()
     auto = {}
     b5.subscribe("k.state", lambda p: auto.update(p), subscriber="c")
-    b5.set_time_offset(1000.0)
+    # ٢٠٢٦-٠٨-٣١: العقد انقلب. كان الناقل يملك إزاحة (`set_time_offset`)
+    # فيصير للنظام مالكان للوقت. الآن: الناقل بلا ساعة، وختمه من `clock.now()`
+    # وحدها. البرهان أن الختم يتبع السلطة الزمنيّة لا ساعة داخليّة.
+    import clock as _clock
+    before = _clock.now()
     await b5.publish("k.state", {}, publisher="t")
-    check("٠٥ ختم الناقل مصحّح (خام + إزاحة)", auto.get("timestamp", 0) > time.time() + 500)
+    after = _clock.now()
+    stamp = auto.get("timestamp", 0)
+    check("٠٥ الناقل بلا ساعة (لا إزاحة ولا now)",
+          not hasattr(b5, "set_time_offset") and not hasattr(b5, "now"))
+    check("٠٥ ختم الناقل من السلطة الزمنيّة `clock`", before <= stamp <= after)
 
     ext = {}
     b5.subscribe("mt5.tick.state", lambda p: ext.update(p), subscriber="c")
     await b5.publish("mt5.tick.state", {"timestamp": 42.0}, publisher="mt5")
     check("٠٥ وقت المصدر الخارجي لا يُداس", ext.get("timestamp") == 42.0)
 
-    # ٠٥ (تكامل): السلسلة الكاملة عبر المُقلِع — لا set_time_offset مباشرة.
-    # يشغّل Bootloader.boot()، ينشر time.utc.synced، ثم حدثًا عاديًا، ويتأكّد
-    # أن ختمه حمل الإزاحة. هذا يمسك فجوة التوصيل التي لا تكشفها اختبارات الوحدة.
+    # ٠٥ (تكامل): بعد إلغاء ملكيّة الوقت من الناقل، المطلوب برهانُ العكس —
+    # أن المُقلِع **لا يشترك** على حدث الوقت ولا يغذّي ساعةً ثانية، وأن ختم
+    # الأحداث يبقى من `clock` حتى بعد مرور `time.utc.synced` في الناقل.
     import tempfile
     from core.bootloader import Bootloader
     from core.registry import Registry
@@ -104,13 +112,17 @@ async def main():
     with tempfile.TemporaryDirectory() as _d:
         ibus = EventBus()
         bl = Bootloader(Path(_d), Registry(), ibus, Journal(path=None), Metrics())
-        await bl.boot()  # يجب أن يشترك core.clock على time.utc.synced
+        await bl.boot()
+        no_clock_sub = ibus.subscriber_count("time.utc.synced") == 0
         await ibus.publish("time.utc.synced", {"offset_s": 1000.0}, publisher="608")
         seen = {}
         ibus.subscribe("probe.after", lambda p: seen.update(p), subscriber="probe")
+        low = _clock.now()
         await ibus.publish("probe.after", {}, publisher="test")
-    check("٠٥ تكامل: المُقلِع يوصل حدث الوقت للناقل (السلسلة كاملة لا نصّها)",
-          seen.get("timestamp", 0) > time.time() + 500)
+        high = _clock.now()
+    check("٠٥ تكامل: المُقلِع لا يشترك على حدث الوقت (لا مالك ثانٍ)", no_clock_sub)
+    check("٠٥ تكامل: حدث الوقت لا يزيح ختم الناقل",
+          low <= seen.get("timestamp", 0) <= high)
 
     # ————— ٠٦ المهلات + التطهير —————
     done = []

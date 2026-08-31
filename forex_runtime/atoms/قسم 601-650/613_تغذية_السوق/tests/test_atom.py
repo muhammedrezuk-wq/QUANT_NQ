@@ -23,11 +23,22 @@ _spec.loader.exec_module(_mod)
 Atom = _mod.Atom
 TICK = _mod.EVENT_MARKET_TICK
 VOLUME = _mod.EVENT_MARKET_VOLUME
+REJECTED = _mod.EVENT_SOURCE_REJECTED
+BROKER = _mod.DEFAULT_BROKER_ROUTE
 
+# ٢٠٢٦-٠٨-٣١ (ختم NQ): القاعدة انقلبت. كانت هذه الاختبارات تحرس «ميتاتريدر
+# احتياط عند صمت سي‑تريدر» — وهو ما منعه المالك بنصّه: «ما بصير ميتاتريدر
+# يغذّي المحلّلين ولا ياخد محل سي‑تريدر». صارت تحرس المنع نفسه.
 CFG = {
-    "routes": {"feed.mt5.tick": "market.tick"},
+    "routes": {"feed.ctrader.tick": "market.tick"},
     "provider_timeout_s": 30,
     "max_input_silence_seconds": 60,
+}
+CFG_BOTH_ROUTES = {
+    "routes": {"feed.mt5.tick": "market.tick", "feed.ctrader.tick": "market.tick"},
+    "provider_timeout_s": 30,
+    "max_input_silence_seconds": 60,
+    "preferred_provider": "CTRADER",
 }
 
 
@@ -59,24 +70,82 @@ class FakeEventBus:
                            publish=self.publish, subscribe=self.subscribe)
 
 
-async def _ready(bus):
+async def _ready(bus, cfg=None):
     atom = Atom()
-    await atom.initialize(bus.make_context(CFG))
+    await atom.initialize(bus.make_context(cfg or CFG))
     await atom.start()
     return atom
 
 
-async def test_routes_source_tick_to_market_tick():
-    print("\n--- test_routes_source_tick_to_market_tick ---")
+async def test_routes_reference_tick_to_market_tick():
+    print("\n--- test_routes_reference_tick_to_market_tick ---")
     bus = FakeEventBus()
     await _ready(bus)
-    await bus.publish("feed.mt5.tick",
-                      {"provider": "MT5", "symbol": "NQ", "bid": 100.0, "ask": 100.5, "timestamp": 1000.0})
+    await bus.publish("feed.ctrader.tick",
+                      {"provider": "CTRADER", "symbol": "NQ", "bid": 100.0, "ask": 100.5, "timestamp": 1000.0})
     ticks = [p for n, p in bus.published if n == TICK]
     assert len(ticks) == 1
-    assert ticks[0]["symbol"] == "NQ" and ticks[0]["provider"] == "MT5"
+    assert ticks[0]["symbol"] == "NQ" and ticks[0]["provider"] == "CTRADER"
     assert ticks[0]["timestamp"] == 1000.0, "وقت السوق من المصدر (قاعدة 13)"
-    print(f"OK — وجّه feed.mt5.tick → market.tick: {ticks[0]['symbol']}")
+    print(f"OK — وجّه feed.ctrader.tick → market.tick: {ticks[0]['symbol']}")
+
+
+async def test_mt5_diverted_to_display_never_to_analysts():
+    """حكم المالك ٢٠٢٦-٠٨-٣١: سعر ميتاتريدر لا يصل محلّلًا أبدًا — ولو كان
+    سي‑تريدر مقفولًا. ولا يُرمى أيضًا: يذهب لقناة العرض بسبريده ليظهر على
+    الشارت كسعر تنفيذ فعليّ."""
+    print("\n--- test_mt5_diverted_to_display_never_to_analysts ---")
+    bus = FakeEventBus()
+    atom = await _ready(bus, CFG_BOTH_ROUTES)
+    await bus.publish("feed.mt5.tick",
+                      {"provider": "MT5", "symbol": "NQ", "bid": 1.0, "ask": 2.0, "timestamp": 100.0})
+    assert not [p for n, p in bus.published if n == TICK], "ممنوع يصل market.tick"
+    assert atom._forwarded == 0, "لم يُمرَّر لمسار التحليل"
+    shown = [p for n, p in bus.published if n == BROKER]
+    assert len(shown) == 1, "ولا يُرمى: لازم يوصل قناة العرض"
+    assert shown[0]["provider"] == "MT5" and shown[0]["spread"] == 1.0
+    assert shown[0]["analysis"] is False and shown[0]["display_only"] is True
+    assert atom._diverted_to_display == 1 and atom._rejected_foreign == 0
+    print(f"OK — حُوِّل للعرض بسبريد {shown[0]['spread']} ولم يمسّ محلّلًا")
+
+
+async def test_foreign_source_rejected_loudly_without_display_route():
+    """وإن أُغلقت قناة العرض: يُرفض ويصرخ — لا يسقط بصمت ولا يمرّ."""
+    print("\n--- test_foreign_source_rejected_loudly_without_display_route ---")
+    bus = FakeEventBus()
+    atom = await _ready(bus, dict(CFG_BOTH_ROUTES, broker_display_route=""))
+    await bus.publish("feed.mt5.tick",
+                      {"provider": "MT5", "symbol": "NQ", "bid": 1, "ask": 2, "timestamp": 100.0})
+    assert not [p for n, p in bus.published if n == TICK]
+    assert atom._rejected_foreign == 1 and atom._diverted_to_display == 0
+    rejects = [p for n, p in bus.published if n == REJECTED]
+    assert len(rejects) == 1, "لازم يصرخ بحدث معلن"
+    assert rejects[0]["provider"] == "MT5" and rejects[0]["reason"] == "FOREIGN_SOURCE_ON_ANALYST_PATH"
+    assert "ميتاتريدر" in rejects[0]["message_ar"]
+    status = await atom.health_check()
+    assert status.state == HealthState.UNHEALTHY, status.state
+    assert "MT5" in status.message, status.message
+    print(f"OK — رُفض ورفع الصوت: {status.message[:60]}")
+
+
+async def test_no_failover_when_reference_dies():
+    """الأهمّ: سقوط سي‑تريدر **لا** يفتح الباب لميتاتريدر. التحليل يصمت."""
+    print("\n--- test_no_failover_when_reference_dies ---")
+    bus = FakeEventBus()
+    atom = await _ready(bus, CFG_BOTH_ROUTES)
+    await bus.publish("kernel.clock.heartbeat", {"official_time": 100.0})
+    await bus.publish("feed.ctrader.tick",
+                      {"provider": "CTRADER", "symbol": "NQ", "bid": 1.1, "ask": 2.1, "timestamp": 100.0})
+    assert len([p for n, p in bus.published if n == TICK]) == 1
+    # المرجع يصمت فوق المهلة — كان ميتاتريدر يتدفّق هنا قبل الختم.
+    await bus.publish("kernel.clock.heartbeat", {"official_time": 200.0})
+    await bus.publish("feed.mt5.tick",
+                      {"provider": "MT5", "symbol": "NQ", "bid": 1.3, "ask": 2.3, "timestamp": 200.0})
+    ticks = [p for n, p in bus.published if n == TICK]
+    assert len(ticks) == 1, "لا تِكّة جديدة: المرجع ساقط والبديل ممنوع"
+    assert ticks[-1]["provider"] == "CTRADER"
+    assert atom._diverted_to_display == 1 and atom._rejected_foreign == 0
+    print("OK — لا بديل احتياطي: التحليل صمت بدل أن يتغذّى من مصدر غير موثوق")
 
 
 async def test_propagates_account_id_identity_key():
@@ -84,8 +153,8 @@ async def test_propagates_account_id_identity_key():
     print("\n--- test_propagates_account_id_identity_key ---")
     bus = FakeEventBus()
     await _ready(bus)
-    await bus.publish("feed.mt5.tick",
-                      {"provider": "MT5", "symbol": "NQ", "bid": 1, "ask": 2, "timestamp": 5.0, "account_id": "ACC-1"})
+    await bus.publish("feed.ctrader.tick",
+                      {"provider": "CTRADER", "symbol": "NQ", "bid": 1, "ask": 2, "timestamp": 5.0, "account_id": "ACC-1"})
     tick = [p for n, p in bus.published if n == TICK][-1]
     assert tick["account_id"] == "ACC-1", "لازم يمرّر account_id (قاعدة 22)"
     print("OK — مرّر account_id=ACC-1")
@@ -96,75 +165,43 @@ async def test_incomplete_payload_dropped_without_crash():
     print("\n--- test_incomplete_payload_dropped_without_crash ---")
     bus = FakeEventBus()
     atom = await _ready(bus)
-    await bus.publish("feed.mt5.tick", {"provider": "MT5", "symbol": "NQ", "timestamp": 1.0})  # لا bid/ask
+    await bus.publish("feed.ctrader.tick", {"provider": "CTRADER", "symbol": "NQ", "timestamp": 1.0})  # لا bid/ask
     assert not [p for n, p in bus.published if n == TICK], "ما ينشر عند نقص"
     assert atom._dropped == 1
     print("OK — تكّة ناقصة أُسقطت (dropped=1) بلا انهيار")
 
 
-async def test_preferred_provider_failover():
-    """الدستور §20-21: المرجع (CTRADER) يقود التحليل؛ MT5 احتياط عند صمته فقط."""
-    print("\n--- test_preferred_provider_failover ---")
-    bus = FakeEventBus()
-    atom = Atom()
-    cfg = {"routes": {"feed.mt5.tick": "market.tick", "feed.ctrader.tick": "market.tick"},
-           "provider_timeout_s": 30, "max_input_silence_seconds": 60,
-           "preferred_provider": "CTRADER"}
-    await atom.initialize(bus.make_context(cfg))
-    await atom.start()
-    await bus.publish("kernel.clock.heartbeat", {"official_time": 100.0})
-    # قبل أول تكّة مرجعية: MT5 يمرّ (لا هواء ميت)
-    await bus.publish("feed.mt5.tick",
-                      {"provider": "MT5", "symbol": "NQ", "bid": 1, "ask": 2, "timestamp": 100.0})
-    assert len([p for n, p in bus.published if n == TICK]) == 1
-    # المرجع وصل: تكّته تمرّ وتكّة MT5 التالية تنكتم
-    await bus.publish("feed.ctrader.tick",
-                      {"provider": "CTRADER", "symbol": "NQ", "bid": 1.1, "ask": 2.1, "timestamp": 101.0})
-    await bus.publish("feed.mt5.tick",
-                      {"provider": "MT5", "symbol": "NQ", "bid": 1.2, "ask": 2.2, "timestamp": 102.0})
-    ticks = [p for n, p in bus.published if n == TICK]
-    assert len(ticks) == 2 and ticks[-1]["provider"] == "CTRADER"
-    assert atom._suppressed_secondary == 1
-    # المرجع صمت فوق المهلة: MT5 يرجع يتدفّق
-    await bus.publish("kernel.clock.heartbeat", {"official_time": 200.0})
-    await bus.publish("feed.mt5.tick",
-                      {"provider": "MT5", "symbol": "NQ", "bid": 1.3, "ask": 2.3, "timestamp": 200.0})
-    ticks = [p for n, p in bus.published if n == TICK]
-    assert len(ticks) == 3 and ticks[-1]["provider"] == "MT5"
-    print("OK — أفضلية المرجع مع تحويل تلقائي عند صمته")
-
-
 async def test_health_check_surfaces_single_dead_provider():
-    """عطل حي مقيس 2026-08-19: health_check() كانت تراقب ساعة صمت واحدة
-    مشتركة (self._last_input_at) بلا تمييز مصدر — MT5 ممكن يموت كلياً
-    وcTrader يبقى حيّ، فتستمر الحالة العليا 'سليمة' بلا أي إشارة، رغم أن
-    العلم down لكل مصدر محسوب فعلاً بـ_on_heartbeat ولم يكن يُقرأ هون."""
+    """عطل حي مقيس 2026-08-19: ساعة صمت واحدة مشتركة كانت تخفي موت مصدر
+    بينما مصدر آخر حيّ. يُختبر هنا بمصدرين **مسموحين** كلاهما، فالسياسة
+    (منع ميتاتريدر) شيء وكشف المصدر الميت شيء آخر — لا يُخلطان."""
     print("\n--- test_health_check_surfaces_single_dead_provider ---")
     bus = FakeEventBus()
     atom = Atom()
     cfg = {"routes": {"feed.mt5.tick": "market.tick", "feed.ctrader.tick": "market.tick"},
            "provider_timeout_s": 30, "max_input_silence_seconds": 60,
-           "preferred_provider": "CTRADER"}
+           "preferred_provider": "CTRADER",
+           "analyst_sources": ["CTRADER", "BACKUP"]}
     await atom.initialize(bus.make_context(cfg))
     await atom.start()
     await bus.publish("kernel.clock.heartbeat", {"official_time": 100.0})
     await bus.publish("feed.mt5.tick",
-                      {"provider": "MT5", "symbol": "NQ", "bid": 1, "ask": 2, "timestamp": 100.0})
+                      {"provider": "BACKUP", "symbol": "NQ", "bid": 1, "ask": 2, "timestamp": 100.0})
     await bus.publish("feed.ctrader.tick",
                       {"provider": "CTRADER", "symbol": "NQ", "bid": 1.1, "ask": 2.1, "timestamp": 100.0})
     healthy = await atom.health_check()
     assert healthy.state == HealthState.HEALTHY
-    # MT5 يصمت فوق provider_timeout_s بينما cTrader يستمر يتدفّق بلا انقطاع.
+    # BACKUP يصمت فوق provider_timeout_s بينما cTrader يستمر يتدفّق بلا انقطاع.
     for t in range(101, 140):
         await bus.publish("kernel.clock.heartbeat", {"official_time": float(t)})
         await bus.publish("feed.ctrader.tick",
                           {"provider": "CTRADER", "symbol": "NQ", "bid": 1.1, "ask": 2.1, "timestamp": float(t)})
     status = await atom.health_check()
     assert status.state == HealthState.DEGRADED, (
-        f"MT5 صامت 39 ثانية رغم أن cTrader حيّ تماماً — يجب أن تُبلَّغ متعثّرة لا سليمة، "
+        f"BACKUP صامت 39 ثانية رغم أن cTrader حيّ تماماً — يجب أن تُبلَّغ متعثّرة لا سليمة، "
         f"الحالة الفعلية: {status.state} / {status.message}"
     )
-    assert "MT5" in status.message, f"الرسالة يجب أن تسمّي المصدر الميت صراحة: {status.message}"
+    assert "BACKUP" in status.message, f"الرسالة يجب أن تسمّي المصدر الميت صراحة: {status.message}"
     print(f"OK — health_check سمّت المصدر الميت: {status.message}")
 
 
@@ -172,8 +209,8 @@ async def test_volume_published_when_present():
     print("\n--- test_volume_published_when_present ---")
     bus = FakeEventBus()
     await _ready(bus)
-    await bus.publish("feed.mt5.tick",
-                      {"provider": "MT5", "symbol": "ES", "bid": 1, "ask": 2, "timestamp": 3.0, "volume": 500})
+    await bus.publish("feed.ctrader.tick",
+                      {"provider": "CTRADER", "symbol": "ES", "bid": 1, "ask": 2, "timestamp": 3.0, "volume": 500})
     vols = [p for n, p in bus.published if n == VOLUME]
     assert len(vols) == 1 and vols[0]["volume"] == 500
     print("OK — نشر market.volume عند وجود حجم")
@@ -191,8 +228,8 @@ async def test_garbage_only_feed_does_not_fake_freshness():
     # فتغذية لا تنتج تكة صحيحة واحدة أبداً كانت تبقى "طازجة" للأبد.
     atom._last_input_at = _time.time() - 999  # صمت طويل مسبقاً، بلا أي تكة صحيحة
     for _ in range(5):
-        await bus.publish("feed.mt5.tick",
-                          {"provider": "MT5", "symbol": "NQ", "timestamp": 1.0})  # لا bid/ask
+        await bus.publish("feed.ctrader.tick",
+                          {"provider": "CTRADER", "symbol": "NQ", "timestamp": 1.0})  # لا bid/ask
     assert atom._dropped == 5, atom._dropped
     assert atom._forwarded == 0, atom._forwarded
     health = await atom.health_check()
@@ -203,10 +240,12 @@ async def test_garbage_only_feed_does_not_fake_freshness():
 
 async def main():
     tests = [
-        test_routes_source_tick_to_market_tick,
+        test_routes_reference_tick_to_market_tick,
+        test_mt5_diverted_to_display_never_to_analysts,
+        test_foreign_source_rejected_loudly_without_display_route,
+        test_no_failover_when_reference_dies,
         test_propagates_account_id_identity_key,
         test_incomplete_payload_dropped_without_crash,
-        test_preferred_provider_failover,
         test_health_check_surfaces_single_dead_provider,
         test_volume_published_when_present,
         test_garbage_only_feed_does_not_fake_freshness,

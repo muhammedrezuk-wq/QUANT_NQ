@@ -235,4 +235,55 @@ NQ المشرفة).** متوافقة خلفيًا بالكامل (< 2.0.0، لا
 # 1.27.1 (bootloader journal fix, 2026-08-28, owner order «حلها وفك تجميد»):
 # _mark_failed recorded start_failed twice per real failure (journal + metrics
 # doubled). Duplicate calls removed; no behavioral contract changed.
-CORE_VERSION = "1.27.1"
+# 1.28.0 (owner-authorized core open, «NQ — افتح النواة» 2026-08-31): the bus
+# exposes its own raw counters. EventBus.stats() has existed since the Eyes
+# paper (published/delivered/no_subscribers/timeout/error/replayed/dropped/
+# coalesced, per event name) but was never reachable from outside the process,
+# so proving that one specific event was being DROPPED was impossible from the
+# API -- which is exactly what diagnosing a frozen time reference required
+# (619/513/582 all read a cached SYS_SECOND that had stopped arriving while
+# 806 published it at a measured 1.000/s). New read-only route
+# GET /api/bus-stats returns event_bus.stats() verbatim. No behavior changed;
+# measurement only, and it is the instrument the fix in 1.29.0 is judged by.
+# 1.31.0 (unification of two parallel core lines, owner order 2026-08-31
+# «ادمجهم وساوي مستودع صح»): two independent efforts fixed the same root --
+# the clock was owned twice (OfficialClock, plus an offset inside EventBus fed
+# from the `time.utc.synced` event), so clock validity depended on consumer
+# scheduling. Measured before the fix: 806 published SYS_SECOND at 1.000/s,
+# the bus reported dropped=0/timeout=0/delivered=3714, and yet the pulse
+# timestamp arrived with a CUMULATIVE lag (3.97s -> 60.56s -> 97.87s over
+# sixteen minutes, ~0.1-0.15 s/s), so 619 computed age_s = -1.97 on a row two
+# seconds old and declared fresh data stale.
+#
+# Taken from the repo line (branches fix/global-scheduler*, merged to master):
+#   * EventBus owns no clock at all. All timestamps come from `clock.now()`.
+#     `set_time_offset`/`_time_offset_s` removed; bootloader no longer wires
+#     `time.utc.synced` into the bus. The event is an announcement, not a
+#     source -- atom 003 corrects the clock through `clock.accept_sample`.
+#   * Two bounded thread pools, with time/state/command work given a reserved
+#     pool so general market pressure cannot consume all worker capacity.
+#   * publish() from a non-core loop is routed back to the core loop through
+#     run_coroutine_threadsafe instead of touching mailboxes cross-loop.
+#   * Boot joins the unified lifecycle policy (`call_lifecycle`), so a boot
+#     hang reports LIFECYCLE_TIMEOUT:<phase> like every other path.
+#
+# Repaired here before adoption (both measured, not opinion):
+#   * `_coalesce_key` had moved into the class, breaking
+#     `from core.event_bus import _coalesce_key` in transport/ownership.py --
+#     the whole Event Transport layer failed at import. Restored as a
+#     module-level function; the class keeps a staticmethod alias.
+#   * `_worker_entry` ran `asyncio.run(result)` per delivery, i.e. a fresh
+#     event loop for every event handed to every async handler. Measured
+#     exposure in this tree: 26 atoms use asyncio.create_task, 5 asyncio.Lock,
+#     3 asyncio.Event, 8 get_running_loop -- all created on the core loop in
+#     initialize/start, so first touch from another loop raises "bound to a
+#     different event loop" or hangs, and any task spawned inside a handler
+#     was destroyed when asyncio.run tore its loop down. Async handlers stay
+#     on the core loop; only sync handlers go to the pools.
+#
+# Added: a per-delivery time budget. Overruns are counted and published in
+# stats()["overrun"]/["overrun_worst_s"], and stats()["pressure"] now reports
+# queued depth, busy handlers and oldest_pending_age_s -- queue length alone
+# cannot distinguish an item 1ms old from one 30s old, and that blindness is
+# what let consumption lag masquerade as stale data.
+CORE_VERSION = "1.31.0"

@@ -6,9 +6,30 @@ import sqlite3
 import re
 from typing import Any
 
+import clock
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "3.0.0"
+# ٢٠٢٦-٠٨-٣١ (ختم NQ) — تصحيح ملكيّة المرجع الزمنيّ، لا ترقيع شرط الطزاجة.
+#
+# كان «الآن» يُؤخذ من حمولة نبضة `SYS_SECOND` المخزَّنة في `_official_time`،
+# أي أنّ **صحّة الساعة صارت تابعة لجدولة استهلاك صندوق البريد**. والقياس:
+#   • 806 ينتج النبضة 60/60 ثانية (1.000/ث) و`missed_intervals=0`.
+#   • الناقل: `dropped=0` · `timeout=0` · `delivered=3714` للنبضة.
+#   • ومع ذلك يصل الطابع متأخّرًا **تأخّرًا تراكميًّا**: 3.97ث عند الدقيقة
+#     الثانية · 60.56ث عند الثانية عشرة · 97.87ث عند السادسة عشرة (≈0.1–0.15 ث/ث).
+# فيخرج `age_s = official − updated_at` **سالبًا** على صفٍّ عمره ثانيتان،
+# فيسقط شرط `0 <= age <= max` وتُعلَن بيانات طازجة «قديمة».
+#
+# الجذر معماريّ: مرجع زمنيّ مركزيّ لا يجوز أن يعتمد على وصول حدث عبر طابور
+# مستهلك. `clock` سلطة زمنيّة مباشرة خارج النواة (يكتب فيها 806/608/003
+# ويقرؤها سبعَ عشرةَ ذرّةً أصلًا: 513 · 516 · 552 · 609 · 618 …) — بلا طابور
+# ولا جدولة. فصارت القراءة منها مباشرة.
+# **شرط الطزاجة لم يُمسّ حرفًا**، والعمر السالب يبقى غير صالح كما كان.
+# و`SYS_SECOND` بقيت مشتركًا بها — لكن **إشارة مراقبة فقط**: تُعلَن مسافة
+# تأخّرها في تفاصيل الصحّة (`pulse_lag_s`) فينكشف اختناق الناقل بدل أن
+# يتنكّر في هيئة بيانات قديمة.
+
+ATOM_VERSION = "3.1.0"
 
 EVENT_PULSE = "SYS_SECOND"
 DEFAULT_MAX_AGE_S = 300.0
@@ -60,6 +81,9 @@ class Atom(AtomBase):
         self._poll_interval_s = 0.0
         self._last_state: dict[str, dict[str, Any]] = {}
         self._last_updated_at: dict[str, float | None] = {}
+        # ٢٠٢٦-٠٨-٣١: يُعلَن البيات عند **تبدّله** لا عند كل دورة قراءة — وإلّا
+        # صار صفٌّ بائت ثابت يُنشَر كل ثانية بلا جديد (عقد «انشر عند التغيّر»).
+        self._last_stale: dict[str, bool] = {}
         self._official_time: float | None = None
         self._max_age_s = DEFAULT_MAX_AGE_S
         self._last_error = ""
@@ -131,10 +155,10 @@ class Atom(AtomBase):
             if not account_id:
                 self.no_identity_count+=1;continue
             self.read_count+=1;await self._publish_terminal(row)
-            updated_at=_to_float(row.get("updated_at"));age_s=(self._official_time-updated_at if self._official_time is not None and updated_at is not None else None);stale=age_s is None or age_s<0 or age_s>self._max_age_s;changed=updated_at is None or updated_at!=self._last_updated_at.get(account_id)
-            if not changed and (not stale or age_s is None):continue
+            updated_at=_to_float(row.get("updated_at"));official=clock.now();age_s=(official-updated_at if updated_at is not None else None);stale=age_s is None or age_s<0 or age_s>self._max_age_s;changed=updated_at is None or updated_at!=self._last_updated_at.get(account_id)
+            if not changed and stale==self._last_stale.get(account_id):continue
             state={"account_id":account_id,"balance":_to_float(row.get("balance")),"equity":_to_float(row.get("equity")),"margin":_to_float(row.get("margin")),"free_margin":_to_float(row.get("free_margin")),"margin_level":_to_float(row.get("margin_level")),"currency":row.get("currency"),"leverage":row.get("leverage"),"open_count":row.get("open_count"),"broker":row.get("broker"),"server":row.get("account_server"),"margin_mode":row.get("margin_mode"),"measured_at":updated_at,"age_s":age_s,"stale":stale,"changed":changed,"max_age_s":self._max_age_s}
-            self._last_state[account_id]=state;self._last_updated_at[account_id]=updated_at;self.publish_count+=1;await self._context.publish(EVENT_OUT,dict(state))
+            self._last_state[account_id]=state;self._last_updated_at[account_id]=updated_at;self._last_stale[account_id]=stale;self.publish_count+=1;await self._context.publish(EVENT_OUT,dict(state))
 
     async def _publish_terminal(self, row: dict[str, Any]) -> None:
         if self._context is None:
@@ -170,6 +194,10 @@ class Atom(AtomBase):
             "last_error": self._last_error,
             "accounts": len(self._last_state),
             "stale_accounts": sorted(a for a,row in self._last_state.items() if row.get("stale")),
+            # مراقبة فقط: كم تأخّرت آخر نبضة عن السلطة الزمنيّة. لا تدخل أي
+            # حكم — وجودها يكشف اختناق الناقل بدل أن يظهر كبيانات قديمة.
+            "pulse_lag_s": (None if self._official_time is None
+                            else round(clock.now()-self._official_time, 3)),
         }
         if self._last_error:
             return HealthStatus(state=HealthState.DEGRADED, message=self._last_error, details=details)

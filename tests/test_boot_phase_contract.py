@@ -30,4 +30,8 @@ def test_bootloader_can_load_two_generic_phases_without_duplicate_clock_subscrip
         assert registry.find(2) is not None
 
     asyncio.run(scenario())
-    assert bus.subscriber_count("time.utc.synced") == 1
+    # ٢٠٢٦-٠٩-٠١: كان العقد «مرحلتا تحميل ⇐ اشتراك ساعة واحد لا اثنان»، وهو
+    # عقدٌ وُضع لأن المُقلِع كان يملك ساعةً ثانية يغذّيها من `time.utc.synced`.
+    # أُلغيت الملكية الثانية نهائيًّا: الوقت كلّه من `clock`. فالعقد انقلب —
+    # المطلوب **صفر** اشتراك: مرحلتا تحميل لا تُنشئان مالكًا للوقت أصلًا.
+    assert bus.subscriber_count("time.utc.synced") == 0

@@ -26,6 +26,7 @@ import logging
 import uuid
 from typing import Any, Callable
 
+from clock import now as official_now
 from core.event_bus import EventBus, _fast_copy, _is_replayable
 from core.logger import current_event, current_event_id, current_trace_id
 from .ownership import OwnershipRuntime
@@ -151,7 +152,9 @@ class OwnedEventBus(EventBus):
         raw_base.setdefault("trace_id", current_trace_id.get() or str(uuid.uuid4()))
         raw_base.setdefault("parent_event_id", current_event_id.get())
         raw_base.setdefault("parent_event", current_event.get())
-        raw_base.setdefault("timestamp", self.now())
+        # ٢٠٢٦-٠٨-٣١: لم يعد للناقل ساعة — `EventBus.now()` أُلغيت لأنها كانت
+        # مالكًا ثانيًا للوقت. الختم الزمنيّ من السلطة المركزيّة `clock` مباشرة.
+        raw_base.setdefault("timestamp", official_now())
         readonly_base = freeze_payload(raw_base)
 
         self._published_total += 1

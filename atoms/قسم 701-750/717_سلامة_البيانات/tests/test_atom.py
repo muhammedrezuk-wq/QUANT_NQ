@@ -26,6 +26,30 @@ EVENT_IN = _mod.EVENT_IN
 EVENT_OUT = _mod.EVENT_OUT
 
 
+# ٢٠٢٦-٠٩-٠١: الذرّة صارت تأخذ «الآن» من السلطة الزمنيّة `clock` لا من طابع
+# الحدث الواصل — والطابع يصف تاريخ النشر لا لحظة الحكم. فالاختبار يحقن ساعة
+# مضبوطة في مساحة أسماء هذه الذرّة وحدها (`_mod.clock`) ولا يمسّ الساعة
+# العامّة، فتبقى «صفوف المستقبل» قابلة للاختبار بأرقام صغيرة مقروءة.
+class _Clock:
+    value = 1000.0
+
+    def now(self):
+        return self.value
+
+    def mono(self):
+        return self.value
+
+    def quality(self):
+        return "SYNCED"
+
+    def state(self):
+        return {"quality": "SYNCED"}
+
+
+CLOCK = _Clock()
+_mod.clock = CLOCK
+
+
 class _NullLogger:
     def debug(self, *a): pass
     def info(self, *a): pass

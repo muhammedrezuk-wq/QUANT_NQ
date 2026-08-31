@@ -37,7 +37,11 @@ async def test_ntp_to_clock_to_independent_sys_pulse() -> None:
  a3=m3.Atom();await a3.initialize(ctx(3,{"sys_tick_interval_s":.05,"heartbeat_interval_s":.1,"drift_alert_s":1,"max_accepted_offset_s":5,"max_sample_age_s":30,"stale_after_s":900,"max_slew_per_second":.05},bus));await a3.start()
  a806=m806.Atom();await a806.initialize(ctx(806,{},bus));await a806.start()
  a111=m111.Atom();await a111.initialize(ctx(111,{"max_age_s":5,"divergence_threshold_s":.5},bus));await a111.start()
- bus.subscribe("time.utc.synced",lambda p:bus.set_time_offset(float(p["offset_s"])),subscriber="core-clock-proof")
+ # ٢٠٢٦-٠٨-٣١: كان هنا مشترك يغذّي إزاحة الناقل من الحدث — أي مالك ثانٍ للوقت.
+ # أُلغيت الملكية الثانية: الناقل بلا ساعة، والبرهان أن تصحيح الساعة **لا يحتاج
+ # مرور حدث في الناقل** — 608 يقيس، و003 يكتب في `clock` مباشرة.
+ assert not hasattr(bus,"set_time_offset"),"الناقل لا يملك ساعة"
+ assert not hasattr(bus,"now"),"الناقل لا يملك ساعة"
  pulses=[];bus.subscribe("SYS_SECOND",lambda p:pulses.append(p),subscriber="consumer")
  assert await a608._sync_once() is True
  assert clock.quality()==clock.SYNCED and abs(clock.state()["target_offset_s"]-.305)<1e-6

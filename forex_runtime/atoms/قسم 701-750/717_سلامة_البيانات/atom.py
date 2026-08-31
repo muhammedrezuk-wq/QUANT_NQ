@@ -6,9 +6,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import clock
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "2.0.2"
+ATOM_VERSION = "2.1.0"
 
 _DB_TIMEOUT_S = 5.0
 _BUSY_TIMEOUT_MS = 3000
@@ -53,6 +54,11 @@ class Atom(AtomBase):
         cfg = context.config
         self._stores = [dict(s) for s in cfg["stores"]]
         self._warn_on_empty = bool(cfg["warn_on_empty_table"])
+        # ٢٠٢٦-٠٩-٠١ (توحيد الشغلين): هذا السطر كان محذوفًا في النسخة الواردة
+        # مع إصلاح الساعة، فصارت الذرّة **طرشاء**: لا تشترك على حدث دخلها
+        # إطلاقًا، فلا تُشغَّل ولا تنشر تقرير سلامة واحدًا — أي حارس بيانات
+        # قائم على الورق وغائب فعليًّا. (مقيس: `test_16_integrity_guard_...`
+        # يسقط بـ`IndexError` لأن `EVENT_OUT` لم يُنشَر قطّ.) أُعيد كما كان.
         context.subscribe(EVENT_IN, self._on_cleaned)
         self._initialized = True
 
@@ -118,7 +124,9 @@ class Atom(AtomBase):
     async def _on_cleaned(self, payload: dict[str, Any]) -> None:
         if not self._running or self._context is None:
             return
-        now = _to_float(payload.get("timestamp") if isinstance(payload, dict) else None)
+        # NEVER derive "now" from the event's delivery timestamp: that stamp
+        # describes publication history, not the current wall-clock authority.
+        now = clock.now()
         report = await asyncio.to_thread(self._run, now)
         flags = sorted({f for r in report.values() for f in r["flags"]})
         self._runs += 1
@@ -129,17 +137,22 @@ class Atom(AtomBase):
             "rows_total": sum(r.get("rows", 0) for r in report.values()),
             "per_table": {k: dict(v) for k, v in report.items()},
             "flags": flags,
-            "verdict": VERDICT_SUSPECT if flags else VERDICT_SOUND}
-        if now is not None:
-            body["timestamp"] = now
+            "verdict": VERDICT_SUSPECT if flags else VERDICT_SOUND,
+            "official_time": now,
+            "clock_quality": clock.quality(),
+        }
         await self._context.publish(EVENT_OUT, body)
 
     async def health_check(self) -> HealthStatus:
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message=REASON_NOT_STARTED)
-        details = {"runs": self._runs, "flags": list(self._last_flags),
-                   "stores": len(self._stores),
-                   "last_report": {k: dict(v) for k, v in self._last_report.items()}}
+        details = {
+            "runs": self._runs,
+            "flags": list(self._last_flags),
+            "stores": len(self._stores),
+            "clock": clock.state(),
+            "last_report": {k: dict(v) for k, v in self._last_report.items()},
+        }
         if self._runs == 0:
             return HealthStatus(
                 state=HealthState.HEALTHY,

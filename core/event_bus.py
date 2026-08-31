@@ -1,3 +1,58 @@
+"""
+Core.event_bus — الناقل: توجيهٌ فقط، بلا ساعة وبلا تنفيذ على حلقة التنسيق.
+============================================================================
+Article 10 (+ Article 7 في الدستور الأول): يعرف الأحداث فقط، لا الذرات.
+لا يسمح بالتواصل المباشر بين الذرات (Article 23) — كل تواصل يمر من هنا.
+
+ضمانات المادة 89 (حظر تعطيل الـ Event Bus المشترك):
+  * كل معالج يُنفَّذ معزولًا: استثناؤه يُلتقط ولا يمسّ بقية المشتركين.
+  * كل معالج محكوم بمهلة قصوى (`dispatch_timeout_s`).
+  * كل مشترك يستلم **نسخته الخاصة** من الحمولة (المادة 30/35).
+ضمان المادة 31: تُحقن الحقول المعيارية تلقائيًا إن غابت.
+
+—— فتحة النواة V2.0 (أوراق ٠٢–٠٥ و١١) ——
+  ٠٢ العيون: عدّادات خام لكل حدث + `stats()` لقطة قراءة فقط.
+  ٠٣ الحالة عند الاشتراك: يُحفظ آخر حدث «حالة» ويُعاد فورًا للمشترك الجديد،
+     فالمتأخّر لا يفوته آخر واقع. والأوامر لا تُعاد أبدًا.
+  ٠٤ وراثة الأثر: كل حدث يرث `trace_id` أبيه ويسجّل `parent_event_id`.
+  ١١ firehose: `subscribe_all` يبثّ كل حدث خام لطبقة ٢ بلا تفسير.
+
+—— V3.0 (ختم nq · 2026-08-25) — صناديق البريد ——
+  الجذر المقيس: `publish` كان ينتظر كل مشتركيه (`gather`)، فمستمع بطيء واحد
+  (مقيس: 30ث × ثلاث ذرّات تخزين) يحبس الناشر — والناشر المحبوس هو تغذية
+  السوق نفسها (مقيس: 88 م.ب مرميّة في جلسة). العلاج: صندوق بريد لكل معالج
+  (طابور + مستهلك واحد) — النشر إيداعٌ فوريّ، والتسليم بالترتيب، بلا حجز.
+
+—— V3.1 (ختم nq · 2026-08-25) — تقنين التنازل ——
+  التنازل بعد كل نشرة كان يحدّ أسرع ناشر بسرعة دورة الطابور (مقيس: ٩ رسائل/ث
+  لمضخّة FIX → رمي 868KB/70ث بلا انقطاع شبكة). صار مرّة كل نافذة قصيرة
+  (`_YIELD_EVERY_S`)، وعلامة الضغط تتجاوز النافذة عند احتقان صندوق.
+
+—— 1.31.0 (ختم nq · 2026-08-31) — توحيد خطّي عمل متوازيين ——
+  الجذر المقيس: **الوقت كان مملوكًا مرّتين** — `OfficialClock` المستقلّة،
+  وإزاحةٌ داخل الناقل تُغذّى من حدث `time.utc.synced`. فصارت صحّة الساعة
+  تابعة لجدولة استهلاك الأحداث. القياس: 806 ينشر `SYS_SECOND` بمعدّل
+  1.000/ث، والناقل يقول `dropped=0 · timeout=0 · delivered=3714`، ومع ذلك
+  يصل الطابع بتأخّر **تراكميّ** (٣٫٩٧ث ← ٦٠٫٥٦ث ← ٩٧٫٨٧ث خلال ست عشرة
+  دقيقة ≈ ٠٫١–٠٫١٥ ث/ث) — فيخرج `age_s` سالبًا على صفٍّ عمره ثانيتان،
+  وتُعلَن بياناتٌ طازجة «قديمة».
+  * الناقل لا يملك ساعة إطلاقًا: لا إزاحة ولا `set_time_offset` ولا `now()`.
+    كل ختم زمنيّ من `clock.now()`، وكل فرق زمن ومهلة من الساعة الرتيبة.
+    و`time.utc.synced` صار **إعلانًا لا مصدرًا** — الذرّة 003 تصحّح الساعة
+    بـ`clock.accept_sample` مباشرة، فتأخّر الإعلان لا يؤخّر الساعة.
+  * بِركتا خيوط محدودتان للمعالج المتزامن، وواحدة **محجوزة** للوقت والحالة
+    والأوامر كي لا يبتلع ضغطُ أحداث السوق كامل السعة.
+  * النشر من حلقة غير حلقة النواة يُعاد توجيهه إليها
+    (`run_coroutine_threadsafe`) بدل لمس صناديق البريد عبر الحلقات.
+  * المعالج **غير المتزامن** يبقى على حلقة النواة: كائنات asyncio التي
+    أنشأها في `initialize/start` مربوطة بها (مقيس: ٢٦ ذرّة `create_task`،
+    ٥ `Lock`، ٣ `Event`، ٨ `get_running_loop`).
+  * ميزانية زمن لكل تسليم (`_LIGHT_BUDGET_S`): التجاوز يُعدّ ويُعلَن، ومعه
+    `oldest_pending_age_s` — لأن طول الطابور وحده لا يميّز واقعة عمرها
+    ١ ملّي من أخرى عمرها ٣٠ ثانية، وذلك العمى هو ما جعل تأخّر الاستهلاك
+    يتنكّر في هيئة «بيانات قديمة».
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +88,10 @@ _NAME_CLASS_CACHE_MAX = 4096
 _GENERAL_WORKERS_MIN = 4
 _GENERAL_WORKERS_MAX = 28
 _REALTIME_WORKERS = 4
+#: ميزانية زمن التسليم الواحد. التجاوز ليس خطأً ولا يوقف شيئًا — يُعدّ
+#: ويُعلَن في `stats()["overrun"]` باسم الحدث وأسوأ مدّة، فيُعرَف الشغل
+#: الحاجز **بالرقم** قبل نقله لمسار ثقيل. (قانون المالك: قِس أوّلًا.)
+_LIGHT_BUDGET_S = 0.05
 
 
 def _classify_name(event_name: str) -> tuple[bool, bool]:
@@ -66,11 +125,42 @@ def _fast_copy(value: Any) -> Any:
         return copy.deepcopy(value)
 
 
+def _coalesce_key(event_name: str, payload: Any) -> tuple[Any, ...]:
+    """مفتاح دمج الحالة: الاسم + نطاق الحمولة — لا يُدمَج عبر النطاقات.
+
+    ٢٠٢٦-٠٨-٣١ (توحيد الشغلين): كانت دالّة وحدة (module-level) ثم صارت
+    `@staticmethod` داخل الصنف، فانكسر استيرادها في `transport/ownership.py`
+    (`ImportError: cannot import name '_coalesce_key'`) وسقطت طبقة ناقل
+    الأحداث كلّها عند التجميع. رجعت وحدةً عامّة — والصنف يناديها كما هي."""
+    if not isinstance(payload, dict):
+        return (event_name,)
+    return (
+        event_name,
+        str(payload.get("account_id") or ""),
+        str(payload.get("symbol") or ""),
+        str(
+            payload.get("section_id")
+            or payload.get("analyzer_id")
+            or payload.get("strategy_id")
+            or payload.get("id")
+            or ""
+        ),
+    )
+
+
 def _worker_entry(handler: Callable[..., Any], args: tuple[Any, ...]) -> Any:
-    result = handler(*args)
-    if inspect.isawaitable(result):
-        return asyncio.run(result)
-    return result
+    """مدخل الخيط: للمعالج **المتزامن** فقط.
+
+    ٢٠٢٦-٠٨-٣١ (ختم nq — توحيد الشغلين): كان هنا `asyncio.run(result)`، أي
+    **حلقة أحداث جديدة تُنشأ وتُهدم مع كل تسليم** لكل معالج غير متزامن.
+    مقيس على شجرتنا: ٢٦ ذرّة تستعمل `asyncio.create_task`، و٥ `asyncio.Lock()`،
+    و٣ `asyncio.Event()`، و٨ `get_running_loop` — وكلّها كائنات تُنشأ على
+    حلقة النواة في `initialize/start`. أوّل لمسة لها من حلقةٍ أخرى =
+    `RuntimeError: bound to a different event loop` أو تعليق صامت؛ وأي
+    `create_task` داخل معالج كان يُقتل فور عودة المعالج لأن `asyncio.run`
+    تهدم حلقتها. فبقي المعالج غير المتزامن على **حلقة النواة** كما كان،
+    وعزلُ الشغل الثقيل يبقى محكومًا بالقياس (`overrun` أدناه) لا بالتخمين."""
+    return handler(*args)
 
 
 @dataclass(slots=True)
@@ -114,6 +204,9 @@ class EventBus:
         self._replayed: dict[str, int] = defaultdict(int)
         self._dropped: dict[str, int] = defaultdict(int)
         self._coalesced: dict[str, int] = defaultdict(int)
+        # بند ٨/١٢: تجاوز ميزانية التسليم — عدّاد وأسوأ مدّة لكل حدث.
+        self._overrun: dict[str, int] = defaultdict(int)
+        self._overrun_worst_s: dict[str, float] = {}
         self._last_yield = 0.0
         self._yield_pressure = False
         self._core_loop: asyncio.AbstractEventLoop | None = None
@@ -126,8 +219,19 @@ class EventBus:
             max_workers=_REALTIME_WORKERS, thread_name_prefix="quant-event-realtime"
         )
 
-    def _bind_core_loop(self) -> asyncio.AbstractEventLoop:
-        loop = asyncio.get_running_loop()
+    def _bind_core_loop(self) -> asyncio.AbstractEventLoop | None:
+        """يثبّت حلقة النواة عند أول استعمال داخل حلقة، ويمنع خلط حلقتين.
+
+        ٢٠٢٦-٠٨-٣١ (توحيد الشغلين): كانت تنادي `get_running_loop()` مباشرة،
+        فأي `subscribe`/`unsubscribe` **خارج** حلقة تشغيل يرفع
+        `RuntimeError: no running event loop`. والاشتراك خارج الحلقة سلوكٌ
+        مشروع وقائم (ذرّات تشترك في `initialize` قبل الإقلاع، وفحوصٌ تبني
+        الناقل بلا حلقة). الربط صار كسولًا: بلا حلقة = لا ربط ولا خطأ،
+        والحلقة تُثبَّت عند أوّل عمل حقيقي داخلها."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
         if self._core_loop is None or self._core_loop.is_closed():
             self._core_loop = loop
         elif self._core_loop is not loop:
@@ -159,31 +263,23 @@ class EventBus:
             box = self._mailboxes[handler_id] = _Mailbox()
         return box
 
-    @staticmethod
-    def _coalesce_key(event_name: str, payload: Any) -> tuple[Any, ...]:
-        if not isinstance(payload, dict):
-            return (event_name,)
-        return (
-            event_name,
-            str(payload.get("account_id") or ""),
-            str(payload.get("symbol") or ""),
-            str(
-                payload.get("section_id")
-                or payload.get("analyzer_id")
-                or payload.get("strategy_id")
-                or payload.get("id")
-                or ""
-            ),
-        )
+    _coalesce_key = staticmethod(_coalesce_key)
 
     def _enqueue(self, handler_id: int, item: tuple[Any, ...], event_name: str) -> None:
         box = self._mailbox_of(handler_id)
+        # بند ١٢: كل واقعة تحمل لحظة إيداعها. طولُ الطابور وحده لا يقول شيئًا —
+        # طابور فيه عنصر واحد قد يكون عمره ١ ملّي أو ٣٠ ثانية، والفرق هو كل
+        # الفرق. `oldest_pending_age_s` هو المقياس الذي كان غيابه يجعل تأخّر
+        # الاستهلاك يتنكّر في هيئة «بيانات قديمة» عند المستهلكين.
+        item = (*item, time.perf_counter())
         if _is_replayable(event_name):
             key = self._coalesce_key(event_name, item[2])
             for index in range(len(box.queue) - 1, -1, -1):
                 pending = box.queue[index]
                 if pending[1] == event_name and self._coalesce_key(event_name, pending[2]) == key:
-                    box.queue[index] = item
+                    # الأحدث يحلّ محلّ الأقدم — ويرث **لحظة إيداع الأقدم**، وإلّا
+                    # صار الدمج يخفي عمر الانتظار الحقيقي فيكذب المقياس نفسه.
+                    box.queue[index] = (*item[:-1], pending[-1])
                     self._coalesced[event_name] += 1
                     if box.wakeup is not None:
                         box.wakeup.set()
@@ -212,7 +308,7 @@ class EventBus:
                     box.wakeup.clear()
                     await box.wakeup.wait()
                     continue
-                kind, event_name, payload, extra = box.queue.popleft()
+                kind, event_name, payload, extra, _enqueued_at = box.queue.popleft()
                 box.busy = True
                 try:
                     if kind == "sub":
@@ -279,15 +375,37 @@ class EventBus:
         event_name: str,
         *args: Any,
     ) -> None:
-        loop = asyncio.get_running_loop()
-        context = copy_context()
-        executor = self._realtime_executor if _is_realtime(event_name) else self._handler_executor
-        future = loop.run_in_executor(
-            executor,
-            lambda: context.run(_worker_entry, handler, args),
-        )
-        async with asyncio.timeout(self._dispatch_timeout_s):
-            await future
+        # مسارا التنفيذ (ورقة المالك، بند ٣):
+        #  • المعالج **المتزامن** (`def`) → بِركة خيوط محدودة، وبِركة الوقت
+        #    والحالة والأوامر محجوزة عن ضغط أحداث السوق العامّة.
+        #  • المعالج **غير المتزامن** (`async def`) → حلقة النواة كما هو،
+        #    لأن كائنات asyncio التي أنشأها في `initialize/start` مربوطة بها.
+        # وميزانية زمن لكل تسليم: التجاوز يُعدّ ويُعلَن (`overrun`) باسم
+        # الحدث — فينكشف الشغل الحاجز بالرقم بدل أن يظهر كبيانات قديمة.
+        started = time.perf_counter()
+        try:
+            if is_coro:
+                async with asyncio.timeout(self._dispatch_timeout_s):
+                    await handler(*args)
+            else:
+                loop = asyncio.get_running_loop()
+                context = copy_context()
+                executor = (self._realtime_executor if _is_realtime(event_name)
+                            else self._handler_executor)
+                async with asyncio.timeout(self._dispatch_timeout_s):
+                    result = await loop.run_in_executor(
+                        executor,
+                        lambda: context.run(_worker_entry, handler, args),
+                    )
+                if inspect.isawaitable(result):
+                    async with asyncio.timeout(self._dispatch_timeout_s):
+                        await result
+        finally:
+            elapsed = time.perf_counter() - started
+            if elapsed > _LIGHT_BUDGET_S:
+                self._overrun[event_name] += 1
+                if elapsed > self._overrun_worst_s.get(event_name, 0.0):
+                    self._overrun_worst_s[event_name] = elapsed
 
     def subscribe(
         self,
@@ -499,7 +617,24 @@ class EventBus:
             current_event_id.reset(t_eid)
             current_trace_id.reset(t_trace)
 
-    def stats(self) -> dict[str, dict[str, int]]:
+    def stats(self) -> dict[str, Any]:
+        """لقطة قراءة فقط — حقائق خام بلا منطق أعمال (ورقة ٠٢).
+
+        ٢٠٢٦-٠٨-٣١: أُضيف نبض صحّة الناقل نفسه (بند ١٢). قبله كان لا بدّ من
+        انتظار 619 كي نعرف أن النظام متأخّر — والتأخّر كان يصل إلينا مُقنَّعًا
+        على شكل «بيانات قديمة» بدل «استهلاك متأخّر»."""
+        now = time.perf_counter()
+        depth = 0
+        oldest = 0.0
+        busy = 0
+        for box in self._mailboxes.values():
+            depth += len(box.queue)
+            if box.busy:
+                busy += 1
+            if box.queue:
+                age = now - box.queue[0][-1]
+                if age > oldest:
+                    oldest = age
         return {
             "published": dict(self._published),
             "delivered": dict(self._delivered),
@@ -509,6 +644,15 @@ class EventBus:
             "replayed": dict(self._replayed),
             "dropped": dict(self._dropped),
             "coalesced": dict(self._coalesced),
+            "overrun": dict(self._overrun),
+            "overrun_worst_s": {k: round(v, 4) for k, v in self._overrun_worst_s.items()},
+            "pressure": {
+                "mailboxes": len(self._mailboxes),
+                "queued": depth,
+                "busy_handlers": busy,
+                "oldest_pending_age_s": round(oldest, 4),
+                "light_budget_s": _LIGHT_BUDGET_S,
+            },
         }
 
     def last_states(self) -> list[tuple[str, dict[str, Any]]]:

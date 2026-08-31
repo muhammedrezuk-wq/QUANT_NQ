@@ -1,6 +1,6 @@
 id: 717
 name: "Trading Data Integrity"
-version: "2.0.2"
+version: "2.1.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"

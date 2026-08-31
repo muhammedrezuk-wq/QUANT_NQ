@@ -28,6 +28,7 @@ from core.errors import AtomInitializationError, CoreError
 from core.event_bus import EventBus
 from core.health_manager import HealthManager
 from core.journal import Journal
+from core.lifecycle import call_lifecycle
 from core.logger import get_logger
 from core.manifest_loader import DiscoveredAtom, DiscoveryFailure, entrypoint_file, scan
 from core.metrics import Metrics
@@ -79,20 +80,18 @@ class Bootloader:
         self._logger_factory = logger_factory
         self._restore_hook = restore_hook
         self._abort_reason: str | None = None
-        self._time_subscribed = False
 
     async def boot(self, include_ids: set[int] | None = None) -> BootReport:
         started = time.time()
         excluded: list[int] = []
         critical_failures: list[str] = []
 
-        # ورقة ٠٥ (فتحة V2.0) — توصيل ساعة النواة مرة واحدة لكل Bootloader.
-        # مرحلتا التحميل تستخدمان نفس الناقل ولا تضاعفان اشتراك الساعة.
-        if not self._time_subscribed:
-            self._event_bus.subscribe(
-                "time.utc.synced", self._on_time_synced, subscriber="core.clock"
-            )
-            self._time_subscribed = True
+        # ٢٠٢٦-٠٨-٣١ (ختم nq — توحيد الشغلين): ورقة ٠٥ القديمة كانت توصّل
+        # إزاحة الساعة من حدث `time.utc.synced` إلى الناقل، فيصير للنظام
+        # **مصدرا حقيقة زمنيّة**: `OfficialClock` وإزاحة داخل الناقل. أُلغيت
+        # الملكية الثانية نهائيًّا — الوقت كلّه من `clock` وحده، والحدث إعلانٌ
+        # لا مصدر. الذرّة 003 تصحّح الساعة بـ`clock.accept_sample` مباشرة،
+        # فتأخّر الإعلان ما بعاد يؤخّر الساعة نفسها.
 
         discovery = scan(self._atoms_root)
         for failure in discovery.failures:
@@ -161,13 +160,6 @@ class Bootloader:
             scan_failures=discovery.failures,
             abort_reason=self._abort_reason,
         )
-
-    def _on_time_synced(self, payload: dict) -> None:
-        """ورقة ٠٥: يغذّي إزاحة الناقل من حدث الوقت المصحّح. جاهل عن المصدر —
-        مجرّد رقم إزاحة من اسم حدث عام. قيمة غير رقمية تُتجاهَل بأمان."""
-        offset = payload.get("offset_s")
-        if isinstance(offset, (int, float)) and not isinstance(offset, bool):
-            self._event_bus.set_time_offset(float(offset))
 
     def _resolve_with_graceful_degradation(
         self,
@@ -310,12 +302,20 @@ class Bootloader:
 
         self._registry.set_state(atom_id, AtomState.INITIALIZING)
         try:
-            await asyncio.wait_for(record.instance.initialize(context), timeout=self._atom_boot_timeout_s)
+            # ٢٠٢٦-٠٨-٣١ (ختم nq): الإقلاع كان المسار الوحيد الباقي خارج
+            # سياسة دورة الحياة الموحّدة (ورقة ٠٦) — مهلته الخاصّة ترفع
+            # `TimeoutError` عامًّا بلا اسم طور، فطبقة ٢ ما بتميّز «مات
+            # بمهلة» عن «انهار». صار الإقلاع يمرّ من `call_lifecycle` مثل
+            # كل المسارات، فالسبب يصير `LIFECYCLE_TIMEOUT:<الطور>`.
+            await call_lifecycle(record.instance.initialize(context), "initialize",
+                                 timeout=self._atom_boot_timeout_s)
             self._registry.set_state(atom_id, AtomState.INITIALIZED)
             if self._restore_hook is not None:
-                await self._restore_hook(atom_id)
+                await call_lifecycle(self._restore_hook(atom_id), "restore",
+                                     timeout=self._atom_boot_timeout_s)
             self._registry.set_state(atom_id, AtomState.STARTING)
-            await asyncio.wait_for(record.instance.start(), timeout=self._atom_boot_timeout_s)
+            await call_lifecycle(record.instance.start(), "start",
+                                 timeout=self._atom_boot_timeout_s)
         except Exception as exc:  # noqa: BLE001
             # المادة 16/85/86: ذرة تعثّرت بعد initialize قد تكون فتحت
             # موارد فعلًا. لا نتركها معلّقة — تنظيف بأفضل جهد قبل وسمها
@@ -372,7 +372,7 @@ class Bootloader:
         يُسمح لأي استثناء من الذرة بالخروج من هنا (المادة 27/81)."""
         for phase, fn in (("stop", instance.stop), ("shutdown", instance.shutdown)):
             try:
-                await asyncio.wait_for(fn(), timeout=self._atom_boot_timeout_s)
+                await call_lifecycle(fn(), phase, timeout=self._atom_boot_timeout_s)
             except Exception as exc:  # noqa: BLE001 — كود ذرة خارجي
                 log.warning("فشل %s تنظيفي للذرة %s بعد فشل الإقلاع: %s", phase, atom_id, exc)
 

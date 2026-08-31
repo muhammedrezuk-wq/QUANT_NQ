@@ -277,6 +277,10 @@ interface StoreState {
   // عدّاد «رفض بلا أصل» (perpetual.entry.rejected بسبب NO_PARENT_AUTHORITY) لكل رمز — ج٥
   assetRejectCounts: Record<string, number>
   market: Record<string, { bid: number; ask: number; ts: number }> // أسعار حسب الرمز
+  // ٢٠٢٦-٠٨-٣١ (ختم NQ): سعر الوسيط (ميتاتريدر) منفصل تمامًا عن سعر المرجع.
+  // `market` أعلاه هو المرجع (سي‑تريدر) الذي يقود التحليل؛ وهذا سعر التنفيذ
+  // الفعليّ بسبريده — للعرض على الشارت واللوحة فقط، لا يدخل حكمًا ولا تحليلًا.
+  brokerMarket: Record<string, { bid: number; ask: number; spread: number; provider: string; ts: number }>
   // §١٨ — بطاقة القسم كما بناها section_contract؛ المفتاح حساب::وسيط::أصل::قسم
   sectionCards: Record<string, Record<string, unknown>>
   // بند أ١١ — جسم قسم التحليل المدموج من ١٦٦ (timeframe="section")؛ المفتاح حساب::رمز
@@ -313,6 +317,7 @@ interface StoreState {
   markMsg: () => void
   select: (id: number | null) => void
   setMarketTick: (symbol: string, bid: number, ask: number, ts: number) => void
+  setBrokerTick: (symbol: string, bid: number, ask: number, spread: number, provider: string, ts: number) => void
   setSectionCard: (key: string, card: Record<string, unknown>) => void
   setSectionFusion: (key: string, body: SectionFusionState) => void
   setRoom: (key: string, room: DecisionRoom) => void
@@ -341,6 +346,7 @@ export const useStore = create<StoreState>((set) => ({
   symbolStreams: {},
   assetRejectCounts: {},
   market: {},
+  brokerMarket: {},
   sectionCards: {},
   sectionFusion: {},
   room: {},
@@ -373,7 +379,7 @@ export const useStore = create<StoreState>((set) => ({
     }),
   resetLive: () => set({
     atoms: {}, metrics: null, streams: {}, symbolStreams: {}, assetRejectCounts: {},
-    market: {}, sectionCards: {}, sectionFusion: {}, room: {}, analystsPanels: {},
+    market: {}, brokerMarket: {}, sectionCards: {}, sectionFusion: {}, room: {}, analystsPanels: {},
     analysis: {}, structure: {}, liquidity: {}, stats: {}, probability: {},
     strategy: {}, decision: {}, risk: null, gate: null, execution: null,
     execOrders: [], execManage: [], execOutcomes: [], events: [], flows: {},
@@ -392,6 +398,8 @@ export const useStore = create<StoreState>((set) => ({
   markMsg: () => set({ lastMsgAt: performance.now() }),
   select: (selectedId) => set({ selectedId }),
   setMarketTick: (symbol, bid, ask, ts) => set((s) => ({ market: { ...s.market, [symbol]: { bid, ask, ts } } })),
+  setBrokerTick: (symbol, bid, ask, spread, provider, ts) =>
+    set((s) => ({ brokerMarket: { ...s.brokerMarket, [symbol]: { bid, ask, spread, provider, ts } } })),
   setSectionCard: (key, card) => set((s) => ({ sectionCards: { ...s.sectionCards, [key]: card } })),
   setSectionFusion: (key, body) => set((s) => ({ sectionFusion: { ...s.sectionFusion, [key]: body } })),
   setRoom: (key, room) => set((s) => ({ room: { ...s.room, [key]: room } })),

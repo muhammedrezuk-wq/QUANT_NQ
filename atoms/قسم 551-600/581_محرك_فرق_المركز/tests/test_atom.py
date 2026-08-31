@@ -2,7 +2,7 @@ import asyncio
 import importlib.util
 import sys
 from pathlib import Path
-root=Path(__file__).resolve().parents[3];folder=Path(__file__).resolve().parents[1]
+root=Path(__file__).resolve().parents[4];folder=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root));sys.path.insert(0,str(folder));spec=importlib.util.spec_from_file_location("_atom581",folder/"atom.py");mod=importlib.util.module_from_spec(spec);sys.modules["_atom581"]=mod;spec.loader.exec_module(mod)
 BANDS={"0.0":0.0,"0.2":0.1,"0.4":0.25,"0.6":0.5,"0.9":1.0}
 HEDGE={"0.0":1.0,"0.2":0.7,"0.4":0.4,"0.6":0.2,"0.9":0.0}

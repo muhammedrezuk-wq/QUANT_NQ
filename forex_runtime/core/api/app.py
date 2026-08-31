@@ -165,6 +165,18 @@ def create_app(
     async def get_metrics() -> dict:
         return metrics.snapshot()
 
+    @app.get("/api/bus-stats", dependencies=[_auth])
+    async def get_bus_stats() -> dict:
+        """عدّادات الناقل الخام لكل اسم حدث — قراءة فقط، بلا منطق.
+
+        ٢٠٢٦-٠٨-٣١ (فتح نواة بإذن المالك الصريح «NQ — افتح النواة»):
+        `EventBus.stats()` موجودة منذ ٠٢/العيون وفيها `published/delivered/
+        dropped/timeout/…` لكل حدث، لكنّها لم تكن معروضة إطلاقًا — فكان
+        إثبات إسقاط حدث بعينه مستحيلًا من الخارج، وهو ما احتاجه تشخيص
+        تجمّد مرجع الوقت. العرض قراءة محضة ولا يغيّر أي سلوك.
+        """
+        return event_bus.stats()
+
     @app.get("/api/journal", dependencies=[_auth])
     async def get_journal(n: int = 100) -> list[dict]:
         n = max(1, min(n, 1000))
