@@ -1,11 +1,11 @@
 {
   "_": "ختم تجميد النواة — المادة 1/41/100. لا يُعدَّل يدويًا إطلاقًا.",
   "core_version": "1.27.1",
-  "sealed_at": "2026-08-28T00:50:51+00:00",
+  "sealed_at": "2026-08-31T19:35:10+00:00",
   "algorithm": "sha256",
-  "root_digest": "c0ee48a2571b9dbb6451d1bcae4d7b86b7e667d67664ab43e3f52b7c963e0f3c",
+  "root_digest": "b935d205b90dc850ac57ff68ecf78f99dc61ab470e10bf899318875d5d28d5a3",
   "file_count": 23,
-  "previous_root_digest": "684182513083ec4493b2db4817a37968b8ed0aec85ba930353932760cb35214a",
+  "previous_root_digest": "c0ee48a2571b9dbb6451d1bcae4d7b86b7e667d67664ab43e3f52b7c963e0f3c",
   "files": {
     "core/__init__.py": "a9ef66729769e38ddcbf7bdda5bb520cec489d7f3f63aeca145b071be41cf8d8",
     "core/__version__.py": "94478b41499ce1ebd8055189cae6f67aa70124c83da202c8ee627fbc051abfb0",
@@ -19,7 +19,7 @@
     "core/contracts/services.py": "0bd690f939bb1d10bcc8d97276b025765c9924ded68e438813c9d234e5a03e3c",
     "core/dependency_resolver.py": "98961fdac14dbb0e83ea0fd4f39c911393b00723072f01ccc6f7be124356f699",
     "core/errors.py": "2fb9f8ceec15583402ac540e9daf89e7efaf7e38469cd760ca933aaa8da93f18",
-    "core/event_bus.py": "06de465e780dfbe15fc9e5a43600df340aebb60183dfa6990163a4d4dd99534c",
+    "core/event_bus.py": "a3d56e9ec2ad2bec18c678a0b33b1d881212d7f695a2cd00c138cc51e95503e4",
     "core/health_manager.py": "559f2380cfe9f8656ab1a95c81508e4d0b1888a6d69266102cc0c3f481b95f99",
     "core/hot_reload_service.py": "47b170c585afcf43ec54636f016e75f483d5351ba8cac0e3f14e447ced1dfec9",
     "core/journal.py": "b9657bb27daa7778450ac4e152bf0ff597bc770d4f1c940d9979d51f570e7491",
