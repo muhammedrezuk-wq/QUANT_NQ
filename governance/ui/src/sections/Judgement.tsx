@@ -145,16 +145,26 @@ export default function Judgement() {
   // الأربع قبلها ولا يُرى إلا رمز واحد. البطاقات لم تكن تضيع من النظام، بل
   // من العين — وهذا يكفي لتضيع صفقة.
   // الآن: تُحفظ بطاقة حيّة **لكل رمز على حدة**، وتُعرض كلّها معًا.
-  const [liveCards, setLiveCards] = useState<Record<string, SignalCard>>({})
+  // ٢٠٢٦-٠٩-٠١ (حكم المالك: «بطاقات إشارة هي وحدة، بدنا إياهم ٣ ٤… لكل
+  // العملات اللي عم تدخل فورًا بتطلع بطاقتها لحالها ما ينتظروا»).
+  // الجمع أعلاه كان صحيح النيّة وهشّ التنفيذ: يقرأ **آخر قيمة** على اسم
+  // الحدث ثم يوزّعها على الرموز داخل `useEffect`. وهذا يفترض أن React يرى
+  // كل تغيّر — وهو لا يراه: بطاقتان لعملتين تصلان في نفس دفعة العرض
+  // فتُدهَس الأولى قبل أن يقرأها أحد. والدفعة هي بالضبط لحظة اشتعال عدّة
+  // عملات معًا، أي اللحظة التي من أجلها كُتب القسم.
+  // العلاج من المنبع: الناقل يوزّع الحدث على `symbolStreams` بمفتاح الرمز
+  // (`core/engine.ts`)، فلا شيء يعتمد على توقيت العرض إطلاقًا.
+  const liveCards = useStore(
+    (s) => s.symbolStreams['crypto.decision.signal_card.state'] ?? {},
+  ) as Record<string, SignalCard>
 
+  // السجلّ يبقى يتغذّى من آخر بطاقة واصلة (للتاريخ لا للعرض الحيّ).
   useEffect(() => {
     if (!card1) return
     const id = card1.event_id ?? String(card1.timestamp ?? '')
     if (!id || id === lastId.current) return
     lastId.current = id
     setLog((prev) => [card1, ...prev].slice(0, 60))
-    const sym = String(card1.symbol || '')
-    if (sym) setLiveCards((prev) => ({ ...prev, [sym]: card1 }))
   }, [card1])
 
   // البطاقات الحيّة تتجمّع بعد فتح الصفحة فقط. فلو فُتحت اللوحة بعد صدور

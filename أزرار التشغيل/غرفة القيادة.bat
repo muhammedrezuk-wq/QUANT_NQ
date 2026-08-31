@@ -4,8 +4,8 @@ setlocal
 set PYTHONUTF8=1
 set QUANT_LOCAL_MODE=1
 cd /d "%~dp0\.."
-python scripts\log_button.py "غرفة القيادة" START >nul 2>&1
-python scripts\launch_market.py --both
+call scripts\py.bat scripts\log_button.py "control_room" START >nul 2>&1
+call scripts\py.bat governance\app.py
 set CODE=%ERRORLEVEL%
-pause
+if not "%CODE%"=="0" pause
 endlocal & exit /b %CODE%

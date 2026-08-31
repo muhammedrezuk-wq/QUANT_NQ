@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, type IChartApi, type ISeriesApi, type IPriceLine, type SeriesMarker, type Time } from 'lightweight-charts'
 import { useStore } from '../core/store'
+import { priceText } from '../core/i18n'
 
 interface Pos {
   ticket: number; symbol: string; side: string; volume: number
@@ -219,7 +220,7 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
       <div className="chhead">
         <span className="chsym">{symbol}</span>
         {tfLabel ? <span style={{ color: 'var(--accent)', fontWeight: 700, fontSize: 13 }}>{tfLabel}</span> : null}
-        <span className="num chlast">{last != null ? last.toLocaleString('ar-EG-u-nu-latn', { maximumFractionDigits: 3 }) : '—'}</span>
+        <span className="num chlast">{priceText(last)}</span>
         {openHere > 0 ? <span className="chtrade">● {openHere} صفقة</span> : null}
         {openHere > 0 ? (
           <span className="num" style={{ color: pnlHere >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>

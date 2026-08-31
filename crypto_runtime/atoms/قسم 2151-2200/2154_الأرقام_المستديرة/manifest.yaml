@@ -1,6 +1,6 @@
 id: 2154
 name: Round Numbers (Psychological Levels)
-version: 1.1.0
+version: 1.2.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom
@@ -34,12 +34,19 @@ config_schema:
     max_age_s:
       type: number
       minimum: 1
+    auto_scale:
+      type: boolean
   additionalProperties: false
 config:
   timeframe: 5m
+  # الخطوات الثابتة تبقى مسجّلة كمرجع، وتُستعمل فقط عند auto_scale: false.
   major_step: 1000
   mid_step: 500
   minor_step: 100
+  # 2026-09-01: الخطوة تتبع عَشْرية سعر الرمز. الثوابت أعلاه مفصّلة لسعر
+  # بحجم البتكوين، وكانت تُطبَّق على كل رمز — فأي عملة دون الألف تخرج
+  # مستوياتها {below: 0, above: 1000}: شاهد نفسيّ فارغ يدخل التجمّع.
+  auto_scale: true
   max_age_s: 600
 metadata:
   max_idle_s: 3600

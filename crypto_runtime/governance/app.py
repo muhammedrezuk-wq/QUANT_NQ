@@ -25,6 +25,13 @@ SERVER = ROOT / "governance" / "server.py"
 TELEGRAM = ROOT / "governance" / "telegram.py"          # ٦١٠ — المنصّة المتنقّلة
 TELEGRAM_CONF = ROOT / "var" / "governance" / "telegram.json"
 CORE_PORT, GOV_PORT, TG_PORT = 8010, 8090, 8098
+
+# ٢٠٢٦-٠٩-٠١: السوق الثاني كان خارج هذا المشغّل، فيقلع الفوركس وحده ويبقى
+# الكريبتو واقفًا ما لم يُضغط زرّ آخر — والمالك يريد زرًّا واحدًا يقلع كل شيء.
+CRYPTO_CORE = ROOT / "scripts" / "run_crypto.py"
+CRYPTO_RUNTIME = ROOT / "crypto_runtime"
+GOV_RUNNER = ROOT / "scripts" / "run_governance.py"
+CRYPTO_CORE_PORT, CRYPTO_GOV_PORT = 8020, 8091
 URL = f"http://127.0.0.1:{GOV_PORT}"
 
 _started: list[subprocess.Popen] = []                  # ما شغّلناه نحن فقط (لإيقافه عند الإغلاق)
@@ -164,22 +171,37 @@ def _wait_port(port: int, name: str, timeout: float = 40.0) -> bool:
     return False
 
 
-def _spawn(script: Path, name: str) -> None:
+def _spawn(script: Path, name: str, args: tuple[str, ...] = ()) -> None:
     env = dict(os.environ, PYTHONUTF8="1")
     print(f"[مشغّل] ▶ تشغيل {name} …", flush=True)
     # نافذة أوامر خاصّة لكل خدمة: تبقى حيّة بعد إغلاق نافذة اللوحة، ويبقى
     # سجلّها ظاهرًا للمالك — تشغيل مستمرّ بلا إخفاء.
     flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0) if os.name == "nt" else 0
-    p = subprocess.Popen([PYEXE, str(script)], cwd=str(ROOT), env=env, creationflags=flags)
+    p = subprocess.Popen([PYEXE, str(script), *args], cwd=str(ROOT), env=env,
+                         creationflags=flags)
     _started.append(p)
 
 
-def _ensure(port: int, script: Path, name: str) -> None:
+def _ensure(port: int, script: Path, name: str, args: tuple[str, ...] = ()) -> None:
     if _port_open(port):
         print(f"[مشغّل] ✓ {name} شغّال أصلًا (منفذ {port}) — إعادة استخدامه", flush=True)
         return
-    _spawn(script, name)
+    _spawn(script, name, args)
     _wait_port(port, name)
+
+
+def _ensure_crypto() -> None:
+    """السوق الثاني — نواته (:8020) ولوحته (:8091).
+
+    ٢٠٢٦-٠٩-٠١: يُتخطّى بهدوء إن كانت شجرة الكريبتو غير موجودة، فالمشغّل
+    لا يسقط لأجل سوق غير منصَّب. وكلّ خدمة بنافذتها كبقيّة الخدمات."""
+    if not (CRYPTO_CORE.is_file() and CRYPTO_RUNTIME.is_dir()):
+        print("[مشغّل] ○ شجرة الكريبتو غير موجودة — تخطّي", flush=True)
+        return
+    _ensure(CRYPTO_CORE_PORT, CRYPTO_CORE, "نواة الكريبتو")
+    if GOV_RUNNER.is_file():
+        _ensure(CRYPTO_GOV_PORT, GOV_RUNNER, "لوحة الكريبتو",
+                ("--market", "crypto"))
 
 
 def _ensure_telegram() -> None:
@@ -307,6 +329,7 @@ def main() -> None:
     print("=" * 54, flush=True)
     _ensure(CORE_PORT, CORE, "النواة")
     _ensure(GOV_PORT, SERVER, "خادم الحوكمة")
+    _ensure_crypto()
     _ensure_telegram()
     _ensure_news_bot()
 
@@ -319,15 +342,26 @@ def main() -> None:
         _shutdown()
         return
 
-    win_url = f"{URL}/?v={int(time.time())}"  # رابط فريد كل تشغيل → يتخطّى أي نسخة WebView مخزّنة
-    print(f"[مشغّل] ✓ فتح النافذة على {win_url}", flush=True)
-    webview.create_window(
-        "غرفة القيادة — QUANT_NQ",
-        win_url,
-        width=1600, height=950, min_size=(1024, 640),
-        background_color="#0d1119",
-        text_select=True,  # المكتبة بتعطّل تحديد النص افتراضيًّا — المالك بدو يحدّد وينسخ (خطأ/رقم/سجل)
-    )
+    # ٢٠٢٦-٠٩-٠١ (أمر المالك): **نافذتان** لا واحدة — سوقٌ لكلٍّ منهما.
+    # اللوحتان خادمان مستقلّان على منفذين، ولا تُعرضان في نافذة واحدة: تبديل
+    # السوق داخل نافذة واحدة كان يعني أن أحد السوقين دائمًا خارج النظر.
+    stamp = int(time.time())        # رابط فريد كل تشغيل → يتخطّى أي نسخة WebView مخزّنة
+    windows = [("غرفة القيادة — الفوركس", f"{URL}/?v={stamp}")]
+    if _port_open(CRYPTO_GOV_PORT):
+        windows.append(("غرفة القيادة — الكريبتو",
+                        f"http://127.0.0.1:{CRYPTO_GOV_PORT}/?v={stamp}"))
+    else:
+        print("[مشغّل] ○ لوحة الكريبتو غير متاحة — تُفتح نافذة الفوركس وحدها",
+              flush=True)
+    for title, win_url in windows:
+        print(f"[مشغّل] ✓ فتح النافذة على {win_url}", flush=True)
+        webview.create_window(
+            title,
+            win_url,
+            width=1600, height=950, min_size=(1024, 640),
+            background_color="#0d1119",
+            text_select=True,  # المكتبة بتعطّل تحديد النص افتراضيًّا — المالك بدو يحدّد وينسخ (خطأ/رقم/سجل)
+        )
     try:
         webview.start()          # يحجب حتى إغلاق النافذة
     finally:
