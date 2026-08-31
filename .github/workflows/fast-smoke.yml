@@ -6,9 +6,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -16,8 +13,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,18 +29,17 @@ jobs:
       - name: Run fast smoke suite
         run: python scripts/run_smoke.py
 
-      - name: Reseal core and verify
-        if: ${{ github.event_name == 'push' && github.event.head_commit.message != 'chore(core): finalize scheduler' }}
+      - name: Prepare core seal artifact
+        if: ${{ github.event_name == 'push' }}
         run: |
           python governance/scripts/freeze_core.py freeze --reseal
           python governance/scripts/freeze_core.py verify
 
-      - name: Commit finalized seal
-        if: ${{ github.event_name == 'push' && github.event.head_commit.message != 'chore(core): finalize scheduler' }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add core/CORE.lock
-          git rm -f .github/workflows/_finalize_scheduler.yml
-          git commit -m "chore(core): finalize scheduler"
-          git push
+      - name: Upload core seal artifact
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-seal
+          path: core/CORE.lock
+          if-no-files-found: error
+          retention-days: 1
