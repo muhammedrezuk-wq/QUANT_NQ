@@ -97,6 +97,8 @@ function FullCard({ c, newest }: { c: SignalCard; newest: boolean }) {
   )
 }
 
+const EMPTY_CARDS: Record<string, unknown> = {}
+
 export default function Judgement() {
   const [atoms, setAtoms] = useState<Record<number, AtomRow>>({})
   useEffect(() => {
@@ -154,8 +156,12 @@ export default function Judgement() {
   // عملات معًا، أي اللحظة التي من أجلها كُتب القسم.
   // العلاج من المنبع: الناقل يوزّع الحدث على `symbolStreams` بمفتاح الرمز
   // (`core/engine.ts`)، فلا شيء يعتمد على توقيت العرض إطلاقًا.
+  // ٢٠٢٦-٠٩-٠١: `?? {}` داخل القارئ يُنشئ كائنًا **جديدًا** في كل استدعاء،
+  // وzustand يقارن بالهويّة — فيُعاد رسم القسم مع كل حدث على الناقل، وتحت
+  // سيل التِكّات يخنق الصفحة. الفراغ ثابتٌ واحد، فلا يتغيّر إلا حين تتغيّر
+  // الخريطة فعلًا.
   const liveCards = useStore(
-    (s) => s.symbolStreams['crypto.decision.signal_card.state'] ?? {},
+    (s) => s.symbolStreams['crypto.decision.signal_card.state'] ?? EMPTY_CARDS,
   ) as Record<string, SignalCard>
 
   // السجلّ يبقى يتغذّى من آخر بطاقة واصلة (للتاريخ لا للعرض الحيّ).
