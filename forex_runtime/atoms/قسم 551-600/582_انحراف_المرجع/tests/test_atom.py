@@ -63,6 +63,21 @@ async def main():
  assert d['alignment_window_s']==0.15 and d['unaligned']==1 and d['max_deviation_points']==5.0
  assert last(b)['alignment_window_s']==0.15,'النافذة تُنشَر ليراها المالك'
  print('582 — النافذة معروضة بالصحّة وبالحدث')
+
+ # ٢٠٢٦-٠٩-٠١ — حارس الانحدار المقيس حيًّا: حمولة ميتاتريدر تحمل
+ # `exchange_timestamp` **موجودًا وقيمته None** (الجسر لا يعطي زمن بورصة).
+ # `dict.get(k, default)` لا يستعمل البديل في هذه الحالة، فكان الطابع يخرج
+ # None فتُصنَّف كل عيّنة STALE إلى الأبد: مقيس `compared=0 · stale=183843`.
+ # كاشف التلاعب كان أعمى بلا أن يشتكي أحد. لا يمرّ هذا ثانيةً.
+ CLOCK.value=1.0
+ a,b=await new()
+ await a._on_ct({'symbol':'X','price':100,'timestamp':1.0,'exchange_timestamp':1.0})
+ await a._on_mt({'symbol':'X','price':110,'timestamp':1.0,'exchange_timestamp':None})
+ r=last(b)
+ assert r['status']!='STALE',('زمن البورصة None يجب أن يسقط إلى timestamp',r)
+ assert r['status']=='DIVERGED',r
+ assert r['sample_ages_s'][1] is not None,'عمر عيّنة الوسيط لا يجوز أن يبقى مجهولًا'
+ print('582 — زمن بورصة None يسقط إلى زمن الوصول، والمقارنة تتمّ')
 # ٢٠٢٦-٠٩-٠١: كان الملفّ سكربتًا بلا دالّة `test_`، فـpytest يجمع منه صفرًا
 # ويعلن «no tests ran» — أي ذرّةٌ بلا تغطية فعليّة وهي تبدو مغطّاة. وكان
 # `parents[3]` يشير إلى `atoms/` لا إلى جذر المشروع، فما إن استوردت الذرّة

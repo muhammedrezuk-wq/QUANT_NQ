@@ -1,6 +1,6 @@
 id: 582
 name: Reference Broker Divergence
-version: 1.5.0
+version: 1.5.1
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom

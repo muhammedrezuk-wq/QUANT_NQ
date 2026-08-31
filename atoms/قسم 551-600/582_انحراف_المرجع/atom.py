@@ -8,7 +8,7 @@ from core.contracts.atom import AtomBase,AtomContext,HealthState,HealthStatus
 # فيُصنَّف كلّ شيء STALE ولا تتمّ مقارنة واحدة. القراءة الآن من السلطة
 # الزمنيّة مباشرة (`clock`) بلا طابور — والنافذة `_max_age` لم تُمسّ.
 # النبضة تبقى إشارة مراقبة: تأخّرها يُعلَن في تفاصيل الصحّة.
-ATOM_VERSION="1.5.0"
+ATOM_VERSION="1.5.1"
 EVENT_CTRADER="feed.ctrader.tick"
 EVENT_MT5="feed.mt5.tick"
 EVENT_SPECS="market.symbol_specs"
@@ -19,6 +19,21 @@ def num(v):
  try:r=float(v)
  except (TypeError,ValueError):return None
  return r if r==r else None
+def stamp_of(tick):
+ """طابع العيّنة: زمن البورصة إن وُجد، وإلّا زمن الوصول المصحَّح.
+
+ ٢٠٢٦-٠٩-٠١ (مقيس حيًّا): كان السطر
+     num(t.get("exchange_timestamp", t.get("timestamp")))
+ و`dict.get` يستعمل البديل **إن غاب المفتاح فقط**. وحمولة ميتاتريدر من
+ الذرّة 618 تحمل المفتاح موجودًا وقيمته `null` (الجسر لا يعطي زمن بورصة،
+ ويعطي بدله `broker_timestamp` مع `broker_clock_offset_s` وقدره 10798.6ث
+ أي ثلاث ساعات، و`timestamp` مصحَّحًا). فالبديل لم يُستعمل قطّ، وخرج الطابع
+ `None`، فصار العمر `None` والحالة `STALE` **دائمًا**: مقيس
+ `compared=0 · stale=183,843` — كاشف التلاعب أعمى منذ أن كُتب، لا لعطل
+ تغذية بل لسقوطٍ صامت في قراءة حقل."""
+ if not isinstance(tick,dict):return None
+ v=num(tick.get("exchange_timestamp"))
+ return v if v is not None else num(tick.get("timestamp"))
 class Atom(AtomBase):
  def __init__(self):self._context=None;self._running=False;self._ct={};self._mt={};self._points={};self._max_dev=50.;self._max_age=5.;self._window=.15;self._updates=0;self._unaligned=0;self._now=0.;self._compared=0;self._waiting=0;self._stale=0
  async def initialize(self,c):
@@ -49,7 +64,7 @@ class Atom(AtomBase):
   if self._running and isinstance(p,dict) and p.get("symbol"):self._mt[str(p["symbol"])]=dict(p);await self._publish(str(p["symbol"]))
  async def _publish(self,s):
   if self._context is None:return
-  ct=self._ct.get(s);mt=self._mt.get(s);a=num((ct or {}).get("exchange_timestamp",(ct or {}).get("timestamp")));b=num((mt or {}).get("exchange_timestamp",(mt or {}).get("timestamp")));cp=num((ct or {}).get("price"));mp=num((mt or {}).get("price"));dev=None;gap=None;ages=[]
+  ct=self._ct.get(s);mt=self._mt.get(s);a=stamp_of(ct);b=stamp_of(mt);cp=num((ct or {}).get("price"));mp=num((mt or {}).get("price"));dev=None;gap=None;ages=[]
   now=clock.now()
   for stamp in (a,b):
    ages.append(None if stamp is None else now-stamp)

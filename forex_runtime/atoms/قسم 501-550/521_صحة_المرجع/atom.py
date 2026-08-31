@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import math
 from typing import Any
+
+import clock
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION="2.3.0"
+ATOM_VERSION="2.4.0"
 # v2.3.0 (2026-08-25): the execution venue's own tick (MT5, 618) is a
 # PRIMARY reference source beside cTrader. Measured root: BTCUSD's only
 # reference was the cTrader stream, whose transport saturates in bursts
@@ -49,6 +51,7 @@ class Atom(AtomBase):
         self._running=False
         self._feeds={}
         self._last_prices={}
+        # ٢٠٢٦-٠٩-٠١: يبقى مخزَّنًا للمراقبة فقط — الحكم لا يعتمد عليه.
         self._now=None
         self._states={}
         self._max_age=5.0
@@ -79,8 +82,19 @@ class Atom(AtomBase):
     def feed(self,s): return self._feeds.setdefault(s,{PRIMARY:{},FALLBACK:{}})
     def allowed(self,s): return not self._symbols or s in self._symbols
     def fresh(self,f,age):
-        if not f.get("valid") or self._now is None or f.get("timestamp") is None:return False
-        return 0.0<=self._now-f["timestamp"]<=age
+        """طزاجة العيّنة مقيسةً على السلطة الزمنيّة، لا على حمولة النبضة.
+
+        ٢٠٢٦-٠٩-٠١ (مقيس حيًّا): كان «الآن» يُؤخذ من `official_time` داخل
+        نبضة `SYS_SECOND` الواصلة عبر صندوق بريد. القياس على النواة الحيّة:
+        النبضة تصل كاملةً (‏`delivered=1,032,593` · `dropped=0`) لكن طابعها
+        يتأخّر تأخّرًا تراكميًّا، فيصير أحدث من طابعها **طابعُ التِكّة نفسه**؛
+        فيخرج `self._now - ts` **سالبًا** ويسقط شرط `0.0 <= …`، فتُصنَّف كل
+        عيّنة «غير طازجة» ويُعلَن `NO_USABLE_REFERENCE` بينما 622 سليمة
+        وتُسلّم 147,363 تِكّة و613 تمرّر تسعة رموز. لا مرجع مفقود — بل ساعةٌ
+        وصلت متأخّرة. القراءة الآن من `clock` مباشرة بلا طابور.
+        **حدود الطزاجة لم تُمَسّ حرفًا** (`max_age`/`fallback_age` كما هي)."""
+        if not f.get("valid") or f.get("timestamp") is None:return False
+        return 0.0<=clock.now()-f["timestamp"]<=age
     def jump_ok(self,source,s,p):
         key=source+"|"+s
         old=self._last_prices.get(key)
@@ -136,9 +150,9 @@ class Atom(AtomBase):
         q=self.fresh(f[FALLBACK],self._fallback_age)
         candidate=PRIMARY if p else FALLBACK if q else None
         current=f.get("selected",{}).get("provider")
-        if candidate and current and candidate!=current and self._now is not None and f["selected"].get("at") is not None and self._now-f["selected"]["at"]<self._dwell:
+        if candidate and current and candidate!=current and f["selected"].get("at") is not None and clock.now()-f["selected"]["at"]<self._dwell:
             candidate=current
-        if candidate!=current:f["selected"]={"provider":candidate,"at":self._now}
+        if candidate!=current:f["selected"]={"provider":candidate,"at":clock.now()}
         return candidate,p,q
     async def _publish(self,s):
         if self._context is None:return
@@ -147,7 +161,7 @@ class Atom(AtomBase):
         selected=f.get(provider,{}) if provider else {}
         state="HEALTHY" if provider==PRIMARY else "FALLBACK" if provider==FALLBACK else "STALE" if f[PRIMARY].get("timestamp") or f[FALLBACK].get("timestamp") else "INVALID"
         ts=selected.get("timestamp")
-        age=self._now-ts if self._now is not None and ts is not None else None
+        age=clock.now()-ts if ts is not None else None
         out={"symbol":s,"state":state,"selected_provider":provider,"selected_price":selected.get("price"),"source_timestamp":ts,"data_age_s":age,"primary":dict(f[PRIMARY]),"fallback":dict(f[FALLBACK]),"warnings":[]}
         self._states[s]=out
         await self._context.publish(EVENT_OUT,out)
