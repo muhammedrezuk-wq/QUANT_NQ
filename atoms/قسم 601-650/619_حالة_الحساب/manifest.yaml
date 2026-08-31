@@ -1,6 +1,6 @@
 id: 619
 name: "Account State Reader"
-version: "3.0.0"
+version: "3.1.0"
 core_version: ">=1.0.0,<2.0.0"
 critical: false
 entrypoint: "atom:Atom"
@@ -10,9 +10,6 @@ dependencies: []
 publishes:
   - "platform.account.state"
   - "platform.terminal_state"
-
-subscribes:
-  - "SYS_SECOND"
 
 startup_mode: auto
 
