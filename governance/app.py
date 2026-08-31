@@ -17,9 +17,16 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent          # جذر المشروع
-# نفرض بايثون البيئة (venv) لتشغيل النواة/الخادم — فيه المكتبات. بايثون النظام يُسقِط النواة.
+# نفرض مفسّر المشروع لتشغيل النواة/الخادم — فيه المكتبات. بايثون النظام يُسقِط النواة.
+# ٢٠٢٦-٠٩-٠١: كان يعرف `venv/` وحدها. والنسخة المتنقّلة على جهاز جديد لا تبني
+# `venv` أصلًا — تبني `vendor/python/runtime/` (مفسّر المشروع المضمّن). فكان
+# المشغّل يسقط إلى `sys.executable`، وهو صحيح حين يأتي عبر `scripts\py.bat`
+# وخاطئ تمامًا إن شُغّل بأي طريق آخر: بايثون نظامٍ عارٍ ⇒ لا نواة ولا لوحة.
+# الترتيب صريح الآن: مفسّرنا المضمّن، ثم venv، ثم الحالي.
+_RUNTIME_PY = ROOT / "vendor" / "python" / "runtime" / "python.exe"
 _VENV_PY = ROOT / "venv" / "Scripts" / "python.exe"
-PYEXE = str(_VENV_PY) if _VENV_PY.exists() else sys.executable
+PYEXE = (str(_RUNTIME_PY) if _RUNTIME_PY.exists()
+         else str(_VENV_PY) if _VENV_PY.exists() else sys.executable)
 CORE = ROOT / "governance" / "scripts" / "run_core.py"
 SERVER = ROOT / "governance" / "server.py"
 TELEGRAM = ROOT / "governance" / "telegram.py"          # ٦١٠ — المنصّة المتنقّلة
@@ -364,8 +371,31 @@ def main() -> None:
         )
     try:
         webview.start()          # يحجب حتى إغلاق النافذة
-    finally:
+    except Exception as exc:     # noqa: BLE001
+        # ٢٠٢٦-٠٩-٠١: كان الفشل هنا يسقط في `finally` فيُوقف كل الخدمات
+        # ويخرج المشغّل **بلا نافذة وبلا كلمة**. أشهر سببٍ على جهاز جديد:
+        # WebView2 Runtime غير منصَّب — `pywebview` يستورد بنجاح ثم يفشل عند
+        # فتح النافذة. حارسٌ لا يقول لماذا سقط ليس حارسًا: يُشرح السبب،
+        # وتبقى الخدمات شغّالة، ويُفتح المتصفّح بدل النافذة فلا يضيع اليوم.
+        print("=" * 62, flush=True)
+        print(f"[مشغّل] ✗ تعذّر فتح نافذة سطح المكتب: {exc}", flush=True)
+        print("        الأرجح أن WebView2 Runtime غير منصَّب على هذا الجهاز.", flush=True)
+        print("        نزّله من موقع مايكروسوفت باسم:", flush=True)
+        print("          Microsoft Edge WebView2 Runtime (Evergreen Standalone)", flush=True)
+        print("        والخدمات تعمل الآن، فتُفتح اللوحتان بالمتصفّح بدلها:", flush=True)
+        for _title, _url in windows:
+            print(f"          {_url}", flush=True)
+        try:
+            import webbrowser
+            for _title, _url in windows:
+                webbrowser.open(_url)
+        except Exception:  # noqa: BLE001 — المتصفّح ترفٌ لا شرط
+            pass
+        print("=" * 62, flush=True)
+        input("اضغط Enter لإيقاف الخدمات والخروج…")
         _shutdown()
+        return
+    _shutdown()
 
 
 if __name__ == "__main__":
