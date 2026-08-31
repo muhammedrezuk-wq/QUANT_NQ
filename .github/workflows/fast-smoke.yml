@@ -28,18 +28,3 @@ jobs:
 
       - name: Run fast smoke suite
         run: python scripts/run_smoke.py
-
-      - name: Prepare core seal artifact
-        if: ${{ github.event_name == 'push' }}
-        run: |
-          python governance/scripts/freeze_core.py freeze --reseal
-          python governance/scripts/freeze_core.py verify
-
-      - name: Upload core seal artifact
-        if: ${{ github.event_name == 'push' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-seal
-          path: core/CORE.lock
-          if-no-files-found: error
-          retention-days: 1
