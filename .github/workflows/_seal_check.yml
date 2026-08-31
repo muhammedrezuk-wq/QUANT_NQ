@@ -1,0 +1,35 @@
+name: Temporary Core Seal Check
+
+on:
+  pull_request:
+
+jobs:
+  seal-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Smoke
+        run: python scripts/run_smoke.py
+      - name: Print seal
+        run: |
+          python - <<'PY'
+          import hashlib, json, re
+          from pathlib import Path
+          root = Path('core')
+          suffixes = {'.py','.html','.css','.js','.json','.yaml','.yml'}
+          files = {}
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name != 'CORE.lock' and p.suffix.lower() in suffixes:
+                  data = p.read_bytes().replace(b'\r\n', b'\n')
+                  files[str(p.relative_to(Path('.'))).replace('\\','/')] = hashlib.sha256(data).hexdigest()
+          entries = sorted(files.items())
+          joined = '\n'.join(f'{name}:{digest}' for name,digest in entries)
+          print('CORE_VERSION=' + re.search(r'CORE_VERSION\s*=\s*[\"\']([^\"\']+)[\"\']', Path('core/__version__.py').read_text(encoding='utf-8')).group(1))
+          print('FILE_COUNT=' + str(len(entries)))
+          print('ROOT_DIGEST=' + hashlib.sha256(joined.encode()).hexdigest())
+          print('FILES_JSON=' + json.dumps(dict(entries), ensure_ascii=False, sort_keys=True))
+          PY
