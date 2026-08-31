@@ -14,6 +14,7 @@ from contextvars import copy_context
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from clock import now as official_now
 from core.logger import current_event, current_event_id, current_trace_id
 
 Handler = Callable[[dict[str, Any]], Awaitable[None] | None]
@@ -29,6 +30,9 @@ _COMMAND_MARKERS = ("order", ".buy", ".sell", ".execute", ".cancel", "final_deci
 _TIME_SIGNAL_EVENTS = frozenset({"SYS_SECOND", "SYS_5MIN", "SYS_15MIN", "SYS_HOUR", "SYS_DAY"})
 _NAME_CLASS_CACHE: dict[str, tuple[bool, bool]] = {}
 _NAME_CLASS_CACHE_MAX = 4096
+_GENERAL_WORKERS_MIN = 4
+_GENERAL_WORKERS_MAX = 28
+_REALTIME_WORKERS = 4
 
 
 def _classify_name(event_name: str) -> tuple[bool, bool]:
@@ -49,6 +53,10 @@ def _is_command(event_name: str) -> bool:
 
 def _is_replayable(event_name: str) -> bool:
     return event_name in _TIME_SIGNAL_EVENTS or _classify_name(event_name)[1]
+
+
+def _is_realtime(event_name: str) -> bool:
+    return event_name in _TIME_SIGNAL_EVENTS or _is_command(event_name) or event_name.endswith(_STATE_SUFFIXES)
 
 
 def _fast_copy(value: Any) -> Any:
@@ -82,7 +90,12 @@ class _Mailbox:
 
 
 class EventBus:
-    """Routing only; handler execution is isolated from the Core event loop."""
+    """Routing only; handler execution is isolated from the Core event loop.
+
+    Two bounded execution pools are used so general market-event pressure
+    cannot consume all worker capacity reserved for time/state/command work.
+    Each handler still has one mailbox consumer, preserving per-handler order.
+    """
 
     def __init__(self, *, dispatch_timeout_s: float = DEFAULT_DISPATCH_TIMEOUT_S,
                  mailbox_max_events: int = DEFAULT_MAILBOX_MAX_EVENTS) -> None:
@@ -101,12 +114,17 @@ class EventBus:
         self._replayed: dict[str, int] = defaultdict(int)
         self._dropped: dict[str, int] = defaultdict(int)
         self._coalesced: dict[str, int] = defaultdict(int)
-        self._time_offset_s = 0.0
         self._last_yield = 0.0
         self._yield_pressure = False
         self._core_loop: asyncio.AbstractEventLoop | None = None
-        workers = min(32, max(4, (os.cpu_count() or 1) + 4))
-        self._handler_executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="quant-event-handler")
+        cpu_workers = max(1, (os.cpu_count() or 1) + 4)
+        general_workers = max(_GENERAL_WORKERS_MIN, min(_GENERAL_WORKERS_MAX, cpu_workers))
+        self._handler_executor = ThreadPoolExecutor(
+            max_workers=general_workers, thread_name_prefix="quant-event-handler"
+        )
+        self._realtime_executor = ThreadPoolExecutor(
+            max_workers=_REALTIME_WORKERS, thread_name_prefix="quant-event-realtime"
+        )
 
     def _bind_core_loop(self) -> asyncio.AbstractEventLoop:
         loop = asyncio.get_running_loop()
@@ -145,8 +163,18 @@ class EventBus:
     def _coalesce_key(event_name: str, payload: Any) -> tuple[Any, ...]:
         if not isinstance(payload, dict):
             return (event_name,)
-        return (event_name, str(payload.get("account_id") or ""), str(payload.get("symbol") or ""),
-                str(payload.get("section_id") or payload.get("analyzer_id") or payload.get("strategy_id") or payload.get("id") or ""))
+        return (
+            event_name,
+            str(payload.get("account_id") or ""),
+            str(payload.get("symbol") or ""),
+            str(
+                payload.get("section_id")
+                or payload.get("analyzer_id")
+                or payload.get("strategy_id")
+                or payload.get("id")
+                or ""
+            ),
+        )
 
     def _enqueue(self, handler_id: int, item: tuple[Any, ...], event_name: str) -> None:
         box = self._mailbox_of(handler_id)
@@ -207,12 +235,24 @@ class EventBus:
             _log.error("handler timeout subscriber=%s event=%s", sub.subscriber, event_name)
         except BaseException as error:  # noqa: BLE001
             self._error[event_name] += 1
-            _log.error("handler error subscriber=%s event=%s error=%s", sub.subscriber, event_name, error, exc_info=error)
+            _log.error(
+                "handler error subscriber=%s event=%s error=%s",
+                sub.subscriber,
+                event_name,
+                error,
+                exc_info=error,
+            )
         else:
             self._delivered[event_name] += 1
 
-    async def _deliver_global(self, handler: GlobalHandler, subscriber: str, is_coro: bool,
-                              event_name: str, payload: dict[str, Any]) -> None:
+    async def _deliver_global(
+        self,
+        handler: GlobalHandler,
+        subscriber: str,
+        is_coro: bool,
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
         try:
             await self._invoke_global(handler, subscriber, is_coro, event_name, payload)
         except asyncio.CancelledError:
@@ -222,26 +262,45 @@ class EventBus:
             _log.error("global handler timeout subscriber=%s event=%s", subscriber, event_name)
         except BaseException as error:  # noqa: BLE001
             self._error[event_name] += 1
-            _log.error("global handler error subscriber=%s event=%s error=%s", subscriber, event_name, error, exc_info=error)
+            _log.error(
+                "global handler error subscriber=%s event=%s error=%s",
+                subscriber,
+                event_name,
+                error,
+                exc_info=error,
+            )
         else:
             self._delivered[event_name] += 1
 
-    async def _run_handler(self, handler: Callable[..., Any], is_coro: bool, *args: Any) -> None:
+    async def _run_handler(
+        self,
+        handler: Callable[..., Any],
+        is_coro: bool,
+        event_name: str,
+        *args: Any,
+    ) -> None:
         loop = asyncio.get_running_loop()
         context = copy_context()
-        future = loop.run_in_executor(self._handler_executor, lambda: context.run(_worker_entry, handler, args))
+        executor = self._realtime_executor if _is_realtime(event_name) else self._handler_executor
+        future = loop.run_in_executor(
+            executor,
+            lambda: context.run(_worker_entry, handler, args),
+        )
         async with asyncio.timeout(self._dispatch_timeout_s):
             await future
 
-    def now(self) -> float:
-        return time.time() + self._time_offset_s
-
-    def set_time_offset(self, offset_s: float) -> None:
-        self._time_offset_s = float(offset_s)
-
-    def subscribe(self, event_name: str, handler: Handler, *, subscriber: str = "", isolate_payload: bool = True) -> None:
+    def subscribe(
+        self,
+        event_name: str,
+        handler: Handler,
+        *,
+        subscriber: str = "",
+        isolate_payload: bool = True,
+    ) -> None:
         self._bind_core_loop()
-        self._subscribers[event_name].append(_Subscription(handler, subscriber, inspect.iscoroutinefunction(handler), bool(isolate_payload)))
+        self._subscribers[event_name].append(
+            _Subscription(handler, subscriber, inspect.iscoroutinefunction(handler), bool(isolate_payload))
+        )
         self._handler_ref_add(id(handler))
         last = self._last_event.get(event_name)
         if last is not None:
@@ -284,15 +343,29 @@ class EventBus:
             self._handler_ref_drop(handler_id, count)
         return removed
 
-    def subscribe_all(self, handler: GlobalHandler, *, subscriber: str = "", isolate_payload: bool = True) -> None:
+    def subscribe_all(
+        self,
+        handler: GlobalHandler,
+        *,
+        subscriber: str = "",
+        isolate_payload: bool = True,
+    ) -> None:
         self._bind_core_loop()
         is_coro = inspect.iscoroutinefunction(handler)
         self._global_subscribers.append((handler, subscriber, bool(isolate_payload), is_coro))
         self._handler_ref_add(id(handler))
         for event_name, last in tuple(self._last_event.items()):
             self._replayed[event_name] += 1
-            self._enqueue(id(handler), ("global", event_name, _fast_copy(last) if isolate_payload else last,
-                                        (handler, subscriber, is_coro)), event_name)
+            self._enqueue(
+                id(handler),
+                (
+                    "global",
+                    event_name,
+                    _fast_copy(last) if isolate_payload else last,
+                    (handler, subscriber, is_coro),
+                ),
+                event_name,
+            )
 
     def unsubscribe_global(self, handler: GlobalHandler) -> None:
         self._bind_core_loop()
@@ -301,26 +374,41 @@ class EventBus:
         if rows:
             self._handler_ref_drop(id(handler), len(rows))
 
-    async def publish(self, event_name: str, payload: dict[str, Any] | None = None, *, publisher: str = "") -> None:
+    async def publish(
+        self,
+        event_name: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        publisher: str = "",
+    ) -> None:
         caller = asyncio.get_running_loop()
         core = self._core_loop
         if core is None:
             self._core_loop = caller
             core = caller
         if caller is not core:
-            future = asyncio.run_coroutine_threadsafe(self._publish_core(event_name, payload, publisher=publisher), core)
+            future = asyncio.run_coroutine_threadsafe(
+                self._publish_core(event_name, payload, publisher=publisher),
+                core,
+            )
             await asyncio.wrap_future(future)
             return
         await self._publish_core(event_name, payload, publisher=publisher)
 
-    async def _publish_core(self, event_name: str, payload: dict[str, Any] | None = None, *, publisher: str = "") -> None:
+    async def _publish_core(
+        self,
+        event_name: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        publisher: str = "",
+    ) -> None:
         base = _fast_copy(payload or {})
         base.setdefault("source", publisher)
         base.setdefault("event_id", str(uuid.uuid4()))
         base.setdefault("trace_id", current_trace_id.get() or str(uuid.uuid4()))
         base.setdefault("parent_event_id", current_event_id.get())
         base.setdefault("parent_event", current_event.get())
-        base.setdefault("timestamp", self.now())
+        base.setdefault("timestamp", official_now())
         self._published[event_name] += 1
         blob: bytes | None = None
         blob_ready = False
@@ -339,14 +427,30 @@ class EventBus:
             self._last_event[event_name] = isolated_copy()
         subs = tuple(self._subscribers.get(event_name, ()))
         for handler, subscriber, isolate, is_coro in tuple(self._global_subscribers):
-            self._enqueue(id(handler), ("global", event_name, isolated_copy() if isolate else base,
-                                        (handler, subscriber, is_coro)), event_name)
+            self._enqueue(
+                id(handler),
+                (
+                    "global",
+                    event_name,
+                    isolated_copy() if isolate else base,
+                    (handler, subscriber, is_coro),
+                ),
+                event_name,
+            )
         if not subs:
             self._no_subscribers[event_name] += 1
         else:
             for sub in subs:
-                self._enqueue(id(sub.handler), ("sub", event_name,
-                                                isolated_copy() if sub.isolate else base, sub), event_name)
+                self._enqueue(
+                    id(sub.handler),
+                    (
+                        "sub",
+                        event_name,
+                        isolated_copy() if sub.isolate else base,
+                        sub,
+                    ),
+                    event_name,
+                )
         await self._maybe_yield()
 
     async def _maybe_yield(self) -> None:
@@ -371,29 +475,41 @@ class EventBus:
         t_eid = current_event_id.set(payload.get("event_id"))
         t_ev = current_event.set(event_name)
         try:
-            await self._run_handler(sub.handler, sub.is_coro, payload)
+            await self._run_handler(sub.handler, sub.is_coro, event_name, payload)
         finally:
             current_event.reset(t_ev)
             current_event_id.reset(t_eid)
             current_trace_id.reset(t_trace)
 
-    async def _invoke_global(self, handler: GlobalHandler, subscriber: str, is_coro: bool,
-                             event_name: str, payload: dict[str, Any]) -> None:
+    async def _invoke_global(
+        self,
+        handler: GlobalHandler,
+        subscriber: str,
+        is_coro: bool,
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
         t_trace = current_trace_id.set(payload.get("trace_id"))
         t_eid = current_event_id.set(payload.get("event_id"))
         t_ev = current_event.set(event_name)
         try:
-            await self._run_handler(handler, is_coro, event_name, payload)
+            await self._run_handler(handler, is_coro, event_name, event_name, payload)
         finally:
             current_event.reset(t_ev)
             current_event_id.reset(t_eid)
             current_trace_id.reset(t_trace)
 
     def stats(self) -> dict[str, dict[str, int]]:
-        return {"published": dict(self._published), "delivered": dict(self._delivered),
-                "no_subscribers": dict(self._no_subscribers), "timeout": dict(self._timeout),
-                "error": dict(self._error), "replayed": dict(self._replayed),
-                "dropped": dict(self._dropped), "coalesced": dict(self._coalesced)}
+        return {
+            "published": dict(self._published),
+            "delivered": dict(self._delivered),
+            "no_subscribers": dict(self._no_subscribers),
+            "timeout": dict(self._timeout),
+            "error": dict(self._error),
+            "replayed": dict(self._replayed),
+            "dropped": dict(self._dropped),
+            "coalesced": dict(self._coalesced),
+        }
 
     def last_states(self) -> list[tuple[str, dict[str, Any]]]:
         return [(name, _fast_copy(last)) for name, last in self._last_event.items()]
@@ -405,4 +521,5 @@ class EventBus:
         return len(self._subscribers.get(event_name, ()))
 
     def close(self) -> None:
+        self._realtime_executor.shutdown(wait=False, cancel_futures=True)
         self._handler_executor.shutdown(wait=False, cancel_futures=True)
