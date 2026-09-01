@@ -8,7 +8,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.3.0"
+ATOM_VERSION = "1.4.0"
 PROVIDER = "MEXC"
 BASE = "https://contract.mexc.com/api/v1/contract"
 
@@ -240,8 +240,10 @@ class Atom(AtomBase):
             self._last_ok = now
             if not bids or not asks:
                 continue
+            # لقطة دفتر كاملة من REST — الوسم يميّزها عن فروق `٢٦٢٠` التزايديّة
+            # على الحدث نفسه، فيقبلها `٢٢٦٥` ويرفض تلك بالهويّة لا بالتخمين.
             await self._context.publish(EVENT_DEPTH, {
-                "provider": PROVIDER, "symbol": symbol,
+                "provider": PROVIDER, "symbol": symbol, "depth_kind": "snapshot",
                 "bids": bids, "asks": asks, "timestamp": now})
 
     async def health_check(self) -> HealthStatus:

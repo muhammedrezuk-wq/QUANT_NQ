@@ -1,6 +1,6 @@
 id: 2620
 name: MEXC Market Source
-version: 1.2.0
+version: 1.3.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom

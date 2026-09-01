@@ -5,7 +5,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.1.0"
+ATOM_VERSION = "1.2.0"
 EVENT_IN = "market.depth"
 EVENT_OUT = "sense.walls.state"
 
@@ -52,9 +52,14 @@ class Atom(AtomBase):
         self._top_n = 3
         self._near_bps = 2.5
         self._max_age_s = 10.0
+        self._require_snapshot = True
+        self._min_levels = 5
         self._last: dict[str, dict[str, Any]] = {}
         self._updates = 0
         self._last_at: float | None = None
+        # الرفض يُعَدّ بسببه ويُعرَض بالصحّة — رفضٌ صامت يعيد المشكلة نفسها
+        # بشكل آخر: حاسّة تبدو حيّة وهي لا تقرأ شيئًا.
+        self._rejected = {"delta": 0, "few_levels": 0, "empty_side": 0, "crossed": 0}
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
@@ -62,6 +67,8 @@ class Atom(AtomBase):
         self._top_n = int(context.config.get("top_n", 3))
         self._near_bps = float(context.config.get("near_bps", 2.5))
         self._max_age_s = float(context.config.get("max_age_s", 10.0))
+        self._require_snapshot = bool(context.config.get("require_snapshot", True))
+        self._min_levels = int(context.config.get("min_levels", 5))
         context.subscribe(EVENT_IN, self._on_depth)
 
     async def start(self) -> None:
@@ -81,9 +88,34 @@ class Atom(AtomBase):
         asks = _levels(payload.get("asks"), self._levels_cap)
         if not symbol or not bids or not asks:
             return
+
+        # ── بوّابة اللقطة ────────────────────────────────────────────────
+        # ناشران يكتبان على `market.depth`: `٢٦٢١` لقطات REST كاملة، و`٢٦٢٠`
+        # قناة `sub.depth` وهي **تزايديّة** ترسل السطور المتغيّرة وحدها
+        # (حجم `0` = احذف هذا المستوى). كانت الذرّة تجمعها كأنّها الدفتر كلّه.
+        #
+        # المقيس ٢٠٢٦-٠٩-٠١ (٤ دقائق · 514 عيّنة):
+        #   • 107 عيّنة بمستوًى واحد = 20.8%
+        #   • منها 55 بجانب شراء فارغ ⇒ `ratio = 0.000` ⇒ صوت «شورت» زائف
+        #   • 55 من أصل 80 صوت شورت = **69% أثرٌ من بيانات معطوبة**
+        # وعلى اللقطات وحدها يتوازن التوزيع: p10=0.863 · p50=1.020 · p90=1.238.
+        #
+        # ثلاثة شروط، كلّها من الحمولة نفسها لا من الظنّ:
+        if self._require_snapshot and str(payload.get("depth_kind") or "") == "delta":
+            self._rejected["delta"] += 1
+            return
+        if min(len(bids), len(asks)) < self._min_levels:
+            self._rejected["few_levels"] += 1
+            return
+        if sum(sz for _, sz in bids) <= 0 or sum(sz for _, sz in asks) <= 0:
+            # جهة فارغة ⇒ نسبة صفر أو لا نهائيّة — ليست حالة سوق بل رسالة ناقصة.
+            self._rejected["empty_side"] += 1
+            return
+
         best_bid = bids[0][0]
         best_ask = asks[0][0]
         if best_ask < best_bid:                       # دفترٌ متقاطع (بيانات فاسدة)
+            self._rejected["crossed"] += 1
             return
         mid = (best_bid + best_ask) / 2.0
         bid_sum = sum(sz for _, sz in bids)
@@ -119,8 +151,14 @@ class Atom(AtomBase):
         await self._context.publish(EVENT_OUT, state)
 
     async def health_check(self) -> HealthStatus:
+        rejected_total = sum(self._rejected.values())
+        seen = self._updates + rejected_total
         details = {"symbols": len(self._last), "updates": self._updates,
                    "age_s": (time.time() - self._last_at) if self._last_at else None,
+                   "rejected": dict(self._rejected), "rejected_total": rejected_total,
+                   # نسبة المقبول من المرئيّ: تكشف بنظرة إن كان الناشر تحوّل
+                   # إلى فروق بالكامل، بدل أن تصمت الحاسّة بلا سبب معلَن.
+                   "accept_pct": round(100.0 * self._updates / seen, 2) if seen else None,
                    "ratio": {s: v["ratio"] for s, v in self._last.items()}}
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED", details=details)
