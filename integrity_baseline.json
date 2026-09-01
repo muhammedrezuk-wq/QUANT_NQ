@@ -1008,7 +1008,7 @@
     "dir:scripts/::check_security.py": "51d6e2cba289116e5794c009ea5beb0420e4be47688d9e2058e281b32756df82",
     "dir:scripts/::diagnose.py": "ae368e09e13b1964fcc714bff4528c23dbb7382363bdf3608a9b266ede78e51d",
     "dir:scripts/::freeze_core.py": "5421e308a9e404c52c782bce6fc3f1f5a03d8cd4708317ef5bb8b309b747cc87",
-    "dir:scripts/::launch_market.py": "7e55a15a5df14749c8e870ab72489842ae84cd48ff644b2e6f8eb01a9ccdcf39",
+    "dir:scripts/::launch_market.py": "ebe3b3da1092fb390151b2da0af5aac44f70be31cb21bef3f690ebce30914801",
     "dir:scripts/::launch_unified.bat": "6475eb3177b103934201ab573ecff892a5b1aff1120375e65ecf0c57b3a0faca",
     "dir:scripts/::launch_unified.py": "b0bda3ba5065e18430b7dcf44784b082176be71e5e192bbfd6482f3011b174cb",
     "dir:scripts/::log_button.py": "0ac1bcc204cdf200fb2b3f37814ff6cb82dae6b6c087d0d8833af7519646868f",
@@ -1300,7 +1300,7 @@
     "dir:core/::contracts/atom.py": "11ce35335b7b102bd25eab018f1388152bdf3753432776e9dbde3da376f7f3b2",
     "dir:core/::contracts/manifest.py": "e92a5c266190580167b50c5e32d7e9aa1597132f17fc6d8652c7d7b63c942fa2",
     "dir:core/::contracts/services.py": "0bd690f939bb1d10bcc8d97276b025765c9924ded68e438813c9d234e5a03e3c",
-    "dir:scripts/::py.bat": "9a664ad8d5cf14fad17847742b7044834d3410b885169c1830bd872e02094780",
+    "dir:scripts/::py.bat": "de6a5675c626566e5d61b2439cf14a0006b0993c7c586f21cb5b65440ea4767a",
     "dir:scripts/::setup_machine.py": "5ef45335df879d3b7cf98afbce4735ccf7643eeb695223caec697fed0650dfe7"
   }
 }

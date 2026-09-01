@@ -4,6 +4,23 @@ import argparse, os, socket, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# ── حارس المفسّر — يمنع تسرّب بايثون النظام ────────────────────────────
+# كل عمليّة فرعيّة هنا تُولَد بـ`sys.executable`، فالمفسّر الذي يبدأ عند هذه
+# النقطة يسري على الشجرة كلّها: النواة والحوكمة واللوحة وتلغرام.
+# قِيس ٢٠٢٦-٠٩-٠١: نواة الفوركس عملت ١٦٫٥ ساعة على بايثون النظام لأنّها
+# أُطلقت به — وينقصه `deep-translator`، وغيابه مبتلَع بالتصميم
+# (`except Exception: return`) فتبقى عناوين الأخبار إنكليزيّة بلا إنذار.
+# الحارس يعيد الإطلاق بالمفسّر المتنقّل بدل أن يشتغل ناقصًا بصمت،
+# و`-s` يقطع مجلّد user-site فلا تدخل مكتبة من خارج المشروع أبدًا.
+VENDOR_PY = ROOT / "vendor" / "python" / "runtime" / "python.exe"
+if VENDOR_PY.exists() and Path(sys.executable).resolve() != VENDOR_PY.resolve():
+    print(f"[حارس المفسّر] أُطلقت بـ: {sys.executable}")
+    print(f"[حارس المفسّر] أُعيد الإطلاق بالمفسّر المتنقّل: {VENDOR_PY}")
+    sys.exit(subprocess.run(
+        [str(VENDOR_PY), "-s", str(Path(__file__).resolve()), *sys.argv[1:]]
+    ).returncode)
+
 MARKETS = {
     "forex": {"core": "run_forex.py", "core_port": 8010, "gov_port": 8092, "ui_port": 8090},
     "crypto": {"core": "run_crypto.py", "core_port": 8020, "gov_port": 8093, "ui_port": 8091},

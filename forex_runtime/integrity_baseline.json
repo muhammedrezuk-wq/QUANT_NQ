@@ -1294,13 +1294,13 @@
     "dir:governance/::checks/check_crypto_feed.py": "5673745d557a4fa17094910f74a077d6276f45e4e982563f8a37021c5f881cda",
     "dir:governance/::checks/check_crypto_chain.py": "5be73b036f7c7b304a1196f54fabc3b6f1593f59305aac222ec95c01bc0c33e8",
     "dir:governance/::checks/check_crypto_ahmad_parity.py": "b321e970933afefa2754aa323f3b9c3307477f22fc398bc645e41843e3d217ad",
-    "dir:scripts/::launch_market.py": "7e55a15a5df14749c8e870ab72489842ae84cd48ff644b2e6f8eb01a9ccdcf39",
+    "dir:scripts/::launch_market.py": "ebe3b3da1092fb390151b2da0af5aac44f70be31cb21bef3f690ebce30914801",
     "dir:scripts/::log_button.py": "0ac1bcc204cdf200fb2b3f37814ff6cb82dae6b6c087d0d8833af7519646868f",
     "dir:scripts/::run_smoke.py": "61e0df266ed91dea2bad1530c5aa89734e9dc78f57a699a014f8e27ec60fc2dd",
     "dir:scripts/::stop_all.py": "89b772abce40e9224e4faea8d87e4d4d494a0fe5104e34c93778292fba0cf30f",
     "dir:governance/::network_preflight.py": "853dc24b088dee8b2dbf83d913cf4d92138750bbc390cd1273c458efb4ae18ae",
     "dir:governance/::ui/src/sections/ChangeGovernor.tsx": "2365cd61e2aa024b196f4e58ebec3b5c529741abc90b4d6290a52dbb00408411",
-    "dir:scripts/::py.bat": "9a664ad8d5cf14fad17847742b7044834d3410b885169c1830bd872e02094780",
+    "dir:scripts/::py.bat": "de6a5675c626566e5d61b2439cf14a0006b0993c7c586f21cb5b65440ea4767a",
     "dir:scripts/::setup_machine.py": "5ef45335df879d3b7cf98afbce4735ccf7643eeb695223caec697fed0650dfe7"
   }
 }
