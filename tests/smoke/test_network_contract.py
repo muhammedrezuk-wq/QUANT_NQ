@@ -47,12 +47,17 @@ def test_public_launchers_run_network_preflight() -> None:
         assert f'validate_market("{market}")' in source, path
 
 
-def test_unified_launcher_runs_network_preflight_before_starting() -> None:
-    text = (ROOT / "scripts/launch_unified.py").read_text(encoding="utf-8")
-    assert "def network_preflight" in text
-    call_pos = text.index("network_preflight(start_forex, start_crypto)")
-    prepare_pos = text.index("prepare()", call_pos)  # الاستدعاء، لا التعريف
-    assert call_pos < prepare_pos
+def test_official_launch_buttons_are_market_specific() -> None:
+    buttons = {
+        "أزرار التشغيل/تشغيل الفوركس الموحد.bat": "forex",
+        "أزرار التشغيل/تشغيل الكريبتو الموحد.bat": "crypto",
+    }
+    for path, market in buttons.items():
+        text = (ROOT / path).read_text(encoding="utf-8")
+        assert f"scripts\\launch_market.py --market {market}" in text
+        assert "--both" not in text
+        assert "launch_unified.py" not in text
+        assert "governance\\app.py" not in text
 
 
 def test_hub_external_default_and_internal_backend_isolation() -> None:

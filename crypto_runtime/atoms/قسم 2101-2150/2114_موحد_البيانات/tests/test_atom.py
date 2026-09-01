@@ -1,6 +1,6 @@
 import asyncio,importlib.util,sys
 from pathlib import Path
-root=Path(__file__).resolve().parents[3];folder=Path(__file__).resolve().parents[1];sys.path.insert(0,str(root));spec=importlib.util.spec_from_file_location('_t114',folder/'atom.py');m=importlib.util.module_from_spec(spec);sys.modules['_t114']=m;spec.loader.exec_module(m)
+root=Path(__file__).resolve().parents[4];folder=Path(__file__).resolve().parents[1];sys.path.insert(0,str(root));spec=importlib.util.spec_from_file_location('_t114',folder/'atom.py');m=importlib.util.module_from_spec(spec);sys.modules['_t114']=m;spec.loader.exec_module(m)
 class L:
  def __getattr__(self,n):return lambda *a,**k:None
 class B:

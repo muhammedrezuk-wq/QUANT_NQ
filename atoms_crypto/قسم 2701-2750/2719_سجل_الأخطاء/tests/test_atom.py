@@ -10,7 +10,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from pathlib import Path as _Path
-sys.path.insert(0, str(_Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(_Path(__file__).resolve().parents[4]))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.contracts.atom import AtomContext, HealthState  # noqa: E402
@@ -24,6 +24,7 @@ sys.modules["_atom719"] = _mod
 _spec.loader.exec_module(_mod)
 Atom = _mod.Atom
 _MARKER = _mod._MARKER
+TARGET_CORE_LOGGER = _mod.TARGET_CORE_LOGGER
 
 
 class _NullLogger:
@@ -127,7 +128,7 @@ async def test_health_states_and_detach():
     h2 = await atom.health_check()
     assert h2.state == HealthState.HEALTHY and h2.details["written_today"] == 1, h2
     await atom.stop()
-    for name in ("asmar.core", None):
+    for name in (TARGET_CORE_LOGGER, None):
         lg = logging.getLogger(name) if name else logging.getLogger()
         assert not any(getattr(x, _MARKER, False) for x in lg.handlers), lg.handlers
     assert (await atom.health_check()).state == HealthState.UNHEALTHY

@@ -32,8 +32,8 @@ def main() -> int:
     # بينما الجسر يحمل 391 خبرًا و1130 حدثًا مكتوبة قبل دقائق.
     # هذا نفس العطل الذي يصفه تعليق `server.py:63-67` كمُصلَح: أُصلح هناك
     # بالافتراض، ونُقض هنا بالفرض. لا يُعاد ضبطهما: الفوركس يقرأ جسر
-    # ميتاتريدر، والكريبتو يختار `var/crypto/bridge.db` من فرع `MARKET`
-    # في `server.py` بلا حاجة لمتغيّر بيئة.
+    # ميتاتريدر، والكريبتو يختار `crypto_runtime/var/bridge.db` من فرع
+    # `MARKET` في `server.py` بلا حاجة لمتغيّر بيئة.
     from governance.server import main as server_main
     server_main()
     return 0

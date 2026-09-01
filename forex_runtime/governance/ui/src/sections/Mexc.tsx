@@ -10,6 +10,16 @@ const LEVERS = [1, 2, 5, 10, 20, 25, 50, 75, 100]
 
 interface Candle { time: number; open: number; high: number; low: number; close: number; volume: number }
 interface Status { configured: boolean; key_masked: string; dry_run: boolean }
+interface ManualTradeResult {
+  trade_id: string
+  symbol: string
+  pnl_usd: number
+  note: string
+  operator: string
+  recorded_at: number
+  delivery_status: string
+  attempts: number
+}
 
 const card: React.CSSProperties = { border: '1px solid var(--glassb)', background: 'var(--glass)', borderRadius: 12, padding: 14 }
 const btn = (extra?: React.CSSProperties): React.CSSProperties => ({ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--glassb)', background: 'var(--glassb)', color: 'var(--ink)', cursor: 'pointer', fontSize: 13, ...extra })
@@ -27,16 +37,25 @@ export default function Mexc() {
   const [ticket, setTicket] = useState({ side: 'BUY', type: 'MARKET', price: '', vol: '', leverage: 20, openType: 1 })
   const [result, setResult] = useState('')
   const [positions, setPositions] = useState<Record<string, unknown>[]>([])
+  const [manualResult, setManualResult] = useState({ trade_id: '', pnl_usd: '', note: '', operator: 'ASMAR' })
+  const [manualMessage, setManualMessage] = useState('')
+  const [manualHistory, setManualHistory] = useState<ManualTradeResult[]>([])
   const chartEl = useRef<HTMLDivElement | null>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
 
   const refreshStatus = () => { fetch('/gov/mexc/status', { cache: 'no-store' }).then(r => r.json()).then(setStatus).catch(() => {}) }
+  const refreshManualHistory = () => {
+    fetch('/gov/mexc/trade-results?limit=12', { cache: 'no-store' })
+      .then(r => r.json()).then((d: { results?: ManualTradeResult[] }) => setManualHistory(d.results || []))
+      .catch(() => {})
+  }
 
   useEffect(() => {
     fetch('/gov/market', { cache: 'no-store' }).then(r => r.json())
       .then((m: { market?: string }) => setMarketOk(m.market === 'crypto')).catch(() => setMarketOk(false))
     refreshStatus()
+    refreshManualHistory()
     fetch('/gov/mexc/universe', { cache: 'no-store' }).then(r => r.json()).then((u: { core?: string[] }) => {
       setUniverse({ core: u.core || [], outer: u.outer || [] })
     }).catch(() => {})
@@ -119,6 +138,41 @@ export default function Mexc() {
     setResult(JSON.stringify(await r.json(), null, 1))
   }
 
+  const submitManualResult = async () => {
+    const pnl = Number(manualResult.pnl_usd)
+    if (!manualResult.trade_id.trim()) { setManualMessage('✗ أدخل معرّف صفقة MEXC'); return }
+    if (!manualResult.pnl_usd.trim() || !Number.isFinite(pnl)) { setManualMessage('✗ أدخل الربح/الخسارة الصافية رقمًا'); return }
+    const payload = {
+      trade_id: manualResult.trade_id.trim(), symbol,
+      pnl_usd: pnl, note: manualResult.note.trim(), operator: manualResult.operator,
+    }
+    try {
+      setManualMessage('…تحضير التأكيد')
+      const first = await fetch('/gov/mexc/trade-result', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      })
+      const prepared = await first.json()
+      if (!first.ok || prepared.stage !== 'confirm') {
+        setManualMessage(`✗ ${prepared.message || prepared.error || 'رُفض الطلب'}`); return
+      }
+      if (!window.confirm(`تأكيد نهائي لنتيجة الصفقة؟\n\n${prepared.summary}\n\nالقيمة صافية بعد الرسوم. ستدخل حدّ الخسارة اليومي.`)) {
+        setManualMessage('أُلغي التسجيل — لم يُنشر شيء'); return
+      }
+      const second = await fetch('/gov/mexc/trade-result', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, confirm: prepared.token }),
+      })
+      const delivered = await second.json()
+      setManualMessage(`${second.ok ? '✓' : '✗'} ${delivered.message || delivered.error || 'نتيجة غير معروفة'}`)
+      if (second.ok) {
+        setManualResult(r => ({ ...r, trade_id: '', pnl_usd: '', note: '' }))
+        refreshManualHistory()
+      }
+    } catch {
+      setManualMessage('✗ تعذّر الاتصال بخادم الحوكمة — لم يتأكد التسجيل')
+    }
+  }
+
   const syms = Array.from(new Set(['BTC_USDT', 'ETH_USDT', 'SOL_USDT', ...universe.core, ...universe.outer]))
 
   if (marketOk === false) {
@@ -146,6 +200,47 @@ export default function Mexc() {
         ))}
         <span style={{ fontSize: 11, color: 'var(--dim)' }}>الشموع حيّة من MEXC كل ١٥ث</span>
       </div>
+
+      <section style={{ ...card, border: '1px solid rgba(245,158,11,.35)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div>
+            <strong style={{ color: 'var(--amber)' }}>تسجيل نتيجة صفقة مغلقة</strong>
+            <div style={{ color: 'var(--dim)', fontSize: 11, marginTop: 4 }}>يدوي فقط · تأكيدان · معرّف فريد · PnL صافي بعد الرسوم</div>
+          </div>
+          <span style={{ color: 'var(--amber)', fontSize: 11 }}>يحدّث حدّي الخسارة في الذرّة 2275</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,1.4fr) minmax(140px,1fr) minmax(180px,1.6fr) auto', gap: 8 }}>
+          <input style={input} dir="ltr" placeholder="MEXC order/deal ID الفريد" value={manualResult.trade_id}
+            onChange={e => setManualResult({ ...manualResult, trade_id: e.target.value })} />
+          <input style={input} dir="ltr" type="number" step="0.01" placeholder="PnL USD (+ / −)" value={manualResult.pnl_usd}
+            onChange={e => setManualResult({ ...manualResult, pnl_usd: e.target.value })} />
+          <input style={input} placeholder="ملاحظة اختيارية" value={manualResult.note}
+            onChange={e => setManualResult({ ...manualResult, note: e.target.value })} />
+          <button onClick={() => void submitManualResult()} style={btn({ background: 'rgba(180,83,9,.35)', whiteSpace: 'nowrap' })}>راجع ثم سجّل</button>
+        </div>
+        <div style={{ color: 'var(--dim)', fontSize: 11, marginTop: 8 }}>
+          الرمز الحالي: <b dir="ltr" style={{ color: 'var(--text)' }}>{symbol}</b>. الخسارة بإشارة سالبة.
+          عند بلوغ −2% أو 3 خسائر متتالية تتوقف التوصيات الجديدة؛ هذا ليس قاطعًا لأوامر MEXC اليدوية.
+        </div>
+        {manualMessage ? <div style={{ marginTop: 9, fontSize: 12, color: manualMessage.startsWith('✓') ? 'var(--green)' : manualMessage.startsWith('✗') ? 'var(--red)' : 'var(--text)' }}>{manualMessage}</div> : null}
+        <div style={{ marginTop: 12, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead><tr style={{ color: 'var(--dim)', textAlign: 'right' }}>
+              <th style={{ padding: 6 }}>المعرّف</th><th>الرمز</th><th>صافي USD</th><th>الحالة</th><th>الوقت</th>
+            </tr></thead>
+            <tbody>
+              {manualHistory.map(row => <tr key={row.trade_id} style={{ borderTop: '1px solid var(--glassb)' }}>
+                <td dir="ltr" style={{ padding: 6, fontFamily: 'monospace' }}>{row.trade_id}</td>
+                <td dir="ltr">{row.symbol}</td>
+                <td dir="ltr" style={{ color: row.pnl_usd < 0 ? 'var(--red)' : row.pnl_usd > 0 ? 'var(--green)' : 'var(--text)' }}>{row.pnl_usd > 0 ? '+' : ''}{row.pnl_usd.toFixed(2)}</td>
+                <td style={{ color: row.delivery_status === 'DELIVERED' ? 'var(--green)' : 'var(--amber)' }}>{row.delivery_status}</td>
+                <td dir="ltr">{new Date(row.recorded_at * 1000).toLocaleString('ar')}</td>
+              </tr>)}
+              {!manualHistory.length ? <tr><td colSpan={5} style={{ color: 'var(--dim)', padding: 9 }}>لا نتائج مسجلة بعد.</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 14, alignItems: 'start' }}>
         <div style={card}>

@@ -2,93 +2,98 @@
 
 # QUANT_NQ
 
-### An algorithmic trading platform built on a kernel that knows nothing.
-
-![core](https://img.shields.io/badge/core-1.27.0-1f6feb)
-![python](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)
-![async](https://img.shields.io/badge/runtime-asyncio-2ea043)
-![sealed](https://img.shields.io/badge/core-SHA--256%20sealed-8957e5)
-![license](https://img.shields.io/badge/license-proprietary-6e7681)
-[![Telegram](https://img.shields.io/badge/Telegram-Join%20us-26A5E4?logo=telegram&logoColor=white)](https://t.me/quantnq)
-
-### 🚀 Join us on Telegram → **[t.me/quantnq](https://t.me/quantnq)**
+### منصّة تداول خوارزمية مبنية على نواة لا تعرف شيئًا عن الذرّات
 
 </div>
 
 ---
 
-## 🇸🇦 اقرأ أولًا — [**ابدأ من هنا.md**](ابدأ%20من%20هنا.md)
+## اقرأ أولًا
 
-**ورقة البداية بالعربيّة: القواعد · خريطة المنافذ · خطوات التشغيل من نسخة
-نظيفة · ما ليس في المستودع ولماذا · حالة اليوم وما هو مفتوح.**
-أيّ من يسحب هذا المستودع يقرأها قبل أي عمل — لا تبدأ من هذا الملفّ.
+ابدأ من [**ابدأ من هنا.md**](ابدأ%20من%20هنا.md)، ثم اقرأ بروتوكول
+`docs/docs/٠٠ اقرأني — البروتوكول الإلزامي.md`.
+
+> **حالة القياس بعد إصلاحات ختم `NQ` في 2026-09-01:** ختم Core سليم، سلة
+> المستودع خضراء، كريبتو `237 passed`، وخطوط السلامة الثلاثة مطابقة. بُنيت
+> الواجهة ونجح فحص المشروع. الإصدار الكامل ما زال غير معتمد حتى يمر التشغيل
+> الحي على Windows، تُهيأ الخزنة، ويُجدّد `SHA256SUMS.txt` في مرحلته الأخيرة.
+> التفاصيل في `/home/user/سجل_QUANT_NQ.md` وورقة إغلاق الإصدار.
 
 ---
 
-## The idea
+## الفكرة
 
-QUANT_NQ is built on one strict principle: **the core knows nothing.**
-It doesn't know the name or number of a single atom. All behavior lives in
-independent **atoms**; all communication flows through **one event bus**.
-Drop a folder with `atom.py` + `manifest.yaml` — the atom runs. Delete it —
-it's gone. Without touching a single line of the core.
+تتولى Core الاكتشاف والتحقق ودورة الحياة والنقل، ولا تعرف اسم ذرّة أو رقمها.
+السلوك يعيش في ذرّات مستقلة تتواصل بالأحداث. لكل سوق ناقله وعملية Core
+المستقلة؛ لذلك عبارة «ناقل واحد» تعني ناقلًا واحدًا **داخل كل runtime**، لا
+ناقلًا مشتركًا بين فوركس وكريبتو.
 
-> Every number below is read from the code itself — the contracts, the
-> bootloader, the bus, and the manifests — not from design docs.
+## الأرقام الحالية
 
-## By the numbers
+| البند | القياس |
+|---|---:|
+| ذرّات فوركس تحت `atoms/` | **233** |
+| ذرّات كريبتو تحت `atoms_crypto/` | **80** |
+| مجموع الذرّات | **313** |
+| ملفات Core المختومة | **23** |
+| إصدار Core | **1.31.0** |
+| ملفات `governance/checks/` | **77** |
+| Python | **3.12 فأحدث** |
 
-| | |
-|---|---|
-| Forex atoms | **233** under `atoms/` |
-| Crypto atoms | **77** under `atoms_crypto/` — isolated, advisory |
-| Sealed core files | **23** (`core/CORE.lock`) |
-| Core version | **1.27.0** — sealed `2026-08-27` |
-| Governance checks | **71** under `governance/checks/` |
-| Python | **≥ 3.12**, fully `asyncio` |
+ختم `core/CORE.lock` اجتاز التحقق، وبداية root digest هي
+`1b0d0f6b91505984`.
 
-## Architecture
-
-- **🧠 Zero-knowledge core** — the bootloader only orchestrates: *Scan → Load
-  Manifest → Validate → Register → Resolve Dependencies → Initialize → Start.*
-  No atom name or number is hard-coded anywhere.
-- **🔒 Sealed core** — 23 files, each SHA-256 stamped under a single root digest;
-  any manual edit breaks the seal and is detected.
-- **🧩 Strict atom isolation** — no atom calls another directly; publish/subscribe only.
-- **🔀 One event bus** — guards against duplicate orders; independent state per **(account × symbol)**.
-- **⚖️ Governance above the core** — 71 checks govern safety, execution, and release.
-- **🪙 Two isolated markets** — forex and crypto on separate buses, shared
-  infrastructure and governance, never mixed.
-
-## Structure
+## البنية
 
 ```text
-core/           sealed kernel (23 files) — knows no atom
-atoms/          forex atoms (233)
-atoms_crypto/   crypto atoms (76) — isolated, advisory
-transport/      ownership bus (distribute ownership, not copies)
-governance/     checks (71), dashboards, launchers
-shared/         shared contracts & components
-config/         per-market core config
-scripts/        unified launchers (forex · crypto · governance)
+core/           النواة المختومة (23 ملفًا)
+atoms/          ذرّات فوركس (233)
+atoms_crypto/   ذرّات كريبتو (80)
+transport/      النقل وملكية الأحداث
+governance/     الفحوص والخوادم ومصدر الواجهة
+shared/         العقود والخدمات المشتركة
+config/         إعدادات السوق وعقود الإصدار
+scripts/        نقاط الإطلاق والتحقق
 ```
 
-## Quick start
+## حالة الفحوص
 
-```bash
-python scripts/launch_unified.py
-```
+| الفحص | النتيجة الحالية |
+|---|---|
+| ختم Core | ناجح |
+| `verify_unified.py` | `READY` لاكتشاف `233 + 80` وختم Core |
+| مدقق الذرّات | `0` مخالفة و`20` تحذيرًا مصنفًا |
+| سلة فوركس المعزولة | `233/233` و`1324` اختبارًا ناجحًا |
+| سلة المستودع | `896 passed, 1 skipped` |
+| سلة كريبتو | `237 passed` |
+| خطوط السلامة | root `1300`، Forex `1300`، Crypto `642`؛ كلها مطابقة |
+| فحص بنية المشروع | ناجح بعد بناء `governance/ui/built/index.html` |
 
-Unified dashboard at `http://127.0.0.1:8090` — toggle **Forex ⇄ Crypto** with one button.
+لا يُستعمل لفظ `READY` وحده بوصفه موافقة إصدار شاملة؛ التشغيل الحي على
+Windows والخزنة والشيكسَم النهائي مراحل مستقلة.
 
-## License
+## الإطلاق الرسمي
 
-**Proprietary — all rights reserved.** No use, copy, modification, or
-distribution without the owner's prior written consent. See [LICENSE](LICENSE).
+العقد الرسمي هو زران مستقلان؛ شغّل السوق المطلوب فقط:
 
-<div align="center">
+- `أزرار التشغيل/تشغيل الفوركس الموحد.bat`: فوركس؛ لوحة `8090`.
+- `أزرار التشغيل/تشغيل الكريبتو الموحد.bat`: كريبتو؛ لوحة `8091`.
 
-### 📢 Signals & updates on Telegram → **[t.me/quantnq](https://t.me/quantnq)**
+كل سوق يملك Core وناقلًا ولوحة مستقلة. أما `START_LOCAL.bat` و`غرفة القيادة.bat`
+و`scripts/launch_unified.py` فهي أدوات داخلية/قديمة للتشخيص وليست عقد الإطلاق
+الرسمي.
 
-<sub>Built from the code · Sealed by the code · Governed by the code.</sub>
-</div>
+**تنبيه:** CI يبني الواجهة قبل فحص المشروع. وفي checkout نظيف تُبنى محليًا
+بـ`cd governance\\ui && npm ci && npm run build` قبل التهيئة؛ حزمة التسليم
+النهائية يجب أن تحمل البناء الجاهز.
+
+## الأمن
+
+طبقة الخزنة موجودة ومفعلة في الإعداد، لكن فحص النسخة الحالية يرجع
+`SECURITY_STATE=NOT_CONFIGURED`: لا خزنة ولا مفاتيح تشغيل في checkout. هذه
+حالة متوقعة للمصدر، لكنها ليست جاهزية تشغيل مالي.
+
+## الترخيص
+
+ملكية خاصة — جميع الحقوق محفوظة. لا استخدام أو نسخ أو تعديل أو توزيع دون
+موافقة خطية مسبقة من المالك. راجع [LICENSE](LICENSE).

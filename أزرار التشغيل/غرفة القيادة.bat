@@ -1,4 +1,5 @@
 @echo off
+REM أداة داخلية قديمة؛ العقد الرسمي هو زرا الفوركس والكريبتو المستقلان.
 chcp 65001 >nul
 setlocal
 set PYTHONUTF8=1

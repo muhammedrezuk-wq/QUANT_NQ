@@ -57,16 +57,17 @@ RUNTIME_ROOT = ROOT.parent / ("crypto_runtime" if MARKET == "crypto" else "forex
 DATA_ROOT = RUNTIME_ROOT / "var"
 MARKET_DB = DATA_ROOT / "store" / "market_data.db"  # تكّات مخزّنة → شموع
 COMMANDS_DB = DATA_ROOT / "governance" / "commands.db"  # جسر بوّابة الأوامر — قراءة فقط
-ANALYSIS_SETTINGS_DB = ROOT.parent / "var" / MARKET / "analysis_settings.db"
+ANALYSIS_SETTINGS_DB = DATA_ROOT / "analysis_settings.db"
 TILT_RULES_DB = DATA_ROOT / "store" / "tilt_rules.db"
 DECISIONS_DB = DATA_ROOT / "store" / "decisions.db"
 # إصلاح ف-1 (ورقة ٤٠ · ديفرق ورقة ٣٩ بند ٤): للفوركس، صفحتا الأخبار والصفقات
 # تقرآن nq_brain.db حيث يكتب الـEA فعليًّا (مجلّد MetaTrader المشترك) — لا
 # bridge.db المعزولة الفارغة غير الموجودة أصلًا (كانت تجعل /gov/news يكذب:
 # available:false رغم وصول مئات الأخبار — مقاس بورقة ٣٨ بند ٤).
-# للكريبتو تبقى bridge.db المعزولة كما هي (نفس حكم ورقة ٣٩).
+# للكريبتو تبقى bridge.db معزولة تحت crypto_runtime/var، وهو جذرها الوحيد
+# بختم NQ 2026-09-01.
 if MARKET == "crypto":
-    TRADE_DB = ROOT.parent / "var" / MARKET / "bridge.db"
+    TRADE_DB = DATA_ROOT / "bridge.db"
 else:
     TRADE_DB = Path(os.environ.get(
         "NQ_NEWS_DB",
@@ -980,8 +981,202 @@ def _iter_atom_manifests() -> list:
 # أمر المالك 2026-08-28: صفحة MX — شارت + شراء/بيع + رافعة + حجم.
 # المفاتيح بـ var/mexc_api.json (خارج الشحن دائمًا) ولا تُعاد للوحة أبدًا.
 # الافتراضي تدريب (dry-run)؛ الحقيقي يتطلب تفعيلًا صريحًا مزدوجًا.
-MEXC_KEYS_PATH = ROOT.parent / "var" / "mexc_api.json"
+MEXC_KEYS_PATH = DATA_ROOT / "mexc_api.json"
 MEXC_BASE = "https://contract.mexc.com"
+
+# نتائج صفقات كريبتو يدوياً — مصدر الحدّ اليومي في 2275. لا تُنشر نتيجة
+# قبل تأكيدين، وتُسجّل بمعرّف صفقة فريد كي لا يضاعف الضغط المتكرر الخسارة.
+MANUAL_TRADE_RESULTS_DB = DATA_ROOT / "governance" / "manual_trade_results.db"
+_MANUAL_TRADE_CONFIRM_TTL_S = 60.0
+_MANUAL_TRADE_LOCK = threading.Lock()
+_PENDING_MANUAL_TRADE_RESULTS: dict[str, tuple[str, float]] = {}
+_MANUAL_TRADE_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{3,100}$")
+_MANUAL_TRADE_KEYS = {"trade_id", "symbol", "pnl_usd", "note", "operator", "confirm"}
+_MANUAL_TRADE_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS manual_trade_results ("
+    "trade_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, pnl_usd REAL NOT NULL, "
+    "note TEXT NOT NULL, operator TEXT NOT NULL, closed_at REAL NOT NULL, "
+    "recorded_at REAL NOT NULL, delivery_status TEXT NOT NULL, "
+    "delivery_error TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 1)"
+)
+
+
+def _manual_trade_payload(body: object) -> dict:
+    if not isinstance(body, dict) or set(body) - _MANUAL_TRADE_KEYS:
+        raise ValueError("حقول نتيجة الصفقة غير صالحة")
+    trade_id = str(body.get("trade_id") or "").strip()
+    symbol = str(body.get("symbol") or "").strip().upper()
+    operator = str(body.get("operator") or "ASMAR").strip().upper()
+    note = str(body.get("note") or "").strip()
+    value = body.get("pnl_usd")
+    if not _MANUAL_TRADE_ID_RE.fullmatch(trade_id):
+        raise ValueError("معرّف الصفقة مطلوب: 3-100 حرف/رقم بلا فراغ")
+    if not re.fullmatch(r"[A-Z0-9]+_[A-Z0-9]+", symbol):
+        raise ValueError("رمز MEXC غير صالح")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("الربح/الخسارة الصافية يجب أن تكون رقمًا")
+    pnl_usd = float(value)
+    if pnl_usd != pnl_usd or pnl_usd in (float("inf"), float("-inf")):
+        raise ValueError("الربح/الخسارة الصافية يجب أن تكون رقمًا منتهيًا")
+    if not operator or len(operator) > 64:
+        raise ValueError("اسم المسجّل مطلوب")
+    if len(note) > 500:
+        raise ValueError("الملاحظة أطول من 500 حرف")
+    return {"trade_id": trade_id, "symbol": symbol, "pnl_usd": pnl_usd,
+            "note": note, "operator": operator}
+
+
+def _manual_trade_fingerprint(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"))
+
+
+def _manual_trade_connect() -> sqlite3.Connection:
+    MANUAL_TRADE_RESULTS_DB.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(MANUAL_TRADE_RESULTS_DB), timeout=3)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA busy_timeout=3000")
+    connection.execute(_MANUAL_TRADE_SCHEMA)
+    return connection
+
+
+def manual_trade_results(limit: int = 30) -> dict:
+    limit = min(200, max(1, int(limit)))
+    try:
+        with _MANUAL_TRADE_LOCK, _manual_trade_connect() as connection:
+            rows = [dict(row) for row in connection.execute(
+                "SELECT trade_id,symbol,pnl_usd,note,operator,closed_at,"
+                "recorded_at,delivery_status,delivery_error,attempts "
+                "FROM manual_trade_results ORDER BY recorded_at DESC LIMIT ?",
+                (limit,)).fetchall()]
+        return {"available": True, "results": rows}
+    except (OSError, sqlite3.Error) as exc:
+        return {"available": False, "results": [], "error": type(exc).__name__}
+
+
+def _manual_trade_existing(trade_id: str) -> dict | None:
+    try:
+        with _MANUAL_TRADE_LOCK, _manual_trade_connect() as connection:
+            row = connection.execute(
+                "SELECT trade_id,symbol,pnl_usd,note,operator,closed_at,"
+                "delivery_status,attempts FROM manual_trade_results "
+                "WHERE trade_id=?", (trade_id,)).fetchone()
+            return dict(row) if row is not None else None
+    except (OSError, sqlite3.Error):
+        return None
+
+
+def _manual_trade_matches(existing: dict, payload: dict) -> bool:
+    return (str(existing.get("symbol")) == payload["symbol"]
+            and float(existing.get("pnl_usd")) == payload["pnl_usd"]
+            and str(existing.get("note") or "") == payload["note"]
+            and str(existing.get("operator") or "") == payload["operator"])
+
+
+def _deliver_manual_trade_result(payload: dict) -> tuple[int, dict]:
+    now = time.time()
+    trade_id = payload["trade_id"]
+    try:
+        with _MANUAL_TRADE_LOCK, _manual_trade_connect() as connection:
+            existing = connection.execute(
+                "SELECT symbol,pnl_usd,note,operator,closed_at,delivery_status,attempts "
+                "FROM manual_trade_results WHERE trade_id=?", (trade_id,)).fetchone()
+            if existing is not None and str(existing["delivery_status"]) == "DELIVERED":
+                return 409, {"ok": False, "error": "DUPLICATE_TRADE_ID",
+                             "message": "هذه الصفقة مسجّلة ومُرسلة سابقًا — لم تتكرر"}
+            if existing is not None and not _manual_trade_matches(dict(existing), payload):
+                return 409, {"ok": False, "error": "TRADE_ID_PAYLOAD_MISMATCH",
+                             "message": "المعرّف موجود ببيانات مختلفة — لا يجوز تغيير نتيجة retry"}
+            event_closed_at = now if existing is None else float(existing["closed_at"])
+            if existing is None:
+                connection.execute(
+                    "INSERT INTO manual_trade_results "
+                    "(trade_id,symbol,pnl_usd,note,operator,closed_at,recorded_at,"
+                    "delivery_status,delivery_error,attempts) VALUES(?,?,?,?,?,?,?,?,?,1)",
+                    (trade_id, payload["symbol"], payload["pnl_usd"], payload["note"],
+                     payload["operator"], now, now, "PENDING", ""))
+            else:
+                connection.execute(
+                    "UPDATE manual_trade_results SET recorded_at=?,delivery_status='PENDING',"
+                    "delivery_error='',attempts=? WHERE trade_id=?",
+                    (now, int(existing["attempts"]) + 1, trade_id))
+            connection.commit()
+    except (OSError, sqlite3.Error) as exc:
+        return 500, {"ok": False, "error": "AUDIT_STORE_FAILED",
+                     "message": "تعذّر حفظ سجل النتيجة: " + type(exc).__name__}
+
+    event_payload = {
+        **payload,
+        "event_id": "manual-crypto-trade:" + trade_id,
+        "source_row_id": trade_id,
+        "source": "manual_dashboard",
+        "manual": True,
+        "closed_at": event_closed_at,
+        "reported_at": now,
+    }
+    status, raw = core_request(
+        "/api/events", method="POST",
+        body=json.dumps({"name": "platform.trade_event", "payload": event_payload},
+                        ensure_ascii=False).encode("utf-8"))
+    delivered = status == 200
+    delivery_status = "DELIVERED" if delivered else "UNCONFIRMED"
+    error = "" if delivered else raw.decode("utf-8", "replace")[:500]
+    try:
+        with _MANUAL_TRADE_LOCK, _manual_trade_connect() as connection:
+            connection.execute(
+                "UPDATE manual_trade_results SET delivery_status=?,delivery_error=? "
+                "WHERE trade_id=?", (delivery_status, error, trade_id))
+            connection.commit()
+    except (OSError, sqlite3.Error) as exc:
+        return 500, {"ok": False, "error": "AUDIT_UPDATE_FAILED",
+                     "message": "أُرسلت النتيجة لكن تعذّر ختم سجلها: " + type(exc).__name__}
+    if not delivered:
+        return 502, {"ok": False, "error": "CORE_DELIVERY_UNCONFIRMED",
+                     "message": "لم تتأكد النواة من استلام النتيجة؛ أعدها بنفس المعرّف بعد فحص النواة"}
+    return 200, {"ok": True, "stage": "delivered", "trade_id": trade_id,
+                 "message": "سُجلت النتيجة ووصلت محرك المخاطر — لن يقبل المعرّف مرتين"}
+
+
+def manual_trade_result(body: object) -> tuple[int, dict]:
+    if MARKET != "crypto":
+        return 404, {"ok": False, "message": "نتائج الصفقات اليدوية لقسم الكريبتو فقط"}
+    try:
+        payload = _manual_trade_payload(body)
+    except ValueError as exc:
+        return 400, {"ok": False, "message": str(exc)}
+    fingerprint = _manual_trade_fingerprint(payload)
+    token = str(body.get("confirm") or "") if isinstance(body, dict) else ""
+    now = time.time()
+    if not token:
+        existing = _manual_trade_existing(payload["trade_id"])
+        if existing and existing.get("delivery_status") == "DELIVERED":
+            return 409, {"ok": False, "error": "DUPLICATE_TRADE_ID",
+                         "message": "هذه الصفقة مسجّلة سابقًا — لم تتكرر"}
+        if existing and not _manual_trade_matches(existing, payload):
+            return 409, {"ok": False, "error": "TRADE_ID_PAYLOAD_MISMATCH",
+                         "message": "المعرّف موجود ببيانات مختلفة — استخدم نفس بيانات retry"}
+        with _MANUAL_TRADE_LOCK:
+            for key in [key for key, (_, stamp) in _PENDING_MANUAL_TRADE_RESULTS.items()
+                        if now - stamp > _MANUAL_TRADE_CONFIRM_TTL_S]:
+                _PENDING_MANUAL_TRADE_RESULTS.pop(key, None)
+            token = secrets.token_hex(16)
+            _PENDING_MANUAL_TRADE_RESULTS[token] = (fingerprint, now)
+        verb = "إعادة إرسال" if existing else "تسجيل"
+        sign = "ربح" if payload["pnl_usd"] > 0 else (
+            "خسارة" if payload["pnl_usd"] < 0 else "تعادل")
+        return 200, {"ok": True, "stage": "confirm", "token": token,
+                     "ttl_s": int(_MANUAL_TRADE_CONFIRM_TTL_S),
+                     "summary": "%s نتيجة %s · %s · %+.2f USD · المعرّف %s" % (
+                         verb, sign, payload["symbol"], payload["pnl_usd"],
+                         payload["trade_id"])}
+    with _MANUAL_TRADE_LOCK:
+        pending = _PENDING_MANUAL_TRADE_RESULTS.pop(token, None)
+    if pending is None or now - pending[1] > _MANUAL_TRADE_CONFIRM_TTL_S \
+            or not secrets.compare_digest(pending[0], fingerprint):
+        return 409, {"ok": False, "error": "INVALID_CONFIRMATION",
+                     "message": "التأكيد منتهي أو تغيّرت البيانات — أعد الطلب"}
+    return _deliver_manual_trade_result(payload)
 
 
 def _mexc_keys() -> dict:
@@ -1913,15 +2108,21 @@ class Handler(BaseHTTPRequestHandler):
             sub = p[len("/gov/mexc/"):]
             q = parse_qs(urlparse(self.path).query)
             try:
-                if sub == "status":
+                if sub == "trade-results":
+                    try:
+                        limit = min(200, max(1, int((q.get("limit") or ["30"])[0])))
+                    except ValueError:
+                        limit = 30
+                    self._json(200, manual_trade_results(limit))
+                elif sub == "status":
                     k = _mexc_keys()
                     masked = (k.get("api_key", "")[:4] + "…" + k.get("api_key", "")[-3:]) if k.get("api_key") else ""
                     self._json(200, {"configured": bool(k.get("api_key")), "key_masked": masked,
                                      "dry_run": not bool(k.get("live_enabled"))})
                 elif sub == "universe":
                     try:
-                        mem = json.loads((ROOT.parent / "crypto_runtime" / "var" /
-                                          "universe_membership.json").read_text(encoding="utf-8"))
+                        mem = json.loads((DATA_ROOT / "universe_membership.json")
+                                         .read_text(encoding="utf-8"))
                     except (OSError, ValueError):
                         mem = {}
                     self._json(200, {
@@ -2044,6 +2245,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"ok": False, "message": "الحمولة يجب أن تكون object"}); return
             sub = self.path[len("/gov/mexc/"):]
             import os as _os
+            if sub == "trade-result":
+                self._json(*manual_trade_result(body)); return
             if sub == "keys":
                 if body.get("clear"):
                     try: MEXC_KEYS_PATH.unlink()

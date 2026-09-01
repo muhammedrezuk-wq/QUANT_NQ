@@ -9,9 +9,11 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.0.2"
+ATOM_VERSION = "1.0.3"
 
-TARGET_CORE_LOGGER = "asmar.core"
+# Core owns this namespace and disables propagation to the root logger.
+# Attach here directly or atom errors never reach this collector.
+TARGET_CORE_LOGGER = "quant_nq.core"
 _MARKER = "_nq_719_error_log_handler"
 
 _LEVEL_AR = {"INFO": "INFO", "WARNING": "WARNING", "ERROR": "ERROR", "CRITICAL": "CRITICAL"}
@@ -101,7 +103,7 @@ class Atom(AtomBase):
         atom_id = getattr(record, "atom_id", None)
         if isinstance(atom_id, int):
             source = "ATOM %d" % atom_id
-        elif record.name.startswith("asmar"):
+        elif record.name.startswith(TARGET_CORE_LOGGER):
             source = "CORE"
         else:
             source = "EXTERNAL"

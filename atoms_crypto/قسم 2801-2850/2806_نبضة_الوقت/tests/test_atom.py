@@ -1,6 +1,6 @@
 import asyncio, os, sys, time
 from pathlib import Path as P
-sys.path.insert(0,str(P(__file__).resolve().parents[3]));sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0,str(P(__file__).resolve().parents[4]));sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import clock
 from core.contracts.atom import AtomContext,HealthState
 import importlib.util as I

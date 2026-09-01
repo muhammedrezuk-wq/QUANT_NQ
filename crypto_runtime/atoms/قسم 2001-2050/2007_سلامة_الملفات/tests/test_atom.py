@@ -1,6 +1,6 @@
 import asyncio, inspect, json, os, sys, tempfile
 from pathlib import Path as P
-sys.path.insert(0,str(P(__file__).resolve().parents[3]));sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0,str(P(__file__).resolve().parents[4]));sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.contracts.atom import AtomContext,HealthState
 import importlib.util as I
 sp=I.spec_from_file_location('a007',P(__file__).resolve().parents[1]/'atom.py');m=I.module_from_spec(sp);sys.modules['a007']=m;sp.loader.exec_module(m)

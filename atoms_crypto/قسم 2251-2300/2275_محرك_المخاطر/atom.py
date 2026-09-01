@@ -6,15 +6,16 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.6.0"
+ATOM_VERSION = "1.6.1"
 EVENT_IN_CANDIDATE = "crypto.decision.entry_candidate.state"
-EVENT_IN_TRADE = "platform.trade_event"      # دفاعيّ — لا مصدر حقيقيّ بعد (راجع الشرح)
+EVENT_IN_TRADE = "platform.trade_event"      # نتيجة يدوية مؤكدة من لوحة MEXC
 EVENT_IN_UNIVERSE = "crypto.universe.snapshot.state"
 EVENT_IN_MEDIAN_RANGE = "sense.median_range.state"
 EVENT_OUT = "crypto.decision.sized_entry.state"
 _RING_RANK = {"core": 0, "outer": 1, None: 2}
 
 _DAY_S = 86400.0
+_TRADE_ID_KEEP = 2000
 _GRADE_RANK = {"A": 0, "B": 1, None: 2}
 
 
@@ -23,7 +24,7 @@ def _f(value: Any) -> float | None:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    return result if result == result else None
+    return result if math.isfinite(result) else None
 
 
 class Atom(AtomBase):
@@ -76,8 +77,14 @@ class Atom(AtomBase):
         self._recent: dict[str, tuple[dict[str, Any], float]] = {}
         self._core_symbols: set[str] = set()
         self._outer_symbols: set[str] = set()
-        # دفاعيٌّ فقط — لا تعبئات حقيقية تصل بعد (لا تنفيذ في هذه الطبقة).
+        # نتائج الإغلاق تصل بإدخال أسمر اليدوي من لوحة MEXC. معرّف الصفقة
+        # إلزامي ومحفوظ في اللقطة كي لا يضاعف retry الخسارة أو الربح.
         self._daily: dict[str, Any] = {"day": None, "pnl_usd": 0.0, "consecutive_losses": 0}
+        self._processed_trade_ids: list[str] = []
+        self._processed_trade_id_set: set[str] = set()
+        self._trade_results = 0
+        self._duplicate_trade_results = 0
+        self._invalid_trade_results = 0
         self._updates = 0
         self._sized = 0
         self._halted_count = 0
@@ -120,18 +127,35 @@ class Atom(AtomBase):
                 or self._daily["pnl_usd"] <= -max_loss_usd)
 
     async def _on_trade(self, payload: dict[str, Any]) -> None:
-        """دفاعيٌّ: يفعَّل تلقائيًّا إن وُجد مصدر تعبئاتٍ حقيقيّ يومًا (يدويّ
-        مُبلَّغ أو الطبقة ٢) — لا أثر له اليوم (لا ناشر لهذا الحدث في نطاق
-        كريبتو بعد)."""
-        if not isinstance(payload, dict):
+        """نتيجة إغلاق مؤكدة يدويًا من لوحة MEXC؛ لا تنفيذ آلي هنا.
+
+        ``trade_id`` هو مفتاح المتانة: إعادة إرسال النتيجة نفسها لا تغيّر
+        الدفتر مرتين. الربح يصفر سلسلة الخسائر، والخسارة تزيدها، والتعادل لا
+        يُسمى خسارة ولا يمس السلسلة.
+        """
+        if not self._running or not isinstance(payload, dict):
             return
+        trade_id = str(payload.get("trade_id") or "").strip()
         pnl = _f(payload.get("pnl_usd"))
-        if pnl is None:
+        if not trade_id or pnl is None:
+            self._invalid_trade_results += 1
             return
+        if trade_id in self._processed_trade_id_set:
+            self._duplicate_trade_results += 1
+            return
+        self._processed_trade_ids.append(trade_id)
+        self._processed_trade_id_set.add(trade_id)
+        while len(self._processed_trade_ids) > _TRADE_ID_KEEP:
+            removed = self._processed_trade_ids.pop(0)
+            self._processed_trade_id_set.discard(removed)
         now = time.time()
         self._roll_day(now)
         self._daily["pnl_usd"] += pnl
-        self._daily["consecutive_losses"] = 0 if pnl > 0 else self._daily["consecutive_losses"] + 1
+        if pnl > 0:
+            self._daily["consecutive_losses"] = 0
+        elif pnl < 0:
+            self._daily["consecutive_losses"] += 1
+        self._trade_results += 1
 
     async def _on_universe(self, payload: dict[str, Any]) -> None:
         if not isinstance(payload, dict):
@@ -269,22 +293,37 @@ class Atom(AtomBase):
                    "gate_blocked": dict(self._gate_blocked),
                    "daily_pnl_usd": round(self._daily["pnl_usd"], 2),
                    "consecutive_losses": self._daily["consecutive_losses"],
+                   "trade_results": self._trade_results,
+                   "duplicate_trade_results": self._duplicate_trade_results,
+                   "invalid_trade_results": self._invalid_trade_results,
                    "recent_candidates": len(self._recent),
                    "age_s": (time.time() - self._last_at) if self._last_at else None}
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED", details=details)
         if self._last_at is None:
-            return HealthStatus(state=HealthState.DEGRADED, message="AWAITING_FIRST_CANDIDATE", details=details)
+            return HealthStatus(
+                state=HealthState.DEGRADED,
+                message="AWAITING_FIRST_CANDIDATE trade_results=%d daily_pnl=%+.2f consecutive=%d" % (
+                    self._trade_results, self._daily["pnl_usd"],
+                    self._daily["consecutive_losses"]),
+                details=details)
         if details["age_s"] is not None and details["age_s"] > self._max_age_s:
             return HealthStatus(state=HealthState.DEGRADED, message="CANDIDATES_STALE", details=details)
         return HealthStatus(state=HealthState.HEALTHY,
-                            message="updates=%d sized=%d halted=%d gate_blocked=%d" % (
-                                self._updates, self._sized, self._halted_count, sum(self._gate_blocked.values())),
+                            message=("updates=%d sized=%d halted=%d gate_blocked=%d "
+                                     "trade_results=%d daily_pnl=%+.2f consecutive=%d") % (
+                                self._updates, self._sized, self._halted_count,
+                                sum(self._gate_blocked.values()), self._trade_results,
+                                self._daily["pnl_usd"], self._daily["consecutive_losses"]),
                             details=details)
 
     async def snapshot(self) -> dict[str, Any]:
         return {"version": ATOM_VERSION, "updates": self._updates, "sized": self._sized,
-                "daily": dict(self._daily)}
+                "daily": dict(self._daily),
+                "processed_trade_ids": list(self._processed_trade_ids),
+                "trade_results": self._trade_results,
+                "duplicate_trade_results": self._duplicate_trade_results,
+                "invalid_trade_results": self._invalid_trade_results}
 
     async def restore(self, state: dict[str, Any]) -> None:
         if isinstance(state, dict):
@@ -293,3 +332,11 @@ class Atom(AtomBase):
             daily = state.get("daily")
             if isinstance(daily, dict):
                 self._daily = daily
+            ids = state.get("processed_trade_ids")
+            if isinstance(ids, list):
+                clean = [str(value) for value in ids if str(value).strip()][-_TRADE_ID_KEEP:]
+                self._processed_trade_ids = clean
+                self._processed_trade_id_set = set(clean)
+            self._trade_results = int(state.get("trade_results", 0))
+            self._duplicate_trade_results = int(state.get("duplicate_trade_results", 0))
+            self._invalid_trade_results = int(state.get("invalid_trade_results", 0))

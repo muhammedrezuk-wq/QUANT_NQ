@@ -39,8 +39,10 @@ def live_project(tmp_path: Path) -> Path:
     # import main` (البند ٢٩: المسار الأصل هو `governance\scripts`). نسخُ `scripts`
     # وحدها كان يقتل العمليّة الابنة بـModuleNotFoundError فيُقرأ «لم تُقلع النواة».
     # و`transport` مطلوب كذلك: البند ١١ جعله المخرج الشبكيّ الوحيد لـ608/620.
-    # و`security` طبقة الخزنة. أمّا `config` فالاختبار يكتبه بنفسه أدناه.
-    for name in ("core", "scripts", "governance", "transport", "security", "build_registry"):
+    # و`security` طبقة الخزنة، و`clock` مصدر الوقت الرسمي الذي تستورده Core.
+    # أمّا `config` فالاختبار يكتبه بنفسه أدناه.
+    for name in ("core", "scripts", "governance", "transport", "security",
+                 "clock", "build_registry"):
         shutil.copytree(PROJECT_ROOT / name, project / name, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__", "node_modules",
                                                       "*.db", "*.log"))

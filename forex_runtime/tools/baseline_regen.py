@@ -31,7 +31,7 @@
 
 الاستخدام:
     python tools/baseline_regen.py            # يولّد الأشجار الثلاث
-    python tools/baseline_regen.py --check    # تحقق فقط دون كتابة (للـCI)
+    python tools/baseline_regen.py --check    # يرفض أي stale/removed/added دون كتابة
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ SCOPES = [
      ROOT / "forex_runtime/atoms/قسم 001-050/007_سلامة_الملفات/manifest.yaml",
      ROOT / "forex_runtime/integrity_baseline.json"),
     (ROOT / "crypto_runtime",
-     ROOT / "crypto_runtime/atoms/2007_سلامة_الملفات/manifest.yaml",
+     ROOT / "crypto_runtime/atoms/قسم 2001-2050/2007_سلامة_الملفات/manifest.yaml",
      ROOT / "crypto_runtime/integrity_baseline.json"),
 ]
 
@@ -162,17 +162,24 @@ def regenerate(base: Path, manifest: Path, baseline_file: Path,
     digest = _scope_digest(cfg)
 
     old = json.loads(baseline_file.read_text(encoding="utf-8"))
-    stale = sum(1 for k, v in old.get("items", {}).items()
+    old_items = old.get("items", {})
+    stale = sum(1 for k, v in old_items.items()
                 if current.get(k) not in (None, v))
-    removed = sum(1 for k in old.get("items", {}) if k not in current)
+    removed = sum(1 for k in old_items if k not in current)
+    added = sum(1 for k in current if k not in old_items)
+    scope_changed = old.get("scope_digest") != digest
 
     print(f"[{base.name or 'root'}] عناصر الحرس الحالية: {len(current)} "
-          f"(الحد الأدنى {minimum}) — متقادم: {stale}، مزال: {removed}")
+          f"(الحد الأدنى {minimum}) — متقادم: {stale}، مزال: {removed}، "
+          f"مضاف: {added}، النطاق: {'متغيّر' if scope_changed else 'مطابق'}")
     if len(current) < minimum:
-        print(f"  ✗ عدد العناصر تحت الحد الأدنى — لا يُكتب خط الأساس")
+        print("  ✗ عدد العناصر تحت الحد الأدنى — لا يُكتب خط الأساس")
+        return False
+    if not write and (stale or removed or added or scope_changed):
+        print("  ✗ خط الأساس لا يطابق الشجرة — وضع --check لا يجدّد البصمات")
         return False
 
-    merged = _merge_preserving_order(old.get("items", {}), current)
+    merged = _merge_preserving_order(old_items, current)
     payload = {"format": "quant-nq-integrity-baseline",
                "scope_digest": digest,
                "items": merged}
@@ -189,8 +196,10 @@ def regenerate(base: Path, manifest: Path, baseline_file: Path,
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="إعادة توليد خطوط أساس السلامة بمنطق الذرّة 007/2007")
-    parser.add_argument("--check", action="store_true",
-                        help="تحقق فقط دون كتابة (رمز خروج صفر إذا كل شيء سليم)")
+    parser.add_argument(
+        "--check", action="store_true",
+        help="تحقق فقط: يفشل عند stale/removed/added أو تغيّر نطاق الحراسة",
+    )
     args = parser.parse_args()
 
     ok = True

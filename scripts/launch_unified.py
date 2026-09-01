@@ -1,7 +1,7 @@
-"""Launch both isolated market cores and both governance dashboards.
+"""Legacy/internal combined launcher; not the official launch contract.
 
-This launcher avoids Windows ``start`` quoting/encoding issues and does not
-start a second copy when a service is already listening on its port.
+The official contract is the pair of independent market buttons backed by
+``launch_market.py``.  This diagnostic launcher is retained for compatibility.
 """
 from __future__ import annotations
 

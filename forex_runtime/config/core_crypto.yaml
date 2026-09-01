@@ -2,7 +2,7 @@
 log_level: INFO
 log_json: true
 atoms_root: atoms_crypto
-snapshot_root: var/crypto/snapshots
+snapshot_root: var/snapshots
 
 event_bus:
   payload_mode: shared_readonly
@@ -11,7 +11,7 @@ event_bus:
   mailbox_max_events: 1024
 
 journal:
-  path: var/crypto/journal.jsonl
+  path: var/journal.jsonl
 
 discovery:
   rescan_interval_s: 5.0

@@ -13,7 +13,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-sys.path.insert(0, str(_Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(_Path(__file__).resolve().parents[4]))
 sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
 
 from core.contracts.atom import AtomContext  # noqa: E402
@@ -84,9 +84,9 @@ def _last(bus, event):
     return rows[-1] if rows else None
 
 
-async def test_ring_field_actually_set_core_vs_outer(tmp_dir):
+async def test_ring_field_actually_set_core_vs_outer(tmp_path):
     print("\n--- test_ring_field_actually_set_core_vs_outer ---")
-    atom, bus = await _new(tmp_dir, core_target=1, outer_target=1)
+    atom, bus = await _new(tmp_path, core_target=1, outer_target=1)
     tickers = [
         _ticker("BTC_USDT", amount24=100_000_000.0),   # الأعلى سيولة -> core
         _ticker("ETH_USDT", amount24=50_000_000.0),    # الثاني -> outer
@@ -111,9 +111,9 @@ async def test_ring_field_actually_set_core_vs_outer(tmp_dir):
     print("OK — BTC (الأعلى سيولة) دخل core فعلاً بعلامة ring صحيحة؛ ETH دخل outer")
 
 
-async def test_non_crypto_and_low_liquidity_rejected(tmp_dir):
+async def test_non_crypto_and_low_liquidity_rejected(tmp_path):
     print("\n--- test_non_crypto_and_low_liquidity_rejected ---")
-    atom, bus = await _new(tmp_dir, core_target=5, outer_target=5)
+    atom, bus = await _new(tmp_path, core_target=5, outer_target=5)
     tickers = [
         _ticker("BTC_USDT", amount24=100_000_000.0),
         _ticker("XAUUSDT", amount24=200_000_000.0),   # يحمل ماركر غير-كريبتو (XAU)
@@ -131,7 +131,7 @@ async def test_non_crypto_and_low_liquidity_rejected(tmp_dir):
     print("OK — غير الكريبتو (ماركر الرمز) وضعيف السيولة يُرفضان بسببهما الصريح")
 
 
-async def test_classification_uses_concept_plate_not_fragile_symbol_markers(tmp_dir):
+async def test_classification_uses_concept_plate_not_fragile_symbol_markers(tmp_path):
     """v1.2.0: عيّنتان حقيقيتان مأخوذتان حرفياً من MEXC الحيّة (تحقّق
     ٢٠٢٦-٠٨-٢٧ ضد كل الـ1024 عقد USDT/USDT فعلياً، لا افتراضاً):
     HMSTR_USDT (عملة حقيقية) كانت تُرفض بالخطأ لأن "MSTR" ماركر رمز
@@ -139,7 +139,7 @@ async def test_classification_uses_concept_plate_not_fragile_symbol_markers(tmp_
     يمرّ بالخطأ كـNATIVE_CRYPTO لأن "META" لم يكن بقائمة الماركرات
     أصلاً — من أصل ~390 سهماً/سلعة/عملة مُرمَّزة كانت تفلت بصمت."""
     print("\n--- test_classification_uses_concept_plate_not_fragile_symbol_markers ---")
-    atom, bus = await _new(tmp_dir, core_target=5, outer_target=5)
+    atom, bus = await _new(tmp_path, core_target=5, outer_target=5)
     tickers = [
         _ticker("BTC_USDT", amount24=100_000_000.0),
         _ticker("HMSTR_USDT", amount24=100_000_000.0),

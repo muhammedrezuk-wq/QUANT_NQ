@@ -40,6 +40,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.lock.txt
 
+      - name: Set up Node for the governance UI
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: governance/ui/package-lock.json
+
+      - name: Build the governance UI
+        working-directory: governance/ui
+        run: |
+          npm ci
+          npm run build
+
       - name: Link the unified atom trees
         run: python scripts/prepare_unified.py
 

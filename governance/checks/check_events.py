@@ -14,7 +14,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from build_registry.paths import RegistryAtomRoot
+from governance.control_adapter import _CONTROL_EVENTS
 ATOMS = RegistryAtomRoot(ROOT)
+CRYPTO_ATOMS = ROOT / "atoms_crypto"
 
 # هذه مصادر خارجية اختيارية. غياب ناشرها ليس انقطاعًا في مسار BTCUSD الحالي.
 INTENTIONALLY_UNUSED_EVENTS = {
@@ -114,6 +116,35 @@ def main() -> int:
     if missing_real:
         problems.append("القارئ الحقيقي 611 لم يعد ينشر platform.trade_event: " + ", ".join(map(str, sorted(missing_real))))
 
+    # عقد كريبتو مختلف ومقصود: لا قارئ تعبئات آلي ولا ذرّة ناشرة. المصدر
+    # الخارجي الوحيد هو إدخال لوحة MEXC المؤكد مرتين، والمدقق والمسجّل خادميًا.
+    crypto_trade_subscribers: set[int] = set()
+    for manifest in sorted(CRYPTO_ATOMS.glob("*/*/manifest.yaml")):
+        try:
+            data = yaml.safe_load(manifest.read_text(encoding="utf-8-sig")) or {}
+            if "platform.trade_event" in (data.get("subscribes") or []):
+                crypto_trade_subscribers.add(int(data["id"]))
+        except Exception as exc:  # noqa: BLE001
+            problems.append(f"تعذّر فحص عقد نتيجة كريبتو في {manifest.relative_to(ROOT)}: {exc}")
+    if 2275 not in crypto_trade_subscribers:
+        problems.append("2275 لم تعد تستمع platform.trade_event — حدّا الخسارة معطّلان")
+    crypto_allowed = _CONTROL_EVENTS.get("crypto", frozenset())
+    forex_allowed = _CONTROL_EVENTS.get("forex", frozenset())
+    if "platform.trade_event" not in crypto_allowed:
+        problems.append("محوّل تحكم كريبتو لا يسمح بنتيجة الصفقة اليدوية")
+    if "platform.trade_event" in forex_allowed:
+        problems.append("تسرّب مسار نتيجة كريبتو اليدوية إلى نطاق الفوركس")
+    server_source = (ROOT / "governance/server.py").read_text(encoding="utf-8")
+    ui_source = (ROOT / "governance/ui/src/sections/Mexc.tsx").read_text(encoding="utf-8")
+    server_contract = (
+        "manual_trade_result", "MANUAL_TRADE_RESULTS_DB", "DUPLICATE_TRADE_ID",
+        '"name": "platform.trade_event"', '"pnl_usd"', '"confirm"',
+    )
+    if not all(token in server_source for token in server_contract):
+        problems.append("ناشر نتيجة كريبتو اليدوي فقد التحقق/التأكيد/التدقيق/منع التكرار")
+    if not all(token in ui_source for token in ("/gov/mexc/trade-result", "prepared.token", "window.confirm")):
+        problems.append("لوحة MEXC فقدت مسار التأكيدين لنتيجة الصفقة")
+
     no_publisher = sorted(event for event in subscribers if not publishers[event])
     unexpected_no_publisher = [
         event for event in no_publisher if event not in OPTIONAL_EXTERNAL_INPUTS
@@ -125,6 +156,7 @@ def main() -> int:
     print(f"الأحداث المنشورة: {len(publishers)}")
     print(f"الأحداث المسموعة: {len(subscribers)}")
     print("الروابط الأساسية المفحوصة: %d" % len(REQUIRED_LINKS))
+    print("نتيجة كريبتو اليدوية: لوحة MEXC → platform.trade_event → مستمعون %s" % sorted(crypto_trade_subscribers))
     print("الأحداث غير المستخدمة بقرار صريح: %s" % ", ".join(
         f"{event}={classification}" for event, classification in INTENTIONALLY_UNUSED_EVENTS.items()))
     print("مصادر خارجية اختيارية بلا ناشر: %s" % (", ".join(no_publisher) if no_publisher else "لا شيء"))

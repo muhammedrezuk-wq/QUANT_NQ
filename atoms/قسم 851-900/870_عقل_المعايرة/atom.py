@@ -33,7 +33,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.0.0"
+ATOM_VERSION = "1.0.1"
 
 EVENT_EXPERIMENT = "experiment.state"
 EVENT_DRIFT = "drift.vector.state"
@@ -105,6 +105,11 @@ class Atom(AtomBase):
         self._dirty = False
         self._since_publish = 0
         self._seen = 0
+        # Inputs outside this atom's shadow-approval contract stay visible:
+        # unrelated experiment states are ignored deliberately; malformed
+        # approvals are rejected.  Neither category may disappear silently.
+        self._ignored_status = 0
+        self._invalid = 0
         self._emitted = 0
         self._applied = 0
         self._rolled_back = 0
@@ -222,13 +227,21 @@ class Atom(AtomBase):
 
     async def _on_experiment(self, payload: dict[str, Any]) -> None:
         """موافقة الحاكم 850 بسقف الظل تفتح تجربة تقييم — لا تطبيق هنا."""
-        if not self._running or not isinstance(payload, dict):
+        if not self._running:
+            return
+        if not isinstance(payload, dict):
+            self._invalid += 1
+            self._dirty = True
             return
         if str(payload.get("status")) != "APPROVED_FOR_SHADOW":
+            self._ignored_status += 1
+            self._dirty = True
             return
         experiment_id = str(payload.get("experiment_id") or "")
         target = str(payload.get("target") or "")
         if not experiment_id or not target:
+            self._invalid += 1
+            self._dirty = True
             return
         self._seen += 1
         drift = self._drift.get(target, {})
@@ -333,10 +346,12 @@ class Atom(AtomBase):
             "waiting_permission": [r for r in recent if r["status"] == ST_WAITING],
             "journal_recent": recent,
             "applied": self._applied, "rolled_back": self._rolled_back,
+            "ignored_status": self._ignored_status, "invalid": self._invalid,
             "store_error": self._store_error})
 
     async def snapshot(self) -> dict[str, Any]:
         return {"version": ATOM_VERSION, "seen": self._seen,
+                "ignored_status": self._ignored_status, "invalid": self._invalid,
                 "applied": self._applied, "rolled_back": self._rolled_back,
                 "open": [{**{k: v for k, v in row.items() if k != "journal_id"},
                           "journal_id": journal_id}
@@ -346,6 +361,8 @@ class Atom(AtomBase):
         if not isinstance(state, dict):
             return
         self._seen = int(state.get("seen") or 0)
+        self._ignored_status = int(state.get("ignored_status") or 0)
+        self._invalid = int(state.get("invalid") or 0)
         self._applied = int(state.get("applied") or 0)
         self._rolled_back = int(state.get("rolled_back") or 0)
         self._open = {}
@@ -357,7 +374,8 @@ class Atom(AtomBase):
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED")
         details = {"mode": self._mode(), "open": len(self._open),
-                   "seen": self._seen, "applied": self._applied,
+                   "seen": self._seen, "ignored_status": self._ignored_status,
+                   "invalid": self._invalid, "applied": self._applied,
                    "rolled_back": self._rolled_back,
                    "store_error": self._store_error}
         if self._store_error:

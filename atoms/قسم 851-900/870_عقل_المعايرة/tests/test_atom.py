@@ -86,3 +86,18 @@ async def test_invalid_restore_does_not_create_calibration_action(tmp_path: Path
     await atom.restore({"invalid": True})
     await atom._on_second({})
     assert bus.events_named("recalibration.applied") == []
+
+
+@pytest.mark.asyncio
+async def test_experiment_inputs_never_disappear_silently(tmp_path: Path) -> None:
+    atom, bus = await make_atom(tmp_path)
+    await atom._on_experiment({"status": "PENDING"})
+    await atom._on_experiment({"status": "APPROVED_FOR_SHADOW", "target": "analysis"})
+
+    health = await atom.health_check()
+    assert health.details["ignored_status"] == 1
+    assert health.details["invalid"] == 1
+    state = await atom.snapshot()
+    assert state["ignored_status"] == 1
+    assert state["invalid"] == 1
+    assert bus.events_named("recalibration.applied") == []

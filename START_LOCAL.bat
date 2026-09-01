@@ -1,4 +1,5 @@
 @echo off
+REM Legacy/internal combined launcher. Official launch uses the two market buttons.
 setlocal
 cd /d "%~dp0"
 

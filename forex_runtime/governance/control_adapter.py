@@ -14,6 +14,9 @@ _CONTROL_EVENTS: dict[str, frozenset[str]] = {
     "crypto": frozenset({
         "crypto.universe.override.command",
         "crypto.universe.scan.requested",
+        # Owner-confirmed manual close result.  The governance endpoint
+        # validates, audits, and deduplicates it before it reaches Core.
+        "platform.trade_event",
     }),
     "forex": frozenset(),
 }

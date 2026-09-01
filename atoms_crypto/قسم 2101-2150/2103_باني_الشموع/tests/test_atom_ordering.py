@@ -1,10 +1,10 @@
-# اختبارات أمان الترتيب للذرة 103 (الإصدار 4.1.0) — تدقيق 2026-08-22.
+# اختبارات أمان الترتيب للذرة 2103 (الإصدار 5.3.0) — تدقيق 2026-09-01.
 # تغطي: out-of-order (تكة متأخرة)، duplicate، late-period (إعادة فتح فترة مغلقة)،
 # و fabric_gap awareness.
 import asyncio, importlib.util, sys
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[3]
+root = Path(__file__).resolve().parents[4]
 folder = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(root))
 spec = importlib.util.spec_from_file_location('_t103_ord', folder / 'atom.py')
@@ -75,7 +75,7 @@ async def test_duplicate_dropped():
     await a._on_tick({**base, 'bid': 100, 'ask': 101, 'timestamp': 1})
     assert a.duplicates_dropped == 1, a.duplicates_dropped
     # tick_count لم يتضخم
-    cur = a._candles[('A', 'BR', 'NQ')]
+    cur = a._candles[('A', 'BR', 'NQ', 60.0)]
     assert cur['tick_count'] == 1, cur['tick_count']
     print('ok duplicate_dropped')
 
@@ -92,7 +92,8 @@ async def test_late_period_dropped():
     closed = [p for n, p in b.e if n == m.EVENT_OUT]
     assert len(closed) == 1, len(closed)
     assert a.late_dropped == 1, a.late_dropped
-    assert ('A', 'BR', 'NQ') in a._candles and a._candles[('A', 'BR', 'NQ')]['period_start'] == 60
+    frame_key = ('A', 'BR', 'NQ', 60.0)
+    assert frame_key in a._candles and a._candles[frame_key]['period_start'] == 60
     print('ok late_period_dropped')
 
 
