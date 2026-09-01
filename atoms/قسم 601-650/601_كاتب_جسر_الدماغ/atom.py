@@ -8,7 +8,7 @@ import time
 from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "4.2.0"
+ATOM_VERSION = "4.3.0"
 # v4.2.0 (2026-08-25): the result cursor is DURABLE. Measured gap: a cold
 # boot baselined the cursor at MAX(done_at,id), so every EA result written
 # while python was down (including the EA's own STALE_ON_STARTUP /
@@ -52,6 +52,7 @@ _SCHEMA = """CREATE TABLE IF NOT EXISTS commands (
  price REAL, stop_loss REAL, take_profit REAL, ticket INTEGER,
  trail_dist REAL, trail_step REAL, params_json TEXT,
  magic INTEGER NOT NULL DEFAULT 0, account_id TEXT NOT NULL DEFAULT '', project_build_id TEXT,
+ execution_mode TEXT NOT NULL DEFAULT 'PAPER',
  status TEXT NOT NULL DEFAULT 'PENDING', result TEXT,
  created_at REAL NOT NULL, taken_at REAL, done_at REAL)"""
 _INDEX = "CREATE INDEX IF NOT EXISTS idx_cmd_status ON commands(status, id)"
@@ -62,8 +63,8 @@ _DISPLAY_SCHEMA = """CREATE TABLE IF NOT EXISTS display (
 _DISPLAY_SEED = "INSERT OR IGNORE INTO display (id) VALUES (1)"
 _HEARTBEAT_SQL = "UPDATE display SET updated_at = ? WHERE id = 1"
 _INSERT_SQL = ("INSERT INTO commands (request_id, action, symbol, side, volume,"
-               " price, stop_loss, take_profit, ticket, params_json, magic, account_id, project_build_id, status, created_at)"
-               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)")
+               " price, stop_loss, take_profit, ticket, params_json, magic, account_id, project_build_id, execution_mode, status, created_at)"
+               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)")
 _CANCEL_SQL = ("UPDATE commands SET status='CANCELLED', result='EMERGENCY_HALT',"
                " done_at=? WHERE status='PENDING' AND account_id=?")
 
@@ -179,6 +180,8 @@ class Atom(AtomBase):
                     conn.execute("ALTER TABLE commands ADD COLUMN account_id TEXT NOT NULL DEFAULT ''")
                 if not _has_column(conn, "commands", "project_build_id"):
                     conn.execute("ALTER TABLE commands ADD COLUMN project_build_id TEXT")
+                if not _has_column(conn, "commands", "execution_mode"):
+                    conn.execute("ALTER TABLE commands ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'PAPER'")
                 conn.execute(_INDEX)
                 conn.execute(_DISPLAY_SCHEMA)
                 conn.execute(_DISPLAY_SEED)
@@ -295,11 +298,14 @@ class Atom(AtomBase):
             # T1 alert, tonight's style: the command still goes out (nothing is
             # blocked here -- 552 owns that verdict), but the gap is counted.
             self.identity_incomplete += 1
+        exec_mode = str(payload.get("execution_mode") or os.environ.get("QUANT_EXECUTION_MODE") or "PAPER").upper()
+        if exec_mode not in ("PAPER", "LIVE"):
+            exec_mode = "PAPER"
         row = (request_id, action,
                str(symbol), side, payload.get("volume"), payload.get("reference_price"),
                payload.get("stop_loss"), payload.get("take_profit"), payload.get("ticket"),
                self._metadata_json(payload), command_magic, str(account_id),
-               str(payload.get("project_build_id") or PROJECT_BUILD_ID), time.time())
+               str(payload.get("project_build_id") or PROJECT_BUILD_ID), exec_mode, time.time())
         try:
             await asyncio.to_thread(self._insert_command, row)
             self.written_count += 1

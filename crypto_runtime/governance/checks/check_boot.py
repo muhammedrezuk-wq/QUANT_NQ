@@ -88,7 +88,13 @@ def main() -> int:
               f"crypto={len(registry.crypto_all)} (المتوقع {EXPECTED_CRYPTO_ROOT}) — تغيير صامت بالمانيفستات؟")
         return 1
 
-    temp = tempfile.TemporaryDirectory(prefix="quant_nq_boot_")
+    # ٢٠٢٦-٠٩-٠١ (مقيس): كان الفحص يسقط بـ`PermissionError [WinError 32]` عند
+    # `temp.cleanup()` — لا لأنّ الإقلاع فشل، بل لأنّ العمليّة الابنة لم تكن قد
+    # حرّرت مقبض `bridge.db` بعد على ويندوز. فيخرج الفحص بالرمز 1 بينما
+    # الإقلاع نجح فعلًا: بوّابة تسقط لسبب لا علاقة له بما تفحصه، وهو أسوأ
+    # من ألّا تفحص — لأنّها تُدرَّب على التجاهل. ملفّ مؤقّت متروك لا يُسقط بوّابة.
+    temp = tempfile.TemporaryDirectory(prefix="quant_nq_boot_",
+                                       ignore_cleanup_errors=True)
     env = dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
     env["NQ_BRIDGE_DB"] = str(Path(temp.name) / "bridge.db")
     env["NQ_CTRADER_FEED"] = str(Path(temp.name) / "ctrader.jsonl")

@@ -369,10 +369,10 @@ def _start_api(registry, event_bus, metrics, journal, latest_report_box, api_cfg
     if local_mode:
         api_key = None
     if api_key is None and host != "127.0.0.1":
-        log.warning(
-            "⚠️ api_key غير مُعدَّة و host=%s (ليس 127.0.0.1) — المادة 28 (Secure by Default) "
-            "توصي بشدة بتعيين api_key بـcore.yaml لأي ربط متاح خارج الجهاز المحلي.", host,
+        log.error(
+            "❌ [CRITICAL] api_key غير مُعدَّة و host=%s (ليس 127.0.0.1) — مانع الأمان (Article 28) يمنع التشغيل الخارجي بلا مفتاح سري!", host,
         )
+        raise RuntimeError("CRITICAL SECURITY VIOLATION: Cannot bind core API to non-loopback host without an API key (QUANT_CORE_API_KEY / QUANT_GOV_API_KEY).")
     app = create_app(
         registry, event_bus, metrics, journal,
         get_boot_report=lambda: latest_report_box["report"],

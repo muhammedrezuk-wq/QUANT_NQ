@@ -26,7 +26,7 @@
 //|  والقرار هناك — فلا يُعاد تصريف هذا الملف حين يتغيّر الذكاء.        |
 //+------------------------------------------------------------------+
 #property copyright "محمد رزوق"
-#property version   "3.10"
+#property version   "3.11"
 #property description "QUANT_NQ — الإكسبرت الواحد الشامل (v3.10 · لوحة عربية كاملة · التذكرة تُكتب في نتيجة الأمر)"
 #property strict
 
@@ -84,6 +84,9 @@ input int    InpSystemTimeout = 30;              // ثوانٍ بلا إشارة
 input group "??? ? الأمان ???"
 // أقصى عمر لأمر PENDING قبل اعتباره بائتًا. بايثون يكتب والذراع ميتة =
 // طابور يتراكم؛ وبلا هذا الحدّ يُنفَّذ عند العودة بأسعار ماتت.
+input group "=== 🛡️ وضع التنفيذ (Execution Mode) ==="
+input string InpExecutionMode = "PAPER"; // PAPER أو LIVE
+
 input int    InpMaxCmdAgeSec  = 2;
 // OPEN بلا وقف خسارة = مركز عارٍ على عقد آجل. النظام يبني الوقف دائمًا.
 input bool   InpRequireStop   = true;
@@ -347,6 +350,7 @@ void MigrateSchema()
    AddColumn("symbol_specs", "filling_mode", "INTEGER");
    AddColumn("account",      "margin_mode",  "INTEGER");
    AddColumn("positions",    "commission",   "REAL");
+   AddColumn("commands", "execution_mode", "TEXT NOT NULL DEFAULT 'PAPER'");
 }
 
 bool BuildSchema()
@@ -402,6 +406,7 @@ bool BuildSchema()
       "price REAL, stop_loss REAL, take_profit REAL, ticket INTEGER,"
       "trail_dist REAL, trail_step REAL, params_json TEXT,"
       "magic INTEGER NOT NULL DEFAULT 0, account_id TEXT NOT NULL DEFAULT '', project_build_id TEXT,"
+      "execution_mode TEXT NOT NULL DEFAULT 'PAPER',"
       "status TEXT NOT NULL DEFAULT 'PENDING', result TEXT,"
       "created_at REAL NOT NULL, taken_at REAL, done_at REAL);")) return false;
    DatabaseExecute(DbHandle,
@@ -1241,11 +1246,11 @@ void PumpCommands()
 
    int req = DatabasePrepare(DbHandle,
       "SELECT id, request_id, action, symbol, side, volume, price, stop_loss,"
-      " take_profit, ticket, params_json, magic, account_id, project_build_id, created_at"
+      " take_profit, ticket, params_json, magic, account_id, project_build_id, execution_mode, created_at"
       " FROM commands WHERE status='PENDING' AND account_id='" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "' ORDER BY id LIMIT 50;");
    if(req == INVALID_HANDLE) return;
 
-      long   ids[];    string rids[], acts[], syms[], sides[], params[], accounts[], builds[];
+      long   ids[];    string rids[], acts[], syms[], sides[], params[], accounts[], builds[], exec_modes[];
       double vols[], prices[], sls[], tps[], creats[];
       long   tickets[], magics[];
    int    n = 0;
@@ -1256,7 +1261,7 @@ void PumpCommands()
       ArrayResize(syms,n+1);  ArrayResize(sides,n+1); ArrayResize(vols,n+1);
       ArrayResize(prices,n+1);ArrayResize(sls,n+1);   ArrayResize(tps,n+1);
       ArrayResize(tickets,n+1); ArrayResize(params,n+1); ArrayResize(magics,n+1);
-      ArrayResize(accounts,n+1); ArrayResize(builds,n+1); ArrayResize(creats,n+1);
+      ArrayResize(accounts,n+1); ArrayResize(builds,n+1); ArrayResize(exec_modes,n+1); ArrayResize(creats,n+1);
       DatabaseColumnLong  (req, 0, ids[n]);
       DatabaseColumnText  (req, 1, rids[n]);
       DatabaseColumnText  (req, 2, acts[n]);
@@ -1271,7 +1276,8 @@ void PumpCommands()
       DatabaseColumnLong  (req,11, magics[n]);
       DatabaseColumnText  (req,12, accounts[n]);
       DatabaseColumnText  (req,13, builds[n]);
-      DatabaseColumnDouble(req,14, creats[n]);
+      DatabaseColumnText  (req,14, exec_modes[n]);
+      DatabaseColumnDouble(req,15, creats[n]);
       n++;
    }
    DatabaseFinalize(req);
@@ -1330,16 +1336,33 @@ void PumpCommands()
       }
       if(claimed == 0) { CmdReceived--; continue; }
 
+      string cmd_exec_mode = exec_modes[i];
+      if(cmd_exec_mode == "") cmd_exec_mode = "PAPER";
+      bool is_paper = (InpExecutionMode != "LIVE" || cmd_exec_mode == "PAPER");
+
       string result = "";
       ulong  done_ticket = 0;
-      StringToUpper(acts[i]); StringToUpper(sides[i]);
-      bool ok = RunCommand(acts[i], syms[i], sides[i], vols[i], prices[i],
-                           sls[i], tps[i], (ulong)tickets[i], rids[i], params[i],
-                           accounts[i], magics[i], result, done_ticket);
+      bool ok = false;
 
-      if(ok) CmdDone++;
-      else if(StringFind(result, "NOT_SUPPORTED") >= 0) CmdUnsupported++;
-      else { CmdFailed++; LastError = ArResult(result); LastErrorAt = TimeCurrent(); PushErr(ArResult(result)); }
+      if(is_paper)
+      {
+         ok = true;
+         result = "PAPER_SKIPPED";
+         done_ticket = 0;
+         CmdDone++;
+         PrintFormat("🛡️ [PAPER] %s %s تخطّي التنفيذ الحي (PAPER_MODE)", acts[i], syms[i]);
+      }
+      else
+      {
+         StringToUpper(acts[i]); StringToUpper(sides[i]);
+         ok = RunCommand(acts[i], syms[i], sides[i], vols[i], prices[i],
+                              sls[i], tps[i], (ulong)tickets[i], rids[i], params[i],
+                              accounts[i], magics[i], result, done_ticket);
+
+         if(ok) CmdDone++;
+         else if(StringFind(result, "NOT_SUPPORTED") >= 0) CmdUnsupported++;
+         else { CmdFailed++; LastError = ArResult(result); LastErrorAt = TimeCurrent(); PushErr(ArResult(result)); }
+      }
 
       // v3.10: التذكرة تُكتب مع النتيجة عند توفّرها — بايثون (601←520)
       // يربط بها الساق المرغوبة فتصير المطابقة بعد التنفيذ حقيقية.

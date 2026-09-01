@@ -70,3 +70,21 @@ jobs:
 
       - name: Atom suite (233 forex atoms)
         run: python scripts/test_atoms.py
+
+      # Measured 2026-09-01: the merge gate ran the forex suite only, so the
+      # 80 crypto atoms — half the product — could break with a green CI.
+      - name: Atom suite (80 crypto atoms)
+        run: python -m pytest -q -p no:randomly atoms_crypto
+
+      # Counting is part of the gate: a suite that silently collects fewer
+      # atoms than the release contract declares is a pass that proves nothing.
+      - name: Crypto atom count must match the release contract
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          root = pathlib.Path("atoms_crypto")
+          found = sorted(p.parent.name for p in root.rglob("manifest.yaml"))
+          if len(found) != 80:
+              sys.exit(f"crypto atoms: expected 80, found {len(found)}")
+          print(f"crypto atoms: {len(found)} — matches the release contract")
+          PY
