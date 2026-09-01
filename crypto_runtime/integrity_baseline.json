@@ -477,8 +477,8 @@
     "dir:atoms/::قسم 2251-2300/2273_محكمة_الزناد/atom.py": "ead671c72b3747d6aaf156a501b3254fe13f578a328e0bd5b0e921bdf10ddba4",
     "dir:atoms/::قسم 2251-2300/2273_محكمة_الزناد/manifest.yaml": "f9c792cd3f20c99961034efbd26ce28729b3b582028be426697928f0e1f72176",
     "dir:atoms/::قسم 2251-2300/2273_محكمة_الزناد/الشرح.md": "fda0c1085bcfa6caf704b9946d2372b86509dddcfbc3bfd5115496ecdaa674bf",
-    "dir:atoms/::قسم 2251-2300/2274_مُصنِّف_الدخول/atom.py": "2764699427540c75079f402966e5e4105354558b52013a05a3fc49824714ad2f",
-    "dir:atoms/::قسم 2251-2300/2274_مُصنِّف_الدخول/manifest.yaml": "9ab62725d8519f02b9d59d514b9051d0a91128fe31032903fbb4453daa8e7711",
+    "dir:atoms/::قسم 2251-2300/2274_مُصنِّف_الدخول/atom.py": "e30549bbbaebec010d961f2e9a54a0ea17aab193f5815cd529844df24db1d5b4",
+    "dir:atoms/::قسم 2251-2300/2274_مُصنِّف_الدخول/manifest.yaml": "29f2352aba416f3b4d0ee524b0a4b9099fcda90ad108ac4a5d5b58ba685b29ce",
     "dir:atoms/::قسم 2251-2300/2274_مُصنِّف_الدخول/الشرح.md": "a31894cea4114bf2901e8c3904f50f52ee42f187ca5ffa183cd7f1438872f35b",
     "dir:atoms/::قسم 2251-2300/2275_محرك_المخاطر/atom.py": "6fca78a5170003c6d2eb6d0fef1f6a7b9f3b25a69f5b48ae694c2456f76a3821",
     "dir:atoms/::قسم 2251-2300/2275_محرك_المخاطر/manifest.yaml": "d902efe0bd2b6bb7df88d559380a0b77077632d071200f09207e5a5da47c9560",
@@ -486,8 +486,8 @@
     "dir:atoms/::قسم 2251-2300/2276_محرك_القرار/atom.py": "51c52d37a7e0dbde3177bc320fe666e634563eb6f14b23c096cca8ed607f75d1",
     "dir:atoms/::قسم 2251-2300/2276_محرك_القرار/manifest.yaml": "8fb7404d5adf9d1ed120c54a5930770f1e90167684d24deeee3eb8e1908ea3c5",
     "dir:atoms/::قسم 2251-2300/2276_محرك_القرار/الشرح.md": "44d8e566b0167e38a3f3e4c90b925da648f8783ade93680daed9e889651510e8",
-    "dir:atoms/::قسم 2251-2300/2277_بطاقة_الإشارة/atom.py": "3dbc81d68fafaa3caf68a1ccf424611dbb5c7f99798131cb173cae085b47d07a",
-    "dir:atoms/::قسم 2251-2300/2277_بطاقة_الإشارة/manifest.yaml": "64aad3524ae5a8b12bef634b7fe7e1564f7db7e4851c2886c7d0bc4bc53954d3",
+    "dir:atoms/::قسم 2251-2300/2277_بطاقة_الإشارة/atom.py": "14caaa4eda8e8ca39570e759077cc4886a9a2c7a401af33eacc83692aeefa7a7",
+    "dir:atoms/::قسم 2251-2300/2277_بطاقة_الإشارة/manifest.yaml": "3bd9d62b1d6f6fb2ff081013a2765d2f4036af75a8eed8244c9d65c17805d5a4",
     "dir:atoms/::قسم 2251-2300/2277_بطاقة_الإشارة/الشرح.md": "7415b3c0b4e90c9ca3dae13c8db416375a81de9dadef1cb7dc18ee486ffd6635",
     "dir:atoms/::قسم 2601-2650/2615_جسر_مصدر_الأخبار/atom.py": "e6ff3b325fb6efa841ef0dd9e653580f9808720770918c2e2f5fe5ad7d47fa6f",
     "dir:atoms/::قسم 2601-2650/2615_جسر_مصدر_الأخبار/manifest.yaml": "4a7931ed50a7ddb08de2de4af59a004871983bed08a126baaeea6877e0465490",
@@ -644,7 +644,8 @@
     "dir:governance/::ui/src/sections/Senses.tsx": "511682d2b350e45db19599ef423af1bb11dc2802b332e4456888f04bca119bce",
     "dir:governance/::ui/src/sections/Universe.tsx": "840fda269b94c053701dcd75bfa1ac8cc9fefcb2e2393242b6f4bff123d150f8",
     "dir:config/::universe_overrides.json": "97f497394321c01c57e71df43b495fdef7f2cc8e47cdf4da3b54df564d47ec9e",
-    "dir:atoms/::قسم 2251-2300/2272_كسور_الأمس/tests/test_atom.py": "9a814dca7c2446c76efcd824d6da736fc40158aed7f73e9c9febd3320655a92a",
-    "dir:atoms/::قسم 2251-2300/2274_مُصنِّف_الدخول/tests/test_atom.py": "dfe1b0eeef82160fd9ee22331c52a4e01972446ffa395b52d97a2652de158e56"
+    "dir:atoms/::قسم 2251-2300/2272_كسور_الأمس/tests/test_atom.py": "1555f7513dead3bd06157b0428da24ff394d419fdfbb2c23541b99c9b50d6a72",
+    "dir:atoms/::قسم 2251-2300/2274_مُصنِّف_الدخول/tests/test_atom.py": "b39f072fc2e1100026b6588b84617524458cdf1a3871c48835911c065d57283f",
+    "dir:atoms/::قسم 2251-2300/2277_بطاقة_الإشارة/tests/test_atom.py": "1f7e0a216f5d035f1f074cbc3a99c1a4d0afff3833abf44778d02c88b4dd4b5f"
   }
 }

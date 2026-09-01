@@ -5,7 +5,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.2.1"
+ATOM_VERSION = "1.3.0"
 EVENT_IN_SIZED = "crypto.decision.sized_entry.state"
 EVENT_IN_UNIVERSE = "crypto.universe.snapshot.state"
 EVENT_IN_WALLS = "sense.walls.state"
@@ -47,6 +47,11 @@ class Atom(AtomBase):
         self._time_stop_class1_candles = 11
         self._time_stop_class2_candles = 6
         self._max_age_s = 90.0
+        # عمر المدخل بوّابةً — منفصل عن `max_age_s` الذي يبقى شارة صحّة.
+        # فصلُهما مقصود: الشارة تصف حالة الذرّة، والبوّابة تحكم على مدخلٍ
+        # بعينه. خلطهما يجعل تشديد أحدهما يكذب على الآخر.
+        self._input_max_age_s = 30.0
+        self._rejected = {"stale_input": 0, "price_beyond_stop": 0}
         self._tick: dict[str, float] = {}          # symbol -> price_tick_size
         self._spread_price: dict[str, float] = {}  # symbol -> spread بوحدة السعر
         self._walls: dict[str, dict[str, Any]] = {}
@@ -65,6 +70,7 @@ class Atom(AtomBase):
         self._time_stop_class1_candles = int(c.get("time_stop_class1_candles", 11))
         self._time_stop_class2_candles = int(c.get("time_stop_class2_candles", 6))
         self._max_age_s = float(c.get("max_age_s", 90.0))
+        self._input_max_age_s = float(c.get("input_max_age_s", 30.0))
         context.subscribe(EVENT_IN_SIZED, self._on_sized)
         context.subscribe(EVENT_IN_UNIVERSE, self._on_universe)
         context.subscribe(EVENT_IN_WALLS, self._on_walls)
@@ -264,9 +270,37 @@ class Atom(AtomBase):
             self._skipped += 1
             return
 
+        # ── بوّابة العمر — فعليّة لا شارة ────────────────────────────────
+        # المقيس ٢٠٢٦-٠٩-٠١: `max_age_s` في عشر ذرّات مقروءٌ في
+        # `health_check()` **حصرًا** — يغيّر لون الشارة لا القرار، ولا مدخل
+        # قديم يُرفض به. البطاقة تُبنى على مرساةٍ قد تكون شاخت.
+        source_at = _f(payload.get("timestamp"))
+        if source_at is not None and (now - source_at) > self._input_max_age_s:
+            self._rejected["stale_input"] += 1
+            self._skipped += 1
+            return
+
         grade = payload.get("grade")
         card = self._build_card(symbol, direction, anchor, price if price is not None else anchor,
                                  str(grade) if grade else None)
+
+        # ── بوّابة المرساة — السعر تجاوز وقفه قبل أن تصدر البطاقة ────────
+        # الحادثة المقيسة (LINK_USDT ٢٠٢٦-٠٩-٠١): مرساة 11.488 · وقف 11.4547
+        # · والسعر وقتها 11.333 — أي **106 نقاط تحت الوقف نفسه**، وصدرت
+        # البطاقة «معتمَدة» بلا علم واحد. بطاقةٌ وُلدت خاسرة.
+        # الوقف يُشتقّ من المرساة لا من السعر، فلا شيء كان يربط الاثنين.
+        stop = _f(card.get("stop_loss"))
+        if price is not None and stop is not None:
+            breached = (price <= stop) if direction == "long" else (price >= stop)
+            if breached:
+                self._rejected["price_beyond_stop"] += 1
+                self._skipped += 1
+                if self._context is not None:
+                    self._context.logger.warning(
+                        "277 %s %s: السعر %.8f تجاوز الوقف %.8f (مرساة %.8f) — بطاقة مرفوضة",
+                        symbol, direction, price, stop, anchor)
+                return
+
         entry_class = payload.get("entry_class")
         time_stop_candles = (self._time_stop_class1_candles if entry_class == "①rejection_at_level"
                               else self._time_stop_class2_candles)
@@ -289,6 +323,7 @@ class Atom(AtomBase):
 
     async def health_check(self) -> HealthStatus:
         details = {"published": self._published, "skipped": self._skipped,
+                   "rejected": dict(self._rejected),
                    "symbols_with_ticks": len(self._tick), "symbols_with_walls": len(self._walls),
                    "symbols_with_profile": len(self._profile), "symbols_with_prior": len(self._prior),
                    "age_s": (time.time() - self._last_at) if self._last_at else None}

@@ -59,7 +59,7 @@ def test_crypto_atom_tests_stay_collectable():
 # كاملة: 2270 الرخصة · 2271 القيمة · 2272 الكسور · 2273 محكمة الزناد ·
 # 2274 مُصنِّف الدخول · 2275 محرّك المخاطر · 2276 محرّك القرار · 2277 البطاقة.
 # أي أنّ قلب قرار الكريبتو كان عاريًا بينما «237 اختبارًا تمرّ».
-NO_TEST_FILE_CEILING = {"atoms": 0, "atoms_crypto": 8}
+NO_TEST_FILE_CEILING = {"atoms": 0, "atoms_crypto": 7}
 
 
 def _without_test_file(tree: str) -> list[str]:

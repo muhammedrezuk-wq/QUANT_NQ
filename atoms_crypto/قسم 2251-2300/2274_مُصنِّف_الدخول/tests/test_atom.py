@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import os
+import time
 
 from core.contracts.atom import AtomContext
 
@@ -38,13 +39,14 @@ async def _atom(**cfg):
 
 
 def _arm(atom, *, level_value: float, distance_bps: float | None,
-         distance_points: float | None = None, volume_ratio: float = 1.2):
-    """يهيّئ كسرًا طازجًا بوقودٍ موافقٍ لاتجاه الشراء."""
+         distance_points: float | None = None, volume_ratio: float = 1.2,
+         age_s: float = 0.0):
+    """يهيّئ كسرًا بوقودٍ موافقٍ لاتجاه الشراء. `age_s` عمر حدث الكسر."""
     symbol = "BTC_USDT"
     atom._breaks[symbol] = {"pdh": {"event": "broken", "level_value": level_value,
                                     "distance_points": distance_points,
                                     "distance_bps": distance_bps,
-                                    "timestamp": 1000.0}}
+                                    "timestamp": time.time() - age_s}}
     atom._fuel[symbol] = {"fuel": "building_rise"}
     atom._volume_ma[symbol] = {"ratio": volume_ratio}
     return symbol
@@ -120,4 +122,33 @@ def test_fuel_must_match_direction():
         atom._fuel[symbol] = {"fuel": "building_decline"}     # هبوطيّ مع طلب شراء
         klass, _, _ = atom._classify(symbol, "long")
         assert klass is None
+    asyncio.run(run())
+
+
+def test_stale_break_event_no_longer_arms_an_entry():
+    """اختبار فشل: حدث كسر عمره عشرون دقيقة لا يسلّح دخولًا.
+
+    المقيس ٢٠٢٦-٠٩-٠١: `max_age_s` كان مقروءًا في `health_check()` حصرًا
+    — شارةٌ لا بوّابة. فحدثٌ قديم يظلّ مسلَّحًا والسوق تحرّك منذ صدوره.
+    """
+    async def run():
+        atom = await _atom(filtered_break_max_bps=20.0, input_max_age_s=120.0)
+        symbol = _arm(atom, level_value=78650.0, distance_bps=5.0, age_s=1200.0)
+        klass, _, _ = atom._classify(symbol, "long")
+        assert klass is None
+        health = await atom.health_check()
+        assert health.details["stale_inputs"] == 1
+        assert health.details["input_max_age_s"] == 120.0
+    asyncio.run(run())
+
+
+def test_fresh_break_event_within_budget_still_arms():
+    """اختبار نجاح: داخل الميزانية الزمنيّة يبقى السلوك كما كان."""
+    async def run():
+        atom = await _atom(filtered_break_max_bps=20.0, input_max_age_s=120.0)
+        symbol = _arm(atom, level_value=78650.0, distance_bps=5.0, age_s=30.0)
+        klass, _, _ = atom._classify(symbol, "long")
+        assert klass == entry.CLASS_3
+        health = await atom.health_check()
+        assert health.details["stale_inputs"] == 0
     asyncio.run(run())

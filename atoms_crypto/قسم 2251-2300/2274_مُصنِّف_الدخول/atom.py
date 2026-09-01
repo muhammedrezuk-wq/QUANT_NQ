@@ -6,7 +6,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.7.0"
+ATOM_VERSION = "1.8.0"
 EVENT_IN_LICENSE = "crypto.decision.license.state"
 EVENT_IN_VALUE = "crypto.decision.value_state.state"
 EVENT_IN_BREAKS = "crypto.decision.breaks.state"
@@ -74,6 +74,9 @@ class Atom(AtomBase):
         self._quiet_break_max = 1.5                  # §٣ ذيل: نطاق فرضية "الكسر الهادئ" ١-١.٥ — حرفيّ
         self._news_fresh_minutes = 30.0              # `02-rules.md` §٨: "خبر <30د ⇒ تُخفَّض الثقة" — حرفيّ
         self._max_age_s = 60.0
+        # بوّابة عمر المدخل — منفصلة عن `max_age_s` (شارة الصحّة).
+        self._input_max_age_s = 120.0
+        self._stale_inputs = 0
         self._latest_news_at: float | None = None    # وسمٌ عامٌّ للسوق كله — لا ربط رموزٍ بعد (راجع حدود ٢٦١٥)
         self._license: dict[str, dict[str, Any]] = {}
         self._value: dict[str, dict[str, Any]] = {}
@@ -116,6 +119,7 @@ class Atom(AtomBase):
         self._quiet_break_max = float(c.get("quiet_break_max", 1.5))
         self._news_fresh_minutes = float(c.get("news_fresh_minutes", 30.0))
         self._max_age_s = float(c.get("max_age_s", 60.0))
+        self._input_max_age_s = float(c.get("input_max_age_s", 120.0))
         self._wick_body_mult = float(c.get("wick_body_mult", _WICK_BODY_MULT))
         self._round_number_confluence_bps = float(
             c.get("round_number_confluence_bps", _ROUND_NUMBER_CONFLUENCE_BPS))
@@ -403,6 +407,15 @@ class Atom(AtomBase):
 
         # الصنف ③: كسرٌ طازجٌ + وقودٌ يبني بنفس الجهة + مسافةٌ ≤ ١٥٠ن + ليس كسرًا صاخبًا.
         if level_evt.get("event") == "broken":
+            # ── عمر المدخل بوّابةً ───────────────────────────────────────
+            # المقيس ٢٠٢٦-٠٩-٠١: `max_age_s` بعشر ذرّات مقروءٌ في
+            # `health_check()` حصرًا — شارةٌ لا بوّابة. فحدث كسرٍ عمره
+            # عشرون دقيقة كان ما يزال يسلّح دخولًا، والسوق تحرّك منذ ذلك
+            # الحين. الشارة تبقى كما هي؛ هذه بوّابة منفصلة على المدخل نفسه.
+            broken_at = _f(level_evt.get("timestamp"))
+            if broken_at is not None and (time.time() - broken_at) > self._input_max_age_s:
+                self._stale_inputs += 1
+                return None, {}, None
             distance = _f(level_evt.get("distance_points"))
             # ── المسافة بنقاط الأساس، لا بالنقاط المطلقة ──────────────────
             # المقيس ٢٠٢٦-٠٩-٠١: `filtered_break_max_points = 150` مسافةُ
@@ -515,6 +528,9 @@ class Atom(AtomBase):
         details = {"symbols_seen": len(self._license), "updates": self._updates,
                    "emitted": self._emitted, "resuppressed": self._resuppressed,
                    "blocked": dict(self._blocked), "blocked_detail": dict(self._blocked_detail),
+                   # مدخلات رُفضت لعمرها — تُعرَض كي لا يكون الرفض صامتًا.
+                   "stale_inputs": self._stale_inputs,
+                   "input_max_age_s": self._input_max_age_s,
                    "age_s": (time.time() - self._last_at) if self._last_at else None}
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED", details=details)
