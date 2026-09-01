@@ -1,7 +1,7 @@
 @echo off
 REM Legacy/internal combined launcher. Official launch uses the two market buttons.
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 if not exist "venv\Scripts\python.exe" (
   where py >nul 2>&1
