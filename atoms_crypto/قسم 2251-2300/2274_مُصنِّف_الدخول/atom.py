@@ -6,7 +6,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.6.0"
+ATOM_VERSION = "1.7.0"
 EVENT_IN_LICENSE = "crypto.decision.license.state"
 EVENT_IN_VALUE = "crypto.decision.value_state.state"
 EVENT_IN_BREAKS = "crypto.decision.breaks.state"
@@ -68,7 +68,7 @@ class Atom(AtomBase):
     def __init__(self) -> None:
         self._context: AtomContext | None = None
         self._running = False
-        self._filtered_break_max_points = 150.0    # `02-rules.md` §٥③ شرط ٣: حرفيّ
+        self._filtered_break_max_bps = 20.0        # ن.أ — بديل 150 نقطة المطلقة (≈19 ن.أ على BTC، الرمز الوحيد الذي كانت تعمل عليه)
         self._purge_oi_pct = -1.5                   # `02-rules.md` §٢ "يوم التطهير": حرفيّ
         self._loud_break_ratio = 3.0                 # §٣ ذيل: "الصاخبة ≥×3 سالبة مقاسًا" — حرفيّ
         self._quiet_break_max = 1.5                  # §٣ ذيل: نطاق فرضية "الكسر الهادئ" ١-١.٥ — حرفيّ
@@ -110,7 +110,7 @@ class Atom(AtomBase):
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
         c = context.config
-        self._filtered_break_max_points = float(c.get("filtered_break_max_points", 150.0))
+        self._filtered_break_max_bps = float(c.get("filtered_break_max_bps", 20.0))
         self._purge_oi_pct = float(c.get("purge_day_oi_pct", -1.5))
         self._loud_break_ratio = float(c.get("loud_break_ratio", 3.0))
         self._quiet_break_max = float(c.get("quiet_break_max", 1.5))
@@ -404,10 +404,26 @@ class Atom(AtomBase):
         # الصنف ③: كسرٌ طازجٌ + وقودٌ يبني بنفس الجهة + مسافةٌ ≤ ١٥٠ن + ليس كسرًا صاخبًا.
         if level_evt.get("event") == "broken":
             distance = _f(level_evt.get("distance_points"))
+            # ── المسافة بنقاط الأساس، لا بالنقاط المطلقة ──────────────────
+            # المقيس ٢٠٢٦-٠٩-٠١: `filtered_break_max_points = 150` مسافةُ
+            # سعرٍ مطلقة تُطبَّق على ١٩ رمزًا تفصل بينها ثمانية أسس عشرية:
+            #   BTC 78,650  ⇒ 19 ن.أ         (حاجز حقيقيّ)
+            #   ETH  2,470  ⇒ 607 ن.أ        (فضفاض)
+            #   SOL    103  ⇒ 14,549 ن.أ     (لا يعمل)
+            #   PEPE 0.0000036 ⇒ 421 مليار ن.أ (لا يعمل)
+            # أي أنّ العتبة كانت تعمل على رمزٍ واحد من ١٩ وتمرّ كل شيء على
+            # الثمانية عشر الباقية. النسبة تجعل رقمًا واحدًا يصلح للجميع.
+            distance_bps = _f(level_evt.get("distance_bps"))
+            if distance_bps is None:
+                # ناشرٌ لم يُرقَّ بعد: نشتقّها من المسافة والمستوى بدل الصمت.
+                level_value = _f(level_evt.get("level_value"))
+                if distance is not None and level_value:
+                    distance_bps = (distance / level_value) * 1e4
             fuel_state = fuel.get("fuel")
             fuel_matches = (fuel_state == "building_decline" and direction == "short") or \
                            (fuel_state == "building_rise" and direction == "long")
-            if fuel_matches and distance is not None and abs(distance) <= self._filtered_break_max_points:
+            if fuel_matches and distance_bps is not None \
+                    and abs(distance_bps) <= self._filtered_break_max_bps:
                 # الشرط المحذوف والمُصحَّح (02-rules.md §٣ ذيل، دراسة an07b):
                 # الكسر الصاخب (≥×3 حجم) سالبٌ متسقًا ⇒ إقصاءٌ صريح، لا علمُ حذرٍ
                 # فقط. الهادئ (١-١.٥×) فرضيةٌ غير مثبتة بعد (n=43) ⇒ تُعلَم لا تُشترَط.
@@ -416,7 +432,12 @@ class Atom(AtomBase):
                 if ratio is not None and ratio >= self._loud_break_ratio:
                     return None, {}, None
                 quiet = ratio is not None and 1.0 <= ratio <= self._quiet_break_max
-                return (CLASS_3, {"level": level_key, "distance_points": distance, "fuel": fuel_state,
+                return (CLASS_3, {"level": level_key, "distance_points": distance,
+                                  # النسبة تُنشر مع المطلق: البطاقة تشرح
+                                  # بأيّ رقمٍ مرّت، لا بأيّهما كان متاحًا.
+                                  "distance_bps": round(distance_bps, 4),
+                                  "max_bps": self._filtered_break_max_bps,
+                                  "fuel": fuel_state,
                                   "volume_ratio": ratio, "quiet_break_hypothesis": quiet,
                                   "level_value": level_evt.get("level_value")},
                         level_evt.get("timestamp"))

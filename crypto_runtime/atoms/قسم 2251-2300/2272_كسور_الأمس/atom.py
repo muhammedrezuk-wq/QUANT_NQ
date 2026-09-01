@@ -5,7 +5,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.0.0"
+ATOM_VERSION = "1.1.0"
 EVENT_IN_PRIOR = "sense.prior_day.state"
 EVENT_IN_CANDLE = "market.candle"
 EVENT_OUT = "crypto.decision.breaks.state"
@@ -35,10 +35,15 @@ class Atom(AtomBase):
     المستوى في أي مرحلةٍ (كسرٌ فاشل) يُعيد الحالة لـnone.
 
     **حدٌّ صريح — لا تُصدر حكم الصنف ③ (الكسر المُرشَّح) بنفسها:** شرطاه
-    الإضافيان (الوقود FUEL BUILDING، والمسافة ≤١٥٠ نقطة من `02-rules.md` §٥③)
+    الإضافيان (الوقود FUEL BUILDING، وحدّ المسافة من `02-rules.md` §٥③)
     يحتاجان `sense.fuel.state`(2171) ومسافة القفزة — تُنشَر هنا خامًا
-    (`distance_points`) ليُطبَّق الفلتران في مُصنِّف الدخول 2274 حيث تجتمع كل
-    الحواسّ، لا هنا. كذلك تمييز الكسر الهادئ/الصاخب (§٥ ذيل، حجمٌ ≥×3 سالبٌ
+    ليُطبَّق الفلتران في مُصنِّف الدخول 2274 حيث تجتمع كل الحواسّ، لا هنا.
+
+    والمسافة تُنشَر بصيغتين: `distance_points` المطلقة و`distance_bps`
+    النسبيّة. الورقة كتبت الحدّ «١٥٠ نقطة» وهو رقمٌ مأخوذٌ من سياق أداةٍ
+    واحدة؛ وعلى تسعة عشر رمزًا تفصل بينها ثمانية أسس عشرية لا يعني شيئًا
+    موحّدًا (19 ن.أ على BTC · 421 مليار ن.أ على PEPE — مقيس ٢٠٢٦-٠٩-٠١).
+    فالنسبة هي ما يُقارَن به عند 2274، والمطلقة تبقى للعرض والتاريخ. كذلك تمييز الكسر الهادئ/الصاخب (§٥ ذيل، حجمٌ ≥×3 سالبٌ
     مقاسًا) يحتاج `sense.avg_volume.state`(2157) للمقارنة — يُنشَر `volume`
     خامًا لنفس السبب."""
 
@@ -141,10 +146,17 @@ class Atom(AtomBase):
             if event == "confirmed":
                 self._confirmations += 1
             distance_points = close - level_value if level_name == "pdh" else level_value - close
+            # المسافة بنقاط الأساس إلى جانب المطلقة. السبب المقيس ٢٠٢٦-٠٩-٠١:
+            # `٢٢٧٤` كان يقارن `distance_points` بعتبةٍ **مطلقة** واحدة على
+            # تسعة عشر رمزًا تفصل بينها ثمانية أسس عشرية — 150 نقطة تساوي
+            # 19 ن.أ على BTC و421 مليار ن.أ على PEPE. رقمٌ واحد لا يصلح
+            # للجميع إلّا إذا كان نسبيًّا.
+            distance_bps = ((distance_points / level_value) * 1e4) if level_value else None
             await self._context.publish(EVENT_OUT, {
                 "provider": payload.get("provider"), "symbol": symbol,
                 "level": level_name, "level_value": level_value, "event": event,
                 "distance_points": round(distance_points, 8),
+                "distance_bps": round(distance_bps, 4) if distance_bps is not None else None,
                 "price": close, "volume": volume,
                 "pdh": pdh, "pdl": pdl, "timestamp": now,
             })

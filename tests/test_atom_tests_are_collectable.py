@@ -53,6 +53,48 @@ def test_crypto_atom_tests_stay_collectable():
     )
 
 
+# ── العمى الأشدّ: ذرّة بلا أيّ ملفّ اختبار ──────────────────────────────
+# المقيس ٢٠٢٦-٠٩-٠٢: `atoms` 233/233 لها اختبارات، بينما `atoms_crypto`
+# فيها **عشر** ذرّات بلا ملفّ اختبار إطلاقًا — وثمانٍ منها هي سلسلة القرار
+# كاملة: 2270 الرخصة · 2271 القيمة · 2272 الكسور · 2273 محكمة الزناد ·
+# 2274 مُصنِّف الدخول · 2275 محرّك المخاطر · 2276 محرّك القرار · 2277 البطاقة.
+# أي أنّ قلب قرار الكريبتو كان عاريًا بينما «237 اختبارًا تمرّ».
+NO_TEST_FILE_CEILING = {"atoms": 0, "atoms_crypto": 8}
+
+
+def _without_test_file(tree: str) -> list[str]:
+    base = ROOT / tree
+    if not base.exists():
+        return []
+    out = []
+    for manifest in sorted(base.rglob("manifest.yaml")):
+        atom_dir = manifest.parent
+        if not (atom_dir / "tests" / "test_atom.py").exists():
+            out.append(atom_dir.relative_to(ROOT).as_posix())
+    return out
+
+
+def test_every_forex_atom_has_a_test_file():
+    found = _without_test_file("atoms")
+    assert len(found) <= NO_TEST_FILE_CEILING["atoms"], (
+        "ذرّات فوركس بلا ملفّ اختبار:\n  " + "\n  ".join(found))
+
+
+def test_crypto_atoms_without_test_file_do_not_grow():
+    found = _without_test_file("atoms_crypto")
+    assert len(found) <= NO_TEST_FILE_CEILING["atoms_crypto"], (
+        f"ذرّات كريبتو بلا ملفّ اختبار ارتفعت إلى {len(found)} "
+        f"(السقف {NO_TEST_FILE_CEILING['atoms_crypto']}):\n  " + "\n  ".join(found))
+
+
+def test_no_test_file_ceiling_is_not_stale():
+    for tree, ceiling in NO_TEST_FILE_CEILING.items():
+        found = len(_without_test_file(tree))
+        assert found == ceiling, (
+            f"{tree}: بلا ملفّ اختبار {found} والسقف {ceiling} — "
+            f"{'أنقص السقف إلى ' + str(found) if found < ceiling else 'ارتفع العدد'}")
+
+
 def test_ceiling_is_not_stale():
     """السقف يجب أن يبقى ملتصقًا بالواقع.
 
