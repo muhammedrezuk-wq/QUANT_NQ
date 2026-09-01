@@ -27,7 +27,7 @@
 //+------------------------------------------------------------------+
 #property copyright "محمد رزوق"
 #property version   "3.11"
-#property description "QUANT_NQ — الإكسبرت الواحد الشامل (v3.10 · لوحة عربية كاملة · التذكرة تُكتب في نتيجة الأمر)"
+#property description "QUANT_NQ — الإكسبرت الواحد الشامل (v3.11 · بوّابة ورقيّ/حيّ بثلاثة أقفال · لوحة عربية كاملة)"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -85,7 +85,15 @@ input group "??? ? الأمان ???"
 // أقصى عمر لأمر PENDING قبل اعتباره بائتًا. بايثون يكتب والذراع ميتة =
 // طابور يتراكم؛ وبلا هذا الحدّ يُنفَّذ عند العودة بأسعار ماتت.
 input group "=== 🛡️ وضع التنفيذ (Execution Mode) ==="
-input string InpExecutionMode = "PAPER"; // PAPER أو LIVE
+// ثلاثة أقفال مستقلّة. التنفيذ الحقيقيّ يحتاجها مفتوحة كلّها، وأي شكّ = ورقيّ.
+// السبب المقيس ٢٠٢٦-٠٩-٠١: لم يكن في المسار كلّه حقل واحد يفرّق بين حساب
+// تجريبيّ وحقيقيّ — الإكسبرت ينفّذ على أيّ حساب مسجَّل الدخول فيه. سهو واحد
+// في تسجيل الدخول = أوامر بمال حقيقيّ.
+input string InpExecutionMode     = "PAPER"; // PAPER أو LIVE
+// القفل الثاني: حتى في LIVE، الحساب الحقيقيّ يحتاج إذنًا صريحًا منفصلًا.
+input bool   InpAllowRealAccount  = false;   // اسمح بالتنفيذ على حساب حقيقيّ
+// القفل الثالث: اتركه فارغًا = أي وسيط. ضع جزءًا من اسم الشركة لتقييده.
+input string InpRequiredBroker    = "";      // مثال: IC Markets
 
 input int    InpMaxCmdAgeSec  = 2;
 // OPEN بلا وقف خسارة = مركز عارٍ على عقد آجل. النظام يبني الوقف دائمًا.
@@ -1337,8 +1345,27 @@ void PumpCommands()
       if(claimed == 0) { CmdReceived--; continue; }
 
       string cmd_exec_mode = exec_modes[i];
-      if(cmd_exec_mode == "") cmd_exec_mode = "PAPER";
-      bool is_paper = (InpExecutionMode != "LIVE" || cmd_exec_mode == "PAPER");
+      if(cmd_exec_mode == "") cmd_exec_mode = "PAPER";   // الفراغ ⇒ ورقيّ
+
+      // ── الأقفال الثلاثة ──────────────────────────────────────────────
+      // كلٌّ منها يردّ الأمر إلى الوضع الورقيّ وحده. لا يُفتح التنفيذ إلا
+      // باجتماعها، ولكلّ سبب اسمه في `result` كي يُقرأ من اللوحة لا من السجلّ.
+      string block_reason = "";
+
+      if(InpExecutionMode != "LIVE" || cmd_exec_mode == "PAPER")
+         block_reason = "PAPER_SKIPPED";
+
+      // القفل الثاني: نوع الحساب من المنصّة نفسها، لا من إعداد يمكن نسيانه.
+      if(block_reason == "" && !InpAllowRealAccount
+         && AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_REAL)
+         block_reason = "REAL_ACCOUNT_BLOCKED";
+
+      // القفل الثالث: هويّة الوسيط. فارغ = أي وسيط (السلوك القديم).
+      if(block_reason == "" && StringLen(InpRequiredBroker) > 0
+         && StringFind(AccountInfoString(ACCOUNT_COMPANY), InpRequiredBroker) < 0)
+         block_reason = "BROKER_MISMATCH";
+
+      bool is_paper = (block_reason != "");
 
       string result = "";
       ulong  done_ticket = 0;
@@ -1347,10 +1374,17 @@ void PumpCommands()
       if(is_paper)
       {
          ok = true;
-         result = "PAPER_SKIPPED";
+         result = block_reason;
          done_ticket = 0;
          CmdDone++;
-         PrintFormat("🛡️ [PAPER] %s %s تخطّي التنفيذ الحي (PAPER_MODE)", acts[i], syms[i]);
+         if(block_reason == "REAL_ACCOUNT_BLOCKED")
+            PrintFormat("🛑 [BLOCKED] %s %s — حساب حقيقيّ (%s) وInpAllowRealAccount=false",
+                        acts[i], syms[i], AccountInfoString(ACCOUNT_COMPANY));
+         else if(block_reason == "BROKER_MISMATCH")
+            PrintFormat("🛑 [BLOCKED] %s %s — الوسيط '%s' لا يطابق المطلوب '%s'",
+                        acts[i], syms[i], AccountInfoString(ACCOUNT_COMPANY), InpRequiredBroker);
+         else
+            PrintFormat("🛡️ [PAPER] %s %s تخطّي التنفيذ الحي (PAPER_MODE)", acts[i], syms[i]);
       }
       else
       {
@@ -1744,6 +1778,31 @@ int OnInit()
 {
    Trade.SetExpertMagicNumber(InpMagic);
    Trade.SetDeviationInPoints(InpDeviationPts);
+
+   // ── إعلان وضع التنفيذ فور التركيب ────────────────────────────────
+   // يُطبع مرّة واحدة بوضوح: مَن يركّب الإكسبرت يرى على أي حساب هو وبأي
+   // وضع قبل أوّل تِكّة، لا بعد أوّل صفقة.
+   bool real_account = (AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_REAL);
+   string live_ready = "لا — الأوامر ستُختم PAPER_SKIPPED";
+   if(InpExecutionMode == "LIVE")
+   {
+      if(real_account && !InpAllowRealAccount) live_ready = "لا — حساب حقيقيّ بلا إذن صريح";
+      else if(StringLen(InpRequiredBroker) > 0
+              && StringFind(AccountInfoString(ACCOUNT_COMPANY), InpRequiredBroker) < 0)
+         live_ready = "لا — الوسيط لا يطابق المطلوب";
+      else live_ready = "نعم — التنفيذ الحقيقيّ مفتوح";
+   }
+   PrintFormat("══ QUANT_NQ v3.11 ══ الحساب: %I64d (%s) | الوسيط: %s",
+               AccountInfoInteger(ACCOUNT_LOGIN),
+               real_account ? "حقيقيّ" : "تجريبيّ",
+               AccountInfoString(ACCOUNT_COMPANY));
+   PrintFormat("   وضع التنفيذ: %s | إذن الحساب الحقيقيّ: %s | الوسيط المطلوب: %s",
+               InpExecutionMode,
+               InpAllowRealAccount ? "ممنوح" : "محجوب",
+               StringLen(InpRequiredBroker) > 0 ? InpRequiredBroker : "(أي وسيط)");
+   PrintFormat("   ⇒ هل ينفَّذ حقيقيًّا؟ %s", live_ready);
+   if(real_account && InpExecutionMode == "LIVE" && InpAllowRealAccount)
+      Print("   ⚠️ تحذير: حساب حقيقيّ + LIVE + إذن ممنوح — الأوامر ستُنفَّذ بمال حقيقيّ.");
 
    if(!BridgeOpen()) return INIT_FAILED;
    if(!BuildSchema())

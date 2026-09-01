@@ -143,13 +143,39 @@ def test_bridge_writer_defaults_execution_mode_to_paper():
     assert '"PAPER"' in atom and 'exec_mode not in ("PAPER", "LIVE")' in atom
 
 
-def test_expert_advisor_gate_is_two_key_and_fail_closed():
-    """اختبار فشل: التنفيذ الحيّ يلزمه مفتاحان، والفراغ يسقط إلى ورقيّ."""
+def test_expert_advisor_gate_is_fail_closed():
+    """اختبار فشل: الفراغ يسقط إلى ورقيّ، والورقيّ يتخطّى التنفيذ."""
     ea = (ROOT / "mt5" / "QUANT_NQ.mq5").read_text(encoding="utf-8", errors="replace")
-    assert 'input string InpExecutionMode = "PAPER"' in ea, "افتراض الإكسبرت يجب أن يكون ورقيًّا"
+    assert 'input string InpExecutionMode     = "PAPER"' in ea, "افتراض الإكسبرت يجب أن يكون ورقيًّا"
     assert 'if(cmd_exec_mode == "") cmd_exec_mode = "PAPER"' in ea, "الفراغ يجب أن يسقط إلى ورقيّ"
     assert 'InpExecutionMode != "LIVE" || cmd_exec_mode == "PAPER"' in ea, "يلزم مفتاحان معًا"
     assert "PAPER_SKIPPED" in ea, "الوضع الورقيّ يجب أن يتخطّى التنفيذ لا أن ينفّذ"
+
+
+def test_expert_advisor_blocks_real_account_without_explicit_permission():
+    """اختبار فشل: حساب حقيقيّ بلا إذن صريح ⇒ لا تنفيذ.
+
+    القفل الذي كان غائبًا تمامًا: `ACCOUNT_TRADE_MODE` ⇐ صفر إشارة قبل
+    ٢٠٢٦-٠٩-٠١. الإكسبرت كان ينفّذ على أيّ حساب مسجَّل الدخول فيه.
+    """
+    ea = (ROOT / "mt5" / "QUANT_NQ.mq5").read_text(encoding="utf-8", errors="replace")
+    assert "input bool   InpAllowRealAccount  = false" in ea, "الإذن يجب أن يكون محجوبًا بالافتراض"
+    assert "ACCOUNT_TRADE_MODE_REAL" in ea, "نوع الحساب يجب أن يُقرأ من المنصّة"
+    assert "REAL_ACCOUNT_BLOCKED" in ea, "المنع يجب أن يحمل سببًا مسمّى"
+
+
+def test_expert_advisor_can_pin_the_broker():
+    """اختبار نجاح: قفل هويّة الوسيط موجود، وفارغه يعني «أي وسيط» صراحةً."""
+    ea = (ROOT / "mt5" / "QUANT_NQ.mq5").read_text(encoding="utf-8", errors="replace")
+    assert 'input string InpRequiredBroker    = ""' in ea
+    assert "ACCOUNT_COMPANY" in ea and "BROKER_MISMATCH" in ea
+
+
+def test_expert_advisor_announces_mode_at_startup():
+    """اختبار نجاح: الوضع يُعلَن عند التركيب — قبل أوّل تِكّة لا بعد أوّل صفقة."""
+    ea = (ROOT / "mt5" / "QUANT_NQ.mq5").read_text(encoding="utf-8", errors="replace")
+    assert "هل ينفَّذ حقيقيًّا؟" in ea
+    assert "int OnInit()" in ea
 
 
 def test_expert_advisor_has_no_unterminated_string():
