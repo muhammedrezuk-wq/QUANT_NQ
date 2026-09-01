@@ -178,6 +178,25 @@ def test_expert_advisor_announces_mode_at_startup():
     assert "int OnInit()" in ea
 
 
+def test_expert_advisor_reports_the_version_it_actually_is():
+    """اختبار فشل: رقمان للنسخة يجب أن يتّفقا.
+
+    مقيس ٢٠٢٦-٠٩-٠٢: `#property version` رُفع إلى 3.11 بينما
+    `#define QNQ_VERSION` بقي "3.10" — وهو **الذي يُكتب في الجسر**
+    (`account_v2.expert_version`). فقرأ النظام «3.10» بينما المُجمَّع 3.11،
+    وصار حقل النسخة يكذب: لا يمكن أن يُعرف من الجسر أيّ إكسبرت يعمل.
+    وهذا الحقل هو بالضبط دليل إثبات ترقية البوّابة.
+    """
+    import re
+    ea = (ROOT / "mt5" / "QUANT_NQ.mq5").read_text(encoding="utf-8", errors="replace")
+    prop = re.search(r'#property\s+version\s+"([^"]+)"', ea)
+    define = re.search(r'#define\s+QNQ_VERSION\s+"([^"]+)"', ea)
+    assert prop and define, "الرقمان يجب أن يبقيا موجودَين"
+    assert prop.group(1) == define.group(1), (
+        f"#property version = {prop.group(1)} بينما QNQ_VERSION = {define.group(1)} — "
+        "الجسر يكتب الثاني، فيصير حقل النسخة كاذبًا")
+
+
 def test_expert_advisor_has_no_unterminated_string():
     """اختبار فشل: نصّ غير مغلق يمنع التجميع — والبوّابة تصير حبرًا.
 

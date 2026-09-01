@@ -1275,7 +1275,7 @@
     "dir:config/::unified_layout.json": "0bd431bd42bf45ffd18aaf010aa825fa21bae946baf97f555be6194a1cb97c22",
     "dir:config/::unified_release.json": "08d1d44ca11d916da54b10b31c47e009be497ec9003ad27835f340a4502de044",
     "dir:config/::universe_overrides.json": "97f497394321c01c57e71df43b495fdef7f2cc8e47cdf4da3b54df564d47ec9e",
-    "dir:mt5/::QUANT_NQ.mq5": "68fc84611ebe639cbc1493e5e0d30a7960b3578b05a54a8d7ea4fff513ae8b2b",
+    "dir:mt5/::QUANT_NQ.mq5": "6b8fcc84d0b48eeaa9d52bd2de90049836511fbd49f36e62f3e8876dd6b2bf4a",
     "dir:ctrader/::QuantNQ_Feed.cs": "509b07c1d73f7a4b8b8ea041049c9212c68985d166f4e9fd737c864c102b1311",
     "dir:core/::__init__.py": "a9ef66729769e38ddcbf7bdda5bb520cec489d7f3f63aeca145b071be41cf8d8",
     "dir:core/::__version__.py": "f507e7e798fc8a78779b569558651db3304c0c7ab935e60044b25f736e9b3f67",
