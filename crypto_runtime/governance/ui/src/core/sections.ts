@@ -12,6 +12,9 @@ export const SECTIONS: [string, string, boolean][] = [
   ['charts', 'الشارت', true],
   ['market', 'السوق والاتصال', true],
   ['analysis', 'التحليل', true],
+  // أمر المالك: لوحة اختبار الذرّات الحقيقية على بيانات تاريخية — عزل ومعايرة.
+  ['lab', 'المختبر', true],
+  ['backtest', 'باك تست', true],
   ['structure', 'البنية', true],
   ['liquidity', 'السيولة', true],
   ['statistics', 'الإحصاء التحليلي', true],

@@ -2,27 +2,17 @@ import { getApiKey } from './auth'
 // طبقة النقل (١٤ §٣): اتصال واحد ببثّ النواة (WS) + عميل قراءة (REST عبر خادم الحوكمة).
 // إعادة اتصال تلقائية عند الانقطاع؛ لا CORS (الـREST يمرّ بخادم الحوكمة، نفس الأصل).
 
-// عنوان النواة من عنوان الصفحة نفسها — محليًّا يبقى 127.0.0.1، وعن بعد (Tailscale) يصير عنوان الجهاز تلقائيًّا
-// مسار واحد ثابت ومباشر إلى النواة لتفادي التذبذب الناتج عن التبديل بين
-// المرشِد والمسار المباشر. المصادقة تتم عبر subprotocol لأن المتصفح لا يسمح
-// بإضافة X-API-Key إلى مصافحة WebSocket.
+// المرشِد على أصل الصفحة (يعمل عن بُعد ومعاينة Arena). المسار المباشر :8010
+// للجهاز المحلّي فقط — هناك المتصفّح يصل للنواة. عن بُعد، :8010 على اسم الصفحة
+// لا يصل أبدًا وكان يترك اللوحة في حالة تجميد سوداء.
 const _secure = window.location.protocol === 'https:'
 const _host = window.location.host || '127.0.0.1:8090'
-// المرشِد يستعمل host (مع المنفذ) لأنّه على أصل الصفحة؛ والنواة تستعمل hostname لأنّ منفذها 8010 يُلحق.
 const _hostname = window.location.hostname || '127.0.0.1'
 const RELAY_WS = `${_secure ? 'wss' : 'ws'}://${_host}/gov/ws/core`
 
 // منفذ النواة يتبع السوق المختار (كوكي QUANT_MARKET الذي يضبطه الهبّ عند التبديل):
-// فوركس 8010 · كريبتو 8020. كان مثبّتًا على 8010، فالمسار المباشر (كل محاولة
-// فردية بالتناوب) كان يجلب ذرّات الفوركس ولو كانت اللوحة على الكريبتو —
-// فتختلط 226 ذرّة فوركس بـ33 ذرّة كريبتو تناوبًا (عطل مقاس 2026-08-29).
-// يُحسب عند كل محاولة اتصال لا مرّة واحدة، كي يتبع التبديل فورًا.
+// فوركس 8010 · كريبتو 8020.
 const CORE_PORTS: Record<string, number> = { forex: 8010, crypto: 8020 }
-// ٢٠٢٦-٠٨-٣١ (ختم NQ): اسم الكوكي صار مرقّمًا بمنفذ اللوحة في `unified_hub.py`
-// لأنّ المتصفّح لا يفصل الكوكي بالمنفذ، فكان تبديلٌ في لوحة الكريبتو يقلب لوحة
-// الفوركس كريبتو أيضًا. نقرأ هنا نفس الاسم المرقّم بمنفذ الصفحة الحاليّة، وإلّا
-// انكسرت تغذية لوحة الكريبتو (كانت ستقرأ نواة الفوركس 8010 دائمًا).
-// الافتراض عند غياب الكوكي يتبع منفذ الصفحة لا الفوركس دائمًا.
 const UI_PORT_MARKET: Record<string, string> = { '8090': 'forex', '8091': 'crypto' }
 const _coreWs = (): string => {
   const uiPort = window.location.port || '8090'
@@ -37,8 +27,7 @@ export type WsMsg =
   | { type: 'snapshot'; atoms: unknown[]; metrics: unknown }
   | { type: 'event'; name: string; payload: unknown }
 
-/** يفتح اتصالًا واحدًا ببثّ النواة (المرشِد أولًا، المباشر احتياطًا)، يعيد
- *  الاتصال تلقائيًّا بالتناوب بين المسارين. يرجّع دالة إيقاف. */
+/** يفتح اتصالًا واحدًا ببثّ النواة. عن بُعد: المرشِد فقط. محلّيًا: النواة مباشرة. */
 export function connectWs(
   onMsg: (m: WsMsg) => void,
   onStatus: (open: boolean) => void,
@@ -47,16 +36,10 @@ export function connectWs(
   let stopped = false
   let reconnectTimer: number | undefined
   let downTimer: number | undefined
+  const localHost = _hostname === '127.0.0.1' || _hostname === 'localhost' || _hostname === '::1'
 
   // لا نعلن الانقطاع من أول إغلاق عابر: ننتظر 10 ثوانٍ. هذا يمنع وميض
   // الشاشة عند إعادة تشغيل النواة أو عند تبدّل الشبكة للحظات.
-  // ٢٠٢٦-٠٨-٣١ (أمر المالك «صلحهم»): كان يُصفّر المؤقّت ويعيد تسليحه عند كل
-  // إغلاق. وبما أنّ إعادة المحاولة كل ٢ ثانية (أقصر من العشر)، كان كل فشل
-  // يمسح العدّاد قبل أن يصل — فلم يُعلَن الانقطاع ولا مرّة: تبقى `conn='live'`
-  // فيبقى الشريط أخضر «كل الحرّاس سليمون» ولا يظهر شريط التجميد، والنواة ميتة
-  // (مقاس حيًّا: النواة مطفأة والكونسول يكرّر ERR_CONNECTION_REFUSED واللوحة
-  // خضراء). الآن يُسلَّح مرّة واحدة ويُترك يصل؛ و`markUp()` وحده يلغيه إن عاد
-  // الاتصال خلال العشر ثوانٍ — فتبقى نيّة «لا وميض عند إعادة تشغيل قصيرة».
   const markDownDebounced = () => {
     if (downTimer !== undefined) return
     downTimer = window.setTimeout(() => { if (!stopped && ws?.readyState !== WebSocket.OPEN) onStatus(false) }, 10000)
@@ -72,11 +55,11 @@ export function connectWs(
     try {
       const key = getApiKey()
       const encoded = key ? btoa(unescape(encodeURIComponent(key))).replace(/=+$/g, '').replace(/\+/g, '-').replace(/\//g, '_') : ''
-      const coreUrl = _coreWs()
-      next = encoded ? new WebSocket(coreUrl, ['quant-nq', `quant-nq-key.${encoded}`]) : new WebSocket(coreUrl)
+      const url = localHost ? _coreWs() : RELAY_WS
+      next = encoded ? new WebSocket(url, ['quant-nq', `quant-nq-key.${encoded}`]) : new WebSocket(url)
     } catch {
       markDownDebounced()
-      reconnectTimer = window.setTimeout(open, 2000)
+      reconnectTimer = window.setTimeout(open, 2500)
       return
     }
     ws = next
@@ -86,7 +69,7 @@ export function connectWs(
     }
     ws.onclose = () => {
       markDownDebounced()
-      if (!stopped) reconnectTimer = window.setTimeout(open, 2000)
+      if (!stopped) reconnectTimer = window.setTimeout(open, 2500)
     }
     ws.onerror = () => { try { ws?.close() } catch { /* تجاهل */ } }
   }

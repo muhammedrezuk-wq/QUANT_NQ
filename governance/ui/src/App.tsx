@@ -20,6 +20,8 @@ import Security from './sections/Security'
 import Charts from './sections/Charts'
 import Atoms from './sections/Atoms'
 import Analysis from './sections/Analysis'
+import Lab from './sections/Lab'
+import Backtest from './sections/Backtest'
 import Structure from './sections/Structure'
 import Liquidity from './sections/Liquidity'
 import Statistics from './sections/Statistics'
@@ -66,7 +68,7 @@ export default function App() {
   const [marketInfo, setMarketInfo] = useState<MarketInfo | null>(() => (
     window.location.port === '8091'
       ? { market: 'crypto', label: 'كريبتو', alternate_port: 8090, alternate_label: 'فوركس' }
-      : null
+      : { market: 'forex', label: 'فوركس', alternate_port: 8091, alternate_label: 'كريبتو' }
   ))
   useEffect(() => {
     fetch('/gov/market', { cache: 'no-store' })
@@ -165,22 +167,24 @@ export default function App() {
           `${pad(d.getHours(), 2)}:${pad(d.getMinutes(), 2)}:${pad(d.getSeconds(), 2)}.${pad(d.getMilliseconds(), 3)}`
       }
       const { conn, lastMsgAt } = useStore.getState()
-      // النواة تسقط والمخزن يحتفظ بآخر لقطة، فتبقى اللوحة تعرض «212 ذرّة سليمة»
-      // ساعاتٍ بعد موتها. مؤشّر صغير أحمر لا يكفي: كل رقم معروض يصير كذبة.
-      // هنا تعلن اللوحة صراحةً أنّ ما تحت هذا السطر مجمّد ومنذ متى.
+      // النواة تسقط والمخزن يحتفظ بآخر لقطة. اللافتة تعلن ذلك.
+      // لا نعيد كتابة className كل إطار — هذا كان يقلب اللوحة سوداء.
       if (staleRef.current && shellRef.current) {
-        const frozen = conn !== 'live'
-        const secs = lastMsgAt ? Math.floor((performance.now() - lastMsgAt) / 1000) : null
-        staleRef.current.className = frozen ? 'staleban on' : 'staleban'
-        shellRef.current.className = frozen ? 'shell frozen' : 'shell'
+        const frozen = conn === 'down'
+        const wantShell = frozen ? 'shell frozen' : 'shell'
+        const wantBan = frozen ? 'staleban on' : 'staleban'
+        if (shellRef.current.className !== wantShell) shellRef.current.className = wantShell
+        if (staleRef.current.className !== wantBan) staleRef.current.className = wantBan
         if (frozen) {
+          const secs = lastMsgAt ? Math.floor((performance.now() - lastMsgAt) / 1000) : null
           const since = secs === null ? null
             : secs < 60 ? `${secs} ثانية`
             : secs < 3600 ? `${Math.floor(secs / 60)} دقيقة`
             : `${Math.floor(secs / 3600)} ساعة و${Math.floor((secs % 3600) / 60)} دقيقة`
-          staleRef.current.textContent = since === null
-            ? '⛔ النواة غير متّصلة — ما وصلت أي بيانات بعد. شغّل «غرفة القيادة».'
-            : `⛔ النواة مقطوعة — كل رقم تحت هذا السطر مجمّد منذ ${since} ولا يعبّر عن الحاضر`
+          const text = since === null
+            ? '⛔ النواة غير متّصلة — شغّل غرفة القيادة. المختبر يشتغل بدونها.'
+            : `⛔ النواة مقطوعة منذ ${since} — الأرقام الحيّة مجمّدة. المختبر يشتغل على بيانات تاريخية.`
+          if (staleRef.current.textContent !== text) staleRef.current.textContent = text
         }
       }
       // ختم المالك 2026-08-20: مؤشّرات المصادر (المنصّة · سي‑تريدر · تلغرام)
@@ -257,6 +261,10 @@ export default function App() {
           <Charts />
         ) : active === 'analysis' ? (
           <Analysis />
+        ) : active === 'lab' ? (
+          <Lab />
+        ) : active === 'backtest' ? (
+          <Backtest />
         ) : active === 'structure' ? (
           <Structure />
         ) : active === 'liquidity' ? (

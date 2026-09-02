@@ -166,6 +166,8 @@ class Atom(AtomBase):
     def _reserved(self,scope):return sum(float(x["amount"]) for x in self._reservations.values() if x["scope"]==scope)
     def _reject_reason(self,a,p):
         b=self.book(a)
+        # حرج ٥: فشل تخزين = رفض كل الأوامر (fail-closed)
+        if self._storage_error:return "RISK_LEDGER_UNAVAILABLE"
         if b["kill"]:return "KILL_SWITCH"
         if b["account_status"]!="HEALTHY":return "ACCOUNT_STATE_UNKNOWN"
         if b["system_status"]!="HEALTHY":return "SYSTEM_STATE_UNKNOWN"
@@ -209,18 +211,13 @@ class Atom(AtomBase):
         event_id=text(p.get("event_id"))
         a=text(p.get("account_id"))
         if not event_id or not a:self._identity_rejections+=1;return
-        if self._journal is None or self._storage_error:return
+        # حرج ٥: لا نتوقف عند خطأ تخزين — نحسب في الذاكرة دائماً
         completeness=text(p.get("completeness") or ("COMPLETE" if p.get("costs_complete") is True else "UNKNOWN")).upper()
         loss=number(p.get("loss_pct"))
         b=self.book(a)
         initial={key:b[key] for key in ("daily_loss_pct","consecutive_losses","daily_trade_count","kill","reason")}
         def reduce(state):
             outputs=[]
-            # v5.1.0 (2026-08-25): a loss that ARRIVED as a number COUNTS even
-            # when the cost line is incomplete -- the old completeness gate was
-            # fail-OPEN at the heart of the daily-loss limit (measured: any
-            # break in the cost chain meant no loss ever tripped the breaker).
-            # Only a loss with NO number at all is skipped, loudly.
             if loss is None:return state,outputs
             if completeness!="COMPLETE":
                 state["incomplete_costs"]=int(state.get("incomplete_costs",0))+1
@@ -234,8 +231,23 @@ class Atom(AtomBase):
                 outputs.append(("risk-halt:"+event_id,EVENT_HALT,{"account_id":a,"broker":b.get("broker"),"reason":reason,"origin":"516","daily_loss_pct":round(state["daily_loss_pct"],4),"consecutive_losses":state["consecutive_losses"]}))
             return state,outputs
         async with self._lock(a):
-            try:fresh,state=await asyncio.to_thread(self._journal.reduce_consumer_event,event_id,a,"TRADE_RESULT",event_id,p,"516",a,initial,reduce)
-            except Exception as exc:self._storage_error=type(exc).__name__;return
+            fresh=True
+            if self._journal is not None and not self._storage_error:
+                try:
+                    fresh,state=await asyncio.to_thread(self._journal.reduce_consumer_event,event_id,a,"TRADE_RESULT",event_id,p,"516",a,initial,reduce)
+                except Exception as exc:
+                    # حرج ٥: فشل تخزين — حساب في الذاكرة + fail-closed
+                    self._storage_error=type(exc).__name__
+                    _,state=reduce(dict(initial))
+                    if not state.get("kill"):
+                        state["kill"]=True
+                        state["reason"]=state.get("reason") or "RISK_LEDGER_UNAVAILABLE"
+            else:
+                # حرج ٥: لا journal أو خطأ سابق — حساب في الذاكرة + fail-closed
+                _,state=reduce(dict(initial))
+                if not state.get("kill") and self._storage_error:
+                    state["kill"]=True
+                    state["reason"]=state.get("reason") or "RISK_LEDGER_UNAVAILABLE"
             before=copy.deepcopy(b)
             b.update(state)
         if not fresh:self._duplicates+=1;return

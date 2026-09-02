@@ -47,7 +47,7 @@ class Atom(AtomBase):
         self._time_stop_class1_candles = 11
         self._time_stop_class2_candles = 6
         self._max_age_s = 90.0
-        # عمر المدخل بوّابةً — منفصل عن `max_age_s` الذي يبقى شارة صحّة.
+        # عمر المدخل بوابةً — منفصل عن `max_age_s` الذي يبقى شارة صحّة.
         # فصلُهما مقصود: الشارة تصف حالة الذرّة، والبوّابة تحكم على مدخلٍ
         # بعينه. خلطهما يجعل تشديد أحدهما يكذب على الآخر.
         self._input_max_age_s = 30.0
@@ -271,9 +271,6 @@ class Atom(AtomBase):
             return
 
         # ── بوّابة العمر — فعليّة لا شارة ────────────────────────────────
-        # المقيس ٢٠٢٦-٠٩-٠١: `max_age_s` في عشر ذرّات مقروءٌ في
-        # `health_check()` **حصرًا** — يغيّر لون الشارة لا القرار، ولا مدخل
-        # قديم يُرفض به. البطاقة تُبنى على مرساةٍ قد تكون شاخت.
         source_at = _f(payload.get("timestamp"))
         if source_at is not None and (now - source_at) > self._input_max_age_s:
             self._rejected["stale_input"] += 1
@@ -285,10 +282,6 @@ class Atom(AtomBase):
                                  str(grade) if grade else None)
 
         # ── بوّابة المرساة — السعر تجاوز وقفه قبل أن تصدر البطاقة ────────
-        # الحادثة المقيسة (LINK_USDT ٢٠٢٦-٠٩-٠١): مرساة 11.488 · وقف 11.4547
-        # · والسعر وقتها 11.333 — أي **106 نقاط تحت الوقف نفسه**، وصدرت
-        # البطاقة «معتمَدة» بلا علم واحد. بطاقةٌ وُلدت خاسرة.
-        # الوقف يُشتقّ من المرساة لا من السعر، فلا شيء كان يربط الاثنين.
         stop = _f(card.get("stop_loss"))
         if price is not None and stop is not None:
             breached = (price <= stop) if direction == "long" else (price >= stop)
@@ -300,7 +293,6 @@ class Atom(AtomBase):
                         "277 %s %s: السعر %.8f تجاوز الوقف %.8f (مرساة %.8f) — بطاقة مرفوضة",
                         symbol, direction, price, stop, anchor)
                 return
-
         entry_class = payload.get("entry_class")
         time_stop_candles = (self._time_stop_class1_candles if entry_class == "①rejection_at_level"
                               else self._time_stop_class2_candles)

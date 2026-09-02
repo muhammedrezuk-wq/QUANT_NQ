@@ -69,10 +69,16 @@ DECISIONS_DB = DATA_ROOT / "store" / "decisions.db"
 if MARKET == "crypto":
     TRADE_DB = DATA_ROOT / "bridge.db"
 else:
-    TRADE_DB = Path(os.environ.get(
-        "NQ_NEWS_DB",
-        str(Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
-            / "Common" / "Files" / "nq_brain.db")))
+    _news_raw = os.environ.get("NQ_NEWS_DB") or str(
+        Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
+        / "Common" / "Files" / "nq_brain.db")
+    TRADE_DB = Path(_news_raw)
+    # على لينكس مسار ويندوز C:\... يصير اسم ملف بجذر المشروع — نرفضه.
+    # ويندوز يبقى على مسار الـEA (لا يُنكر).
+    if os.name != "nt" and (
+        not TRADE_DB.is_absolute() or _news_raw.startswith("C:") or "AppData" in TRADE_DB.name
+    ):
+        TRADE_DB = DATA_ROOT / "nq_brain.db"
 LOGS_DIR = DATA_ROOT / "logs"
 
 # جذر المشروع على المسار: الخادم يُشغَّل ملفًّا داخل governance فلا يرى حزم
@@ -2203,6 +2209,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, day_logs(n))
             return
 
+        if p.startswith("/gov/lab"):
+            # مختبر المعايرة — ذرّات حقيقية على بيانات تاريخية (أمر المالك).
+            try:
+                from backtest.atom_lab import handle_lab as _handle_lab
+            except Exception as exc:  # noqa: BLE001
+                self._json(500, {"ok": False, "error": "مختبر غير متاح: %s" % type(exc).__name__})
+                return
+            self._json(200, _handle_lab("GET", p, None))
+            return
+
+        if p.startswith("/gov/backtest"):
+            try:
+                from backtest.trade_replay import handle_backtest as _handle_bt
+            except Exception as exc:  # noqa: BLE001
+                self._json(500, {"ok": False, "error": "باك تست غير متاح: %s" % type(exc).__name__})
+                return
+            self._json(200, _handle_bt("GET", p, None))
+            return
+
         if p == "/gov/backups":
             # جرد النسخ الحقيقي من القرص: الآلية (ذرة 800) واليدوية (اللقطات)
             def scan(pattern: str) -> dict:
@@ -2574,6 +2599,45 @@ class Handler(BaseHTTPRequestHandler):
             self._json(status, obj)
             return
 
+        lab_path = self.path.split("?", 1)[0]
+        if lab_path.startswith("/gov/backtest"):
+            raw = self.rfile.read(declared_length) if declared_length > 0 else b"{}"
+            try:
+                body_obj = json.loads(raw) if raw else {}
+            except Exception:
+                self._json(400, {"ok": False, "error": "JSON غير صالح"})
+                return
+            if not isinstance(body_obj, dict):
+                self._json(400, {"ok": False, "error": "الحمولة يجب أن تكون object"})
+                return
+            try:
+                from backtest.trade_replay import handle_backtest as _handle_bt
+            except Exception as exc:  # noqa: BLE001
+                self._json(500, {"ok": False, "error": "باك تست غير متاح: %s" % type(exc).__name__})
+                return
+            obj = _handle_bt("POST", lab_path, body_obj)
+            self._json(200 if obj.get("ok") else 400, obj)
+            return
+
+        if lab_path.startswith("/gov/lab"):
+            raw = self.rfile.read(declared_length) if declared_length > 0 else b"{}"
+            try:
+                body_obj = json.loads(raw) if raw else {}
+            except Exception:
+                self._json(400, {"ok": False, "error": "JSON غير صالح"})
+                return
+            if not isinstance(body_obj, dict):
+                self._json(400, {"ok": False, "error": "الحمولة يجب أن تكون object"})
+                return
+            try:
+                from backtest.atom_lab import handle_lab as _handle_lab
+            except Exception as exc:  # noqa: BLE001
+                self._json(500, {"ok": False, "error": "مختبر غير متاح: %s" % type(exc).__name__})
+                return
+            obj = _handle_lab("POST", lab_path, body_obj)
+            self._json(200 if obj.get("ok") else 400, obj)
+            return
+
         self._send(404, b"not found", "text/plain; charset=utf-8")
 
     # ── تقديم واجهة React المبنيّة (SPA) ──
@@ -2602,7 +2666,13 @@ def main() -> None:
     # التحكم عن بعد (ورقة ١٧): وجود var/governance/remote_on.txt = افتح للشبكة (خلف Tailscale)
     remote = REMOTE_FLAG.is_file()
     if remote and not GOV_API_KEY:
-        raise RuntimeError("remote governance requires QUANT_GOV_API_KEY")
+        # المرحلة ١٦ — حماية API: STARTUP = FAIL (ليس مجرد warning)
+        raise RuntimeError(
+            "SECURITY_VIOLATION: remote governance (host != 127.0.0.1) "
+            "requires QUANT_GOV_API_KEY. "
+            "Startup BLOCKED — set the environment variable or remove "
+            f"{REMOTE_FLAG} to bind localhost only."
+        )
     bind = "0.0.0.0" if remote else "127.0.0.1"
     srv = ThreadingHTTPServer((bind, PORT), Handler)
     print("=" * 54)

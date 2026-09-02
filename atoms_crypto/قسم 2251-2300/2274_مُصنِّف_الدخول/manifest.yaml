@@ -1,6 +1,6 @@
 id: 2274
 name: Entry Classifier (Gates + Class ①②③)
-version: 1.8.0
+version: 1.6.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom
@@ -32,7 +32,7 @@ health:
 config_schema:
   type: object
   properties:
-    filtered_break_max_bps:
+    filtered_break_max_points:
       type: number
       minimum: 0
     purge_day_oi_pct:
@@ -47,9 +47,6 @@ config_schema:
     news_fresh_minutes:
       type: number
       minimum: 0
-    input_max_age_s:
-      type: number
-      minimum: 1
     max_age_s:
       type: number
       minimum: 1
@@ -61,13 +58,12 @@ config_schema:
       minimum: 0
   additionalProperties: false
 config:
-  filtered_break_max_bps: 20.0
+  filtered_break_max_points: 150.0
   purge_day_oi_pct: -1.5
   loud_break_ratio: 3.0
   quiet_break_max: 1.5
   news_fresh_minutes: 30.0
   max_age_s: 60
-  input_max_age_s: 120
   wick_body_mult: 2.0
   round_number_confluence_bps: 15.0
 metadata:

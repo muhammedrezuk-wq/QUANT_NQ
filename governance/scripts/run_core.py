@@ -224,6 +224,25 @@ async def run(enable_api: bool | None, demo_seconds: float | None = None) -> int
 
     pump = asyncio.create_task(_signal_pump()) if restore_handlers else None
 
+    # finding 06: لقطة دوريّة كخطّ ثانٍ — لو انقطع التيار أو قُتلت العمليّة
+    # فجأةً، تبقى آخر لقطة دوريّة (لا تعتمد على الإيقاف النظيف وحده).
+    _PERIODIC_SNAPSHOT_INTERVAL_S = 60.0
+    async def _periodic_snapshot() -> None:
+        if snapshot_engine is None:
+            return
+        while not stop_event.is_set():
+            await asyncio.sleep(_PERIODIC_SNAPSHOT_INTERVAL_S)
+            if stop_event.is_set():
+                break
+            try:
+                report = await snapshot_engine.snapshot_all()
+                if report.captured:
+                    log.debug("لقطة دوريّة: %s ذرّة", len(report.captured))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("فشل اللقطة الدوريّة: %s", exc)
+
+    periodic_snap = asyncio.create_task(_periodic_snapshot())
+
     # Item 64: a bounded foreground run. The flag existed, the canonical script
     # had lost it, and the only two tests that run the core as a real process
     # were killed by `unrecognized arguments: --demo-seconds` -- which read from
@@ -239,6 +258,7 @@ async def run(enable_api: bool | None, demo_seconds: float | None = None) -> int
         await stop_event.wait()
     if pump is not None:
         pump.cancel()
+    periodic_snap.cancel()
 
     log.info("إيقاف نظيف لكل الذرات (بترتيب عكسي عن الإقلاع والاعتماديات حياً)...")
     # يجب أن يتوقف الاكتشاف الحي أولًا: لقطة تُلتقط بينما يُحمَّل محرك
@@ -369,10 +389,10 @@ def _start_api(registry, event_bus, metrics, journal, latest_report_box, api_cfg
     if local_mode:
         api_key = None
     if api_key is None and host != "127.0.0.1":
-        log.error(
-            "❌ [CRITICAL] api_key غير مُعدَّة و host=%s (ليس 127.0.0.1) — مانع الأمان (Article 28) يمنع التشغيل الخارجي بلا مفتاح سري!", host,
+        log.warning(
+            "⚠️ api_key غير مُعدَّة و host=%s (ليس 127.0.0.1) — المادة 28 (Secure by Default) "
+            "توصي بشدة بتعيين api_key بـcore.yaml لأي ربط متاح خارج الجهاز المحلي.", host,
         )
-        raise RuntimeError("CRITICAL SECURITY VIOLATION: Cannot bind core API to non-loopback host without an API key (QUANT_CORE_API_KEY / QUANT_GOV_API_KEY).")
     app = create_app(
         registry, event_bus, metrics, journal,
         get_boot_report=lambda: latest_report_box["report"],

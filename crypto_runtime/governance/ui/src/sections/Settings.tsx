@@ -16,33 +16,40 @@ import {
   getTabOrder, saveTabOrder, resetTabOrder, TAB_ORDER_EVENT,
 } from '../core/appearance'
 
-interface Setting { key: string; value: unknown; type: string; min: number | null; max: number | null }
+interface Setting {
+  key: string; value: unknown; type: string; min: number | null; max: number | null
+  live_value?: unknown; overridden?: boolean
+}
 
-export function AtomConfigForm({ atomId }: { atomId: number }) {
+export function AtomConfigForm({ atomId, sandbox = false }: { atomId: number; sandbox?: boolean }) {
   const atoms = useStore((s) => s.atoms)
   const [settings, setSettings] = useState<Setting[] | null>(null)
   const [vals, setVals] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
+  const cfgPath = sandbox ? `/gov/lab/config/${atomId}` : `/gov/atoms/${atomId}/config`
 
-  useEffect(() => {
+  const load = () => {
     setMsg(''); setSettings(null)
-    fetch(`/gov/atoms/${atomId}/config`)
+    fetch(cfgPath)
       .then((r) => r.json())
-      .then((d: { settings?: Setting[] }) => {
+      .then((d: { settings?: Setting[]; error?: string }) => {
         const s = d.settings ?? []
         setSettings(s)
         const v: Record<string, string> = {}
         for (const x of s) v[x.key] = x.type === 'array' || x.type === 'object' ? JSON.stringify(x.value) : String(x.value)
         setVals(v)
+        if (d.error) setMsg(d.error)
       })
       .catch(() => setSettings([]))
-  }, [atomId])
+  }
+
+  useEffect(() => { load() }, [atomId, sandbox]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function save() {
     if (!settings) return
     const name = atoms[atomId]?.name_ar ?? `#${atomId}`
-    if (!window.confirm(`تعديل إعدادات «${name}» وإعادة تحميلها حيًّا؟`)) return
+    if (!sandbox && !window.confirm(`تعديل إعدادات «${name}» وإعادة تحميلها حيًّا؟`)) return
     setBusy(true); setMsg('')
     const updates: Record<string, unknown> = {}
     try {
@@ -50,11 +57,26 @@ export function AtomConfigForm({ atomId }: { atomId: number }) {
         const raw = vals[setting.key]
         updates[setting.key] = setting.type === 'array' || setting.type === 'object' ? JSON.parse(raw) : raw
       }
-      const r = await fetch(`/gov/atoms/${atomId}/config`, {
+      const r = await fetch(cfgPath, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
       })
+      const j = (await r.json()) as { message?: string; error?: string; ok?: boolean }
+      setMsg(j.message ?? j.error ?? (r.ok ? 'تمّ' : 'ما تمّ'))
+      if (sandbox && r.ok) load()
+    } catch {
+      setMsg('خطأ اتصال')
+    }
+    setBusy(false)
+  }
+
+  async function resetSandbox() {
+    if (!sandbox) return
+    setBusy(true); setMsg('')
+    try {
+      const r = await fetch(`/gov/lab/config/${atomId}/reset`, { method: 'POST' })
       const j = (await r.json()) as { message?: string }
-      setMsg(j.message ?? (r.ok ? 'تمّ' : 'ما تمّ'))
+      setMsg(j.message ?? 'رجعت للأصل')
+      load()
     } catch {
       setMsg('خطأ اتصال')
     }
@@ -93,12 +115,20 @@ export function AtomConfigForm({ atomId }: { atomId: number }) {
             )}
             <div className="ss">
               {s.min != null ? `أدنى ${s.min}` : ''}{s.min != null && s.max != null ? ' · ' : ''}{s.max != null ? `أقصى ${s.max}` : ''}
+              {sandbox && s.overridden ? ' · مختبر (الحي مختلف)' : ''}
             </div>
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 10 }}>
-        <button className="btn start" disabled={busy} onClick={save}>حفظ وتطبيق حيّ</button>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+        <button className="btn start" disabled={busy} onClick={save}>
+          {sandbox ? 'حفظ للمختبر فقط' : 'حفظ وتطبيق حيّ'}
+        </button>
+        {sandbox ? (
+          <button className="btn" disabled={busy} onClick={() => void resetSandbox()}>
+            ارجع لأصل التداول
+          </button>
+        ) : null}
         {msg ? <span className="dim">{msg}</span> : null}
       </div>
     </>

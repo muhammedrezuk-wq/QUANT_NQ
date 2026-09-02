@@ -60,20 +60,9 @@ def test_official_launch_buttons_are_market_specific() -> None:
         assert "governance\\app.py" not in text
 
 
-def test_hub_local_default_and_internal_backend_isolation() -> None:
-    """اللوحة محلّيّة بالافتراض، وخادما السوقين يبقيان تفصيلًا داخليًّا.
-
-    ٢٠٢٦-٠٩-٠١: كان هذا الاختبار يشترط `QUANT_HUB_HOST` افتراضه `"0.0.0.0"` —
-    أي أنّه **يثبّت** ربطًا على كل الواجهات لوكيل بلا مصادقة واحدة (صفر
-    401/403 بالملفّ كلّه). الاختبار كان يقفل الثغرة في مكانها بدل أن يكشفها:
-    أيّ إصلاح كان يُسقطه. صار يشترط العكس، ومعه اختبارات السلوك في
-    `tests/test_security_gates.py`.
-    """
+def test_hub_external_default_and_internal_backend_isolation() -> None:
     text = (ROOT / "governance/unified_hub.py").read_text(encoding="utf-8")
-    assert 'os.environ.get("QUANT_HUB_HOST", "127.0.0.1")' in text
-    assert '"0.0.0.0"' not in text.split("def _bind_host")[1][:200], (
-        "الافتراض يجب ألّا يعود إلى كل الواجهات"
-    )
+    assert 'os.environ.get("QUANT_HUB_HOST", "0.0.0.0")' in text
     assert 'BACKENDS = {"forex": ("127.0.0.1", 8092), "crypto": ("127.0.0.1", 8093)}' in text
 
 

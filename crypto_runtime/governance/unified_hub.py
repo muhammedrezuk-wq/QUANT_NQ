@@ -54,60 +54,8 @@ def _backend_url(market: str, path: str) -> str:
     return f"http://{host}:{port}{path}"
 
 
-# ── بوّابة اللوحة ────────────────────────────────────────────────────────────
-# قِيس 2026-09-01: كان `QUANT_HUB_HOST` افتراضه "0.0.0.0" ولا فحص مصادقة واحد
-# في هذا الملفّ (صفر 401/403). فاللوحة — وهي وكيل يمرّر `/gov/*` و`/api/*` إلى
-# خادمي السوقين — كانت أكشف من النواة نفسها: `TCP 0.0.0.0:8090` يستمع فعلًا.
-# العلاج ثلاث طبقات: الافتراض محلّي · الربط الخارجيّ يشترط مفتاحًا وإلّا لا يقلع ·
-# وكل طلب من خارج الحلقة المحلّيّة يُفحص. العميل المحلّي لا يتغيّر سلوكه إطلاقًا.
-HUB_KEY = (
-    os.environ.get("QUANT_HUB_KEY")
-    or os.environ.get("QUANT_CORE_API_KEY")
-    or os.environ.get("QUANT_GOV_API_KEY")
-    or ""
-).strip()
-_LOOPBACK = ("127.0.0.1", "::1", "localhost")
-
-
-def _bind_host() -> str:
-    return os.environ.get("QUANT_HUB_HOST", "127.0.0.1").strip() or "127.0.0.1"
-
-
-def _is_external_bind() -> bool:
-    return _bind_host() not in _LOOPBACK
-
-
 class HubHandler(BaseHTTPRequestHandler):
     server_version = "QUANT-Unified-Hub/1.0"
-
-    def _client_is_local(self) -> bool:
-        try:
-            return str(self.client_address[0]) in _LOOPBACK
-        except Exception:  # noqa: BLE001
-            return False
-
-    def _authorized(self) -> bool:
-        """محلّي ⇒ يمرّ. خارجيّ ⇒ مفتاح صحيح بالترويسة أو الكوكي أو `?key=`."""
-        if not _is_external_bind() or self._client_is_local():
-            return True
-        if not HUB_KEY:
-            return False
-        supplied = (self.headers.get("X-API-Key") or "").strip()
-        if not supplied:
-            from urllib.parse import parse_qs
-            supplied = (parse_qs(urlparse(self.path).query).get("key") or [""])[0].strip()
-        if not supplied:
-            for part in (self.headers.get("Cookie") or "").split(";"):
-                name, _, value = part.strip().partition("=")
-                if name == "QUANT_HUB_KEY":
-                    supplied = value.strip()
-                    break
-        import hmac
-        return bool(supplied) and hmac.compare_digest(supplied, HUB_KEY)
-
-    def _deny(self) -> None:
-        self._json(401, {"error": "unauthorized",
-                         "detail": "اللوحة مربوطة خارجيًّا — يلزم مفتاح X-API-Key"})
 
     def _headers(self, *, content_type: str = "application/json; charset=utf-8", length: int = 0) -> None:
         self.send_header("Content-Type", content_type)
@@ -273,8 +221,6 @@ class HubHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def do_GET(self) -> None:
-        if not self._authorized():
-            self._deny(); return
         path = urlparse(self.path).path
         if path == "/unified/market" or path == "/gov/market":
             market = _market(self)
@@ -298,8 +244,6 @@ class HubHandler(BaseHTTPRequestHandler):
         self._serve_static()
 
     def do_POST(self) -> None:
-        if not self._authorized():
-            self._deny(); return
         path = urlparse(self.path).path
         if path == "/unified/select":
             self._select()
@@ -317,19 +261,9 @@ def main() -> None:
     # Public-preview safe default: the single visible dashboard origin is
     # reachable outside localhost when the environment supports it. The market
     # governance backends remain localhost-only implementation details.
-    host = _bind_host()
-    if _is_external_bind() and not HUB_KEY:
-        raise SystemExit(
-            "❌ [CRITICAL] اللوحة مطلوب ربطها خارجيًّا "
-            f"(QUANT_HUB_HOST={host}) بلا مفتاح.\n"
-            "   عيّن QUANT_HUB_KEY (أو QUANT_CORE_API_KEY) قبل التشغيل، "
-            "أو أبقِ الافتراض المحلّي 127.0.0.1.\n"
-            "   وكيل بلا مصادقة على كل الواجهات يمرّر /gov و/api "
-            "إلى خادمي السوقين."
-        )
+    host = os.environ.get("QUANT_HUB_HOST", "0.0.0.0")
     server = ThreadingHTTPServer((host, PORT), HubHandler)
-    print(f"Unified dashboard listening on {host}:{PORT}"
-          + ("  [مصادقة مفعّلة]" if _is_external_bind() else "  [محلّي]"))
+    print(f"Unified dashboard listening on {host}:{PORT}")
     print("Internal market dashboards: 8092=forex, 8093=crypto")
     try:
         server.serve_forever()

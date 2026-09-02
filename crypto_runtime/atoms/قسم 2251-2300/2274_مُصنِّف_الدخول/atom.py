@@ -68,13 +68,13 @@ class Atom(AtomBase):
     def __init__(self) -> None:
         self._context: AtomContext | None = None
         self._running = False
-        self._filtered_break_max_bps = 20.0        # ن.أ — بديل 150 نقطة المطلقة (≈19 ن.أ على BTC، الرمز الوحيد الذي كانت تعمل عليه)
+        self._filtered_break_max_points = 150.0    # `02-rules.md` §٥③ شرط ٣: حرفيّ
         self._purge_oi_pct = -1.5                   # `02-rules.md` §٢ "يوم التطهير": حرفيّ
         self._loud_break_ratio = 3.0                 # §٣ ذيل: "الصاخبة ≥×3 سالبة مقاسًا" — حرفيّ
         self._quiet_break_max = 1.5                  # §٣ ذيل: نطاق فرضية "الكسر الهادئ" ١-١.٥ — حرفيّ
         self._news_fresh_minutes = 30.0              # `02-rules.md` §٨: "خبر <30د ⇒ تُخفَّض الثقة" — حرفيّ
         self._max_age_s = 60.0
-        # بوّابة عمر المدخل — منفصلة عن `max_age_s` (شارة الصحّة).
+        # بوابة عمر المدخل — منفصلة عن `max_age_s` (شارة الصحّة).
         self._input_max_age_s = 120.0
         self._stale_inputs = 0
         self._latest_news_at: float | None = None    # وسمٌ عامٌّ للسوق كله — لا ربط رموزٍ بعد (راجع حدود ٢٦١٥)
@@ -113,7 +113,7 @@ class Atom(AtomBase):
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
         c = context.config
-        self._filtered_break_max_bps = float(c.get("filtered_break_max_bps", 20.0))
+        self._filtered_break_max_points = float(c.get("filtered_break_max_points", 150.0))
         self._purge_oi_pct = float(c.get("purge_day_oi_pct", -1.5))
         self._loud_break_ratio = float(c.get("loud_break_ratio", 3.0))
         self._quiet_break_max = float(c.get("quiet_break_max", 1.5))
@@ -407,36 +407,16 @@ class Atom(AtomBase):
 
         # الصنف ③: كسرٌ طازجٌ + وقودٌ يبني بنفس الجهة + مسافةٌ ≤ ١٥٠ن + ليس كسرًا صاخبًا.
         if level_evt.get("event") == "broken":
-            # ── عمر المدخل بوّابةً ───────────────────────────────────────
-            # المقيس ٢٠٢٦-٠٩-٠١: `max_age_s` بعشر ذرّات مقروءٌ في
-            # `health_check()` حصرًا — شارةٌ لا بوّابة. فحدث كسرٍ عمره
-            # عشرون دقيقة كان ما يزال يسلّح دخولًا، والسوق تحرّك منذ ذلك
-            # الحين. الشارة تبقى كما هي؛ هذه بوّابة منفصلة على المدخل نفسه.
+            # ── عمر المدخل بوابةً ───────────────────────────────────────
             broken_at = _f(level_evt.get("timestamp"))
             if broken_at is not None and (time.time() - broken_at) > self._input_max_age_s:
                 self._stale_inputs += 1
                 return None, {}, None
             distance = _f(level_evt.get("distance_points"))
-            # ── المسافة بنقاط الأساس، لا بالنقاط المطلقة ──────────────────
-            # المقيس ٢٠٢٦-٠٩-٠١: `filtered_break_max_points = 150` مسافةُ
-            # سعرٍ مطلقة تُطبَّق على ١٩ رمزًا تفصل بينها ثمانية أسس عشرية:
-            #   BTC 78,650  ⇒ 19 ن.أ         (حاجز حقيقيّ)
-            #   ETH  2,470  ⇒ 607 ن.أ        (فضفاض)
-            #   SOL    103  ⇒ 14,549 ن.أ     (لا يعمل)
-            #   PEPE 0.0000036 ⇒ 421 مليار ن.أ (لا يعمل)
-            # أي أنّ العتبة كانت تعمل على رمزٍ واحد من ١٩ وتمرّ كل شيء على
-            # الثمانية عشر الباقية. النسبة تجعل رقمًا واحدًا يصلح للجميع.
-            distance_bps = _f(level_evt.get("distance_bps"))
-            if distance_bps is None:
-                # ناشرٌ لم يُرقَّ بعد: نشتقّها من المسافة والمستوى بدل الصمت.
-                level_value = _f(level_evt.get("level_value"))
-                if distance is not None and level_value:
-                    distance_bps = (distance / level_value) * 1e4
             fuel_state = fuel.get("fuel")
             fuel_matches = (fuel_state == "building_decline" and direction == "short") or \
                            (fuel_state == "building_rise" and direction == "long")
-            if fuel_matches and distance_bps is not None \
-                    and abs(distance_bps) <= self._filtered_break_max_bps:
+            if fuel_matches and distance is not None and abs(distance) <= self._filtered_break_max_points:
                 # الشرط المحذوف والمُصحَّح (02-rules.md §٣ ذيل، دراسة an07b):
                 # الكسر الصاخب (≥×3 حجم) سالبٌ متسقًا ⇒ إقصاءٌ صريح، لا علمُ حذرٍ
                 # فقط. الهادئ (١-١.٥×) فرضيةٌ غير مثبتة بعد (n=43) ⇒ تُعلَم لا تُشترَط.
@@ -445,12 +425,7 @@ class Atom(AtomBase):
                 if ratio is not None and ratio >= self._loud_break_ratio:
                     return None, {}, None
                 quiet = ratio is not None and 1.0 <= ratio <= self._quiet_break_max
-                return (CLASS_3, {"level": level_key, "distance_points": distance,
-                                  # النسبة تُنشر مع المطلق: البطاقة تشرح
-                                  # بأيّ رقمٍ مرّت، لا بأيّهما كان متاحًا.
-                                  "distance_bps": round(distance_bps, 4),
-                                  "max_bps": self._filtered_break_max_bps,
-                                  "fuel": fuel_state,
+                return (CLASS_3, {"level": level_key, "distance_points": distance, "fuel": fuel_state,
                                   "volume_ratio": ratio, "quiet_break_hypothesis": quiet,
                                   "level_value": level_evt.get("level_value")},
                         level_evt.get("timestamp"))
@@ -528,7 +503,6 @@ class Atom(AtomBase):
         details = {"symbols_seen": len(self._license), "updates": self._updates,
                    "emitted": self._emitted, "resuppressed": self._resuppressed,
                    "blocked": dict(self._blocked), "blocked_detail": dict(self._blocked_detail),
-                   # مدخلات رُفضت لعمرها — تُعرَض كي لا يكون الرفض صامتًا.
                    "stale_inputs": self._stale_inputs,
                    "input_max_age_s": self._input_max_age_s,
                    "age_s": (time.time() - self._last_at) if self._last_at else None}

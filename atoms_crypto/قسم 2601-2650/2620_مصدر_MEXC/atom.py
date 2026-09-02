@@ -9,7 +9,7 @@ import websockets
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.3.0"
+ATOM_VERSION = "1.2.0"
 PROVIDER = "MEXC"
 
 # روابط MEXC — مؤكَّدة من الوثائق الرسمية ومختبَرة حيّاً 2026-08-26.
@@ -239,14 +239,8 @@ class Atom(AtomBase):
             return
         self._counts["depth"] += 1
         self._last_msg_at = now
-        # `sub.depth` على عقود MEXC قناة **تزايديّة**: ترسل السطور المتغيّرة
-        # وحدها، وحجم `0` يعني «احذف هذا المستوى» لا «لا سيولة هنا». الحمولة
-        # تُوسَم بذلك صراحةً كي لا يجمعها مستهلكٌ كأنّها الدفتر كلّه —
-        # وقد وقع ذلك فعلًا: `٢٢٦٥` كانت تجمعها فتخرج نسبٌ صفريّة تُقرأ
-        # أصواتَ «شورت» (69% من أصوات الشورت كانت أثرًا لذلك، مقيس ٢٠٢٦-٠٩-٠١).
         await self._context.publish(EVENT_DEPTH, {
             "provider": PROVIDER, "market": self._market, "symbol": symbol,
-            "depth_kind": "delta",
             "bids": _levels(body.get("bids"), self._depth_levels),
             "asks": _levels(body.get("asks"), self._depth_levels),
             "version": body.get("version"), "timestamp": now})

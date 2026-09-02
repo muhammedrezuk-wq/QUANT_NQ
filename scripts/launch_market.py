@@ -32,7 +32,12 @@ def listening(port: int) -> bool:
 
 def spawn(cmd: list[str], port: int, env: dict[str, str], label: str) -> None:
     if listening(port): print(f"{label}: يعمل مسبقًا على {port}"); return
-    subprocess.Popen(cmd, cwd=ROOT, env=env, close_fds=(os.name != "nt"))
+    # ويندوز: CREATE_NEW_PROCESS_GROUP ضروريّ لاستقبال CTRL_BREAK_EVENT
+    kwargs = {"cwd": ROOT, "env": env, "close_fds": (os.name != "nt")}
+    if os.name == "nt":
+        import subprocess
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(cmd, **kwargs)
     print(f"{label}: بدأ على {port}")
 
 def wait(port: int) -> bool:

@@ -1,6 +1,6 @@
 id: 2277
 name: Signal Card v3.1 (Anchor + Ladder + Stop + Targets)
-version: 1.3.0
+version: 1.2.1
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom
@@ -42,9 +42,6 @@ config_schema:
     max_age_s:
       type: number
       minimum: 1
-    input_max_age_s:
-      type: number
-      minimum: 1
   additionalProperties: false
 config:
   entry_zone_bps: 6.5
@@ -53,7 +50,6 @@ config:
   time_stop_class1_candles: 11
   time_stop_class2_candles: 6
   max_age_s: 90
-  input_max_age_s: 30
 metadata:
   max_idle_s: 120
   market: crypto

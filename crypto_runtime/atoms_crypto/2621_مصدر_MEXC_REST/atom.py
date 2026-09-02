@@ -8,7 +8,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.3.0"
+ATOM_VERSION = "1.4.0"
 PROVIDER = "MEXC"
 BASE = "https://contract.mexc.com/api/v1/contract"
 
@@ -214,8 +214,12 @@ class Atom(AtomBase):
             self._ticker_polls += 1
             self._last_ok = now
             if oi is not None:
+                # تضمين السعر المتزامن مع OI (fair price أو index price)
+                # لضمان عدم استخدام سعر شمعة قديمة
+                price = fair if fair is not None else index
                 await self._context.publish(EVENT_OI, {
-                    "provider": PROVIDER, "symbol": symbol, "oi": oi, "timestamp": now})
+                    "provider": PROVIDER, "symbol": symbol, "oi": oi,
+                    "price": price, "timestamp": now})
             if rate is not None:
                 await self._context.publish(EVENT_FUNDING, {
                     "provider": PROVIDER, "symbol": symbol, "funding_rate": rate,

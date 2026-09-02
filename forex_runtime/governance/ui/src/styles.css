@@ -63,7 +63,7 @@ body::before {
   border-bottom: 1px solid rgba(255,120,140,.5); letter-spacing: .2px;
 }
 .shell.frozen { grid-template-rows: auto auto auto 1fr auto; }
-.shell.frozen .workspace { opacity: .45; filter: grayscale(.55); }
+/* اللافتة الحمراء كافية — تعتيم+رمادي كان يقلب اللوحة سوداء كل إطار. */
 
 /* زجاج مشترك */
 .hdr, .nav, .status {

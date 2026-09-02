@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sqlite3
+import time
+from pathlib import Path
 from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.4.0"
+ATOM_VERSION = "1.5.0"
 # v1.4.0 (2026-08-27, item 21/27 of the 27-atom review -- same event
 # name, two conflicting shapes between 615 and 616, both publishing
 # market.news by deliberate design: 615's own history (v1.0.0) records
@@ -58,6 +61,41 @@ SYMBOL_SEPARATOR = ","
 REASON_NOT_STARTED = "NOT_STARTED"
 REASON_UNREADABLE = "BRIDGE_UNREADABLE"
 REASON_NO_DATA = "NO_ROWS_YET"
+
+# ── v1.5.0: Persistent consumption cursor ──────────────────────
+# 616 reads a bridge database that accumulates historical rows.
+# Without persistence, every restart re-reads from id=0, re-broadcasting
+# all historical rows to the EventBus. This is wrong: old data should
+# NOT be re-published on startup. The cursor tracks the last consumed
+# row id to disk so consecutive startups only see genuinely new rows.
+# Historical rows remain in the bridge database (never deleted) for
+# audit; they are simply not re-emitted.
+
+
+def _state_path_for(bridge_db: str) -> str:
+    """Derive a state file path next to the bridge db."""
+    p = Path(bridge_db)
+    return str(p.parent / (p.stem + "_616_cursor.json"))
+
+
+def _load_cursor(state_path: str) -> int:
+    """Load the last consumed news id from disk. Returns 0 if absent."""
+    try:
+        data = json.loads(Path(state_path).read_text())
+        return int(data.get("last_news_id", 0))
+    except (FileNotFoundError, json.JSONDecodeError, ValueError, KeyError):
+        return 0
+
+
+def _save_cursor(state_path: str, last_news_id: int) -> None:
+    """Persist the last consumed news id."""
+    try:
+        Path(state_path).write_text(json.dumps({
+            "last_news_id": last_news_id,
+            "updated_at": time.time(),
+        }))
+    except OSError:
+        pass  # Best-effort; cursor resets to 0 on next restart if lost
 
 
 def _to_float(value: Any) -> float | None:
@@ -133,6 +171,9 @@ class Atom(AtomBase):
         self._news_published = 0
         self._calendar_published = 0
         self._reads = 0
+        # v1.5.0: persistent cursor
+        self._state_path = ""
+        self._cursor_restored = False
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
@@ -140,6 +181,13 @@ class Atom(AtomBase):
         self._db_path = _resolve_db(str(cfg["db_path"]))
         self._poll_interval_s = float(cfg["poll_interval_s"])
         self._batch_limit = int(cfg["batch_limit"])
+        # v1.5.0: restore persistent cursor — prevents re-broadcast of
+        # historical rows on consecutive startups.
+        self._state_path = _state_path_for(self._db_path)
+        restored = _load_cursor(self._state_path)
+        if restored > 0:
+            self._last_news_id = restored
+            self._cursor_restored = True
         context.subscribe(EVENT_PULSE, self._on_pulse)
 
     async def start(self) -> None:
@@ -205,6 +253,9 @@ class Atom(AtomBase):
                 await self._emit_news(row)
             for row in calendar:
                 await self._emit_calendar(row)
+            # v1.5.0: persist cursor after successful batch
+            if self._last_news_id > 0:
+                _save_cursor(self._state_path, self._last_news_id)
         finally:
             self._reading = False
 
@@ -271,6 +322,7 @@ class Atom(AtomBase):
         details = {"reads": self._reads, "news": self._news_published,
                    "calendar": self._calendar_published,
                    "last_news_id": self._last_news_id,
+                   "cursor_restored": self._cursor_restored,
                    "tracked_events": len(self._seen_events)}
         if self._last_error:
             return HealthStatus(state=HealthState.DEGRADED, message=REASON_UNREADABLE,

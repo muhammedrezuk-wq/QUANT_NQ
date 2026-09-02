@@ -54,6 +54,30 @@ def _ancestors(proc, psutil) -> set[int]:
     return out
 
 
+def _send_ctrl_break(pid: int) -> bool:
+    """أرسل CTRL_BREAK_EVENT على ويندوز — يُلتقط بمقبض SIGBREAK."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        # CTRL_BREAK_EVENT = 1 (ويندوز)
+        # signal.SIGBREAK = 21 (بايثون) — لكن الصحيح هو CTRL_BREAK_EVENT = 1
+        PROCESS_ALL_ACCESS = 0x1F0FFF
+        handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+        if not handle:
+            return False
+        try:
+            import signal
+            # CTRL_BREAK_EVENT = 1 (ويندوز) — ليس SIGBREAK = 21
+            os.kill(pid, signal.CTRL_BREAK_EVENT)
+            return True
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
 def main() -> int:
     try:
         import psutil
@@ -89,15 +113,39 @@ def main() -> int:
         print("لا توجد خدمات QUANT_NQ عاملة.")
     else:
         procs = []
-        for pid, label in sorted(targets.items()):
-            try:
-                proc = psutil.Process(pid)
-                print(f"  إيقاف PID={pid:<7} {label}")
-                proc.terminate()
-                procs.append(proc)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-        _, alive = psutil.wait_procs(procs, timeout=8)
+        # ── ويندوز: أرسل CTRL_BREAK_EVENT أولاً (يُلتقط بمقبض SIGBREAK) ──
+        if os.name == "nt":
+            for pid, label in sorted(targets.items()):
+                try:
+                    proc = psutil.Process(pid)
+                    print(f"  إرسال CTRL_BREAK إلى PID={pid:<7} {label}")
+                    if _send_ctrl_break(pid):
+                        procs.append(proc)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            # انتظر ١٠ ثوانٍ للإغلاق النظيف (يُنفَّذ snapshot_all)
+            _, alive = psutil.wait_procs(procs, timeout=10)
+            if alive:
+                print(f"  {len(alive)} عمليات لم تستجب لـ CTRL_BREAK — إرسال terminate()")
+                for proc in alive:
+                    try:
+                        proc.terminate()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                _, alive = psutil.wait_procs(alive, timeout=5)
+        else:
+            # ── لينكس/ماك: terminate() كالمعتاد ─────────────────────
+            for pid, label in sorted(targets.items()):
+                try:
+                    proc = psutil.Process(pid)
+                    print(f"  إيقاف PID={pid:<7} {label}")
+                    proc.terminate()
+                    procs.append(proc)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            _, alive = psutil.wait_procs(procs, timeout=8)
+        
+        # ── إنهاء قسريّ لمن لم يستجب ────────────────────────────────
         for proc in alive:
             try:
                 print(f"  لم يستجب — إنهاء قسريّ PID={proc.pid}")

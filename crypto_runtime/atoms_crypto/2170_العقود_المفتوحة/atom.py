@@ -5,7 +5,7 @@ from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.1.0"
+ATOM_VERSION = "2.0.0"
 EVENT_OI = "market.oi"
 EVENT_CANDLE = "market.candle"
 EVENT_OUT = "sense.oi.state"
@@ -31,8 +31,14 @@ class Atom(AtomBase):
         سعر↓ OI↑ = شورتات جديدة تهاجم ..... هبوطٌ صادق
         سعر↓ OI↓ = تصفيةُ لونغات .......... شلّال/إعدام لا بيعَ اقتناع
 
-    السعر من إغلاق آخر شمعة (market.candle)، والـOI من market.oi. أساسٌ
-    لمقياس الوقود (الذرّة ١٧١) وكاشفٌ للتصفيات المحليّة. أرضيّةُ ضجيجٍ
+    v2.0 — التزامن:
+    السعر يُؤخَذ أوّلاً من حمولة market.oi نفسها (fair_price من المصدر ٢٦٢١،
+    نفس اللحظة نفس الاستجابة). إن غاب السعر المرافق، سقوطٌ إلى آخر إغلاق شمعة
+    (market.candle) مع إعلان صريح بالمصدر في الحقل price_source:
+      - "oi_sync"        = السعر متزامن مع الـOI (من نفس الاستجابة)
+      - "candle_fallback" = السعر من آخر شمعة (غير متزامن، أقلّ ثقة)
+
+    أساسٌ لمقياس الوقود (الذرّة ٢١٧١) وكاشفٌ للتصفيات المحليّة. أرضيّةُ ضجيجٍ
     اختياريّة (noise_pct) تحت العتبة تُصنَّف الحركة flat. قراءة فقط — لا حساب
     اتجاهٍ ولا أمر."""
 
@@ -42,12 +48,15 @@ class Atom(AtomBase):
         self._noise_pct = 0.0
         self._max_age_s = 60.0
         self._price: dict[str, float] = {}
+        self._price_ts: dict[str, float] = {}   # متى arrived آخر سعر شمعة
         # symbol → (ts, price, oi) لآخر قراءةٍ صالحة (المرجع للرباعيّة التالية)
         self._prev: dict[str, tuple[float, float, float]] = {}
         self._state: dict[str, dict[str, Any]] = {}
         self._updates = 0
         self._oi_seen = 0
         self._candle_seen = 0
+        self._sync_used = 0          # عدد المرّات التي استُعمل فيها السعر المتزامن
+        self._fallback_used = 0      # عدد المرّات التي استُعمل فيها إغلاق الشمعة
         self._last_at: float | None = None
 
     async def initialize(self, context: AtomContext) -> None:
@@ -67,13 +76,15 @@ class Atom(AtomBase):
         await self.stop()
 
     async def _on_candle(self, payload: dict[str, Any]) -> None:
+        """يُخزّن آخر إغلاق شمعة كاحتياط — يُستعمل فقط إن غاب السعر المتزامن."""
         if not self._running or not isinstance(payload, dict):
             return
         symbol = str(payload.get("symbol") or "")
         close = _f(payload.get("close"))
         if not symbol or close is None or close <= 0:
             return
-        self._price[symbol] = close                # آخر سعرٍ معلوم لأيّ إطار
+        self._price[symbol] = close
+        self._price_ts[symbol] = time.time()
         self._candle_seen += 1
 
     async def _on_oi(self, payload: dict[str, Any]) -> None:
@@ -83,10 +94,21 @@ class Atom(AtomBase):
         oi = _f(payload.get("oi"))
         if not symbol or oi is None or oi <= 0:
             return
+
+        # ── التزامن: أوّلاً السعر المرافق للـOI (v2.0) ──
+        price = _f(payload.get("price"))
+        if price is not None and price > 0:
+            price_source = "oi_sync"
+            self._sync_used += 1
+        else:
+            # ── سقوط: آخر إغلاق شمعة (غير متزامن، أقلّ ثقة) ──
+            price = self._price.get(symbol)
+            if price is None:
+                return                                 # لا سعر من أيّ مصدر ⇒ لا رباعيّة
+            price_source = "candle_fallback"
+            self._fallback_used += 1
+
         self._oi_seen += 1
-        price = self._price.get(symbol)
-        if price is None:
-            return                                 # لا سعر بعد ⇒ لا رباعيّة
         now = time.time()
         prev = self._prev.get(symbol)
         self._prev[symbol] = (now, price, oi)
@@ -115,6 +137,7 @@ class Atom(AtomBase):
             "provider": payload.get("provider"), "symbol": symbol,
             "oi": oi, "oi_prev": prev_oi,
             "price": price, "price_prev": prev_price,
+            "price_source": price_source,
             "d_oi": round(d_oi, 4), "d_oi_pct": round(d_oi_pct, 4),
             "d_price": round(d_price, 8), "d_price_pct": round(d_price_pct, 4),
             "over_s": round(now - prev_ts, 2), "over_min": round((now - prev_ts) / 60.0, 2),
@@ -128,9 +151,11 @@ class Atom(AtomBase):
 
     async def health_check(self) -> HealthStatus:
         details = {"symbols": len(self._state), "updates": self._updates,
-                   "oi_seen": self._oi_seen, "candle_seen": self._candle_seen,
-                   "age_s": (time.time() - self._last_at) if self._last_at else None,
-                   "quadrant": {s: v["quadrant"] for s, v in self._state.items()}}
+                    "oi_seen": self._oi_seen, "candle_seen": self._candle_seen,
+                    "sync_used": self._sync_used, "fallback_used": self._fallback_used,
+                    "sync_pct": (self._sync_used / max(1, self._sync_used + self._fallback_used) * 100.0),
+                    "age_s": (time.time() - self._last_at) if self._last_at else None,
+                    "quadrant": {s: v["quadrant"] for s, v in self._state.items()}}
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message="NOT_STARTED", details=details)
         if self._last_at is None:
@@ -138,12 +163,16 @@ class Atom(AtomBase):
         if details["age_s"] is not None and details["age_s"] > self._max_age_s:
             return HealthStatus(state=HealthState.DEGRADED, message="OI_STALE", details=details)
         return HealthStatus(state=HealthState.HEALTHY,
-                            message="symbols=%d updates=%d" % (len(self._state), self._updates),
+                            message="symbols=%d updates=%d sync=%.0f%%" % (
+                                len(self._state), self._updates, details["sync_pct"]),
                             details=details)
 
     async def snapshot(self) -> dict[str, Any]:
-        return {"version": ATOM_VERSION, "updates": self._updates}
+        return {"version": ATOM_VERSION, "updates": self._updates,
+                "sync_used": self._sync_used, "fallback_used": self._fallback_used}
 
     async def restore(self, state: dict[str, Any]) -> None:
         if isinstance(state, dict):
             self._updates = int(state.get("updates", 0))
+            self._sync_used = int(state.get("sync_used", 0))
+            self._fallback_used = int(state.get("fallback_used", 0))
