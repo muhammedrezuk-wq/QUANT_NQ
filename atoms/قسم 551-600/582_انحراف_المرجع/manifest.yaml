@@ -1,6 +1,6 @@
 id: 582
 name: Reference Broker Divergence
-version: 1.5.1
+version: 2.0.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom
@@ -32,6 +32,21 @@ config_schema:
     alignment_window_s:
       type: number
       exclusiveMinimum: 0
+    window_ticks:
+      type: integer
+      minimum: 2
+    window_seconds:
+      type: number
+      exclusiveMinimum: 0
+    suspicious_repeats:
+      type: integer
+      minimum: 1
+    expected_return_abs:
+      type: number
+      minimum: 0
+    suspicious_return_abs:
+      type: number
+      minimum: 0
   required:
   - max_deviation_points
   - max_age_s
@@ -41,5 +56,10 @@ config:
   max_deviation_points: 50
   max_age_s: 5
   alignment_window_s: 0.15
+  window_ticks: 20
+  window_seconds: 30
+  suspicious_repeats: 3
+  expected_return_abs: 0.0005
+  suspicious_return_abs: 0.005
 metadata:
   max_idle_s: 51

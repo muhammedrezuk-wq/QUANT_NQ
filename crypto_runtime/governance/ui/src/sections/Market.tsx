@@ -31,45 +31,43 @@ export default function Market() {
     const t = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(t)
   }, [])
-  if (symbols.length === 0) {
-    return (
-      <div className="section">
-        <div className="empty">جارِ استقبال أسعار السوق من النواة…</div>
-        <div className="ss dim" style={{ marginTop: 10 }}>عند وصول أول تكّة ستظهر الرموز والأسعار هنا بشكل مبسّط.</div>
-      </div>
-    )
-  }
   const refCount = Object.keys(market).length
   return (
     <div className="section">
       <div className="ss dim" style={{ marginBottom: 10 }}>
-        {symbols.length} رمز — <b>المرجع</b> (سي‑تريدر) هو الذي يقود التحليل، و<b>التنفيذ</b> (الوسيط)
-        للعرض فقط ولا يدخل أي حكم.
-        {refCount === 0 && (
+        <b>المرجع</b> (سي‑تريدر) يقود التحليل. <b>التنفيذ</b> (ميتاتريدر) للعرض وإدارة المركز — ما بيدخل حكم التحليل.
+        {symbols.length === 0
+          ? ' بانتظار أوّل تكة.'
+          : ` ${symbols.length} رمز.`}
+        {symbols.length > 0 && refCount === 0 && (
           <span style={{ color: 'var(--red)' }}> ⚠️ لا سعر مرجع واصل — التحليل صامت، وما تراه أدناه سعر الوسيط وحده.</span>
         )}
       </div>
-      <div className="cards">
-        {symbols.map((sym) => {
-          const r = market[sym]
-          const b = broker[sym]
-          const shown = r ?? b
-          const age = shown ? ageText(shown.ts, now) : { text: 'لم تصل', color: 'var(--dim)' }
-          return (
-            <div className="scard" key={sym}>
-              <div className="st">{sym}</div>
-              <div className="sv num">{shown ? fmt((shown.bid + shown.ask) / 2) : 'مجهول'}</div>
-              <div className="ss num" style={{ color: r ? 'var(--green)' : 'var(--red)' }}>
-                المرجع: {r ? `شراء ${fmt(r.ask)} · بيع ${fmt(r.bid)}` : 'لم يصل'}
+      {symbols.length === 0 ? (
+        <div className="empty">جارِ استقبال أسعار السوق من النواة… الحسابان تحت ظاهرين حتى لو السعر لسا ما وصل.</div>
+      ) : (
+        <div className="cards">
+          {symbols.map((sym) => {
+            const r = market[sym]
+            const b = broker[sym]
+            const shown = r ?? b
+            const age = shown ? ageText(shown.ts, now) : { text: 'لم تصل', color: 'var(--dim)' }
+            return (
+              <div className="scard" key={sym}>
+                <div className="st">{sym}</div>
+                <div className="sv num">{shown ? fmt((shown.bid + shown.ask) / 2) : 'مجهول'}</div>
+                <div className="ss num" style={{ color: r ? 'var(--green)' : 'var(--red)' }}>
+                  المرجع: {r ? `شراء ${fmt(r.ask)} · بيع ${fmt(r.bid)}` : 'لم يصل'}
+                </div>
+                <div className="ss num" style={{ color: b ? 'var(--amber)' : 'var(--dim)' }}>
+                  التنفيذ ({b?.provider ?? 'الوسيط'}): {b ? `شراء ${fmt(b.ask)} · بيع ${fmt(b.bid)} · سبريد ${fmt5(b.spread)}` : 'لم يصل'}
+                </div>
+                <div className="ss" style={{ color: age.color, marginTop: 4 }}>{age.text}</div>
               </div>
-              <div className="ss num" style={{ color: b ? 'var(--amber)' : 'var(--dim)' }}>
-                التنفيذ ({b?.provider ?? 'الوسيط'}): {b ? `شراء ${fmt(b.ask)} · بيع ${fmt(b.bid)} · سبريد ${fmt5(b.spread)}` : 'لم يصل'}
-              </div>
-              <div className="ss" style={{ color: age.color, marginTop: 4 }}>{age.text}</div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
       <div style={{ marginTop: 14 }}>
         <Connection embedded />
       </div>

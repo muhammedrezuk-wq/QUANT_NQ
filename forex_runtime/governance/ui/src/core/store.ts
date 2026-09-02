@@ -285,6 +285,8 @@ interface StoreState {
   sectionCards: Record<string, Record<string, unknown>>
   // بند أ١١ — جسم قسم التحليل المدموج من ١٦٦ (timeframe="section")؛ المفتاح حساب::رمز
   sectionFusion: Record<string, SectionFusionState>
+  room: Record<string, DecisionRoom>
+  analystsPanels: Record<string, AnalystsPanel>
   analysis: Record<string, AnalysisState> // آخر تحليل مُجمَّع حسب الرمز (من ١٦٦ دمج التحليل)
   structure: Record<string, StructureState> // آخر بنية حسب الرمز (من ٢١٠ ناشر البنية)
   liquidity: Record<string, LiquidityState> // آخر سيولة حسب الرمز (من ٢٦٠ ناشر السيولة)

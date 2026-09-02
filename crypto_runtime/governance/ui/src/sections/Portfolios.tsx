@@ -1,6 +1,7 @@
 // المحافظ (٨٥٨) — حسابك الحقيقي + الصفقات المفتوحة (بثّ حيّ: platform.account.state / positions.state).
 import { useStore } from '../core/store'
 import { SectionAtomsHealth } from '../components/SectionAtoms'
+import { AccountsPair } from '../components/AccountsBar'
 
 interface Account { account_id: string; balance: number; equity: number; margin: number; free_margin: number; leverage: number; broker?: string }
 interface Pos { ticket: number; symbol: string; side: string; volume: number; entry_price: number; current_price: number }
@@ -15,9 +16,10 @@ export default function Portfolios() {
     // بند ١٠ (ورقة ٩٩): بدل الفراغ — حالة ذرّات الجسر التي تجيب بيانات الحساب نفسها
     return (
       <div className="section chartsec">
-        <div className="empty">جارِ استقبال بيانات حسابك من النواة…</div>
+        <AccountsPair />
+        <div className="empty">جارِ استقبال بيانات حساب التنفيذ من النواة…</div>
         <SectionAtomsHealth ids={[618, 619, 609, 611]} title="ذرّات جسر الحساب — حالتها الحيّة الآن"
-          note="بيانات الحساب تجي من هدول: جسر ميتاتريدر 5 (618) · حالة الحساب (619) · مزامنة المراكز (609) · قارئ الصفقات (611)." />
+          note="الرصيد والصفقات من حساب التنفيذ: جسر ميتاتريدر 5 (618) · حالة الحساب (619) · مزامنة المراكز (609) · قارئ الصفقات (611). حساب سي‑تريدر بيانات فقط وما بيظهر هون كرصيد." />
       </div>
     )
   }

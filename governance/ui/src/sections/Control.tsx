@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../core/store'
 import { arabicHealth } from '../core/arabic'
+import { AccountsPair } from '../components/AccountsBar'
 
 type Danger = 'halt' | 'kill_switch_reset' | 'activate_asset' | 'deactivate_asset'
   | 'asset_control' | 'execution_gate'
@@ -48,12 +49,14 @@ const ATOMS: [number, string, string][] = [
   [579, 'منفّذ التخريج', 'إدارة'], [580, 'منفّذ الترجيح', 'إدارة'],
   [609, 'مزامنة المراكز', 'جسر'], [611, 'قارئ الصفقات', 'جسر'],
   [618, 'جسر ميتاتريدر 5', 'جسر'], [619, 'حالة الحساب', 'جسر'],
+  [622, 'تغذية سي‑تريدر', 'تحليل'],
 ]
 
-const GROUPS = ['قرار', 'مخاطر', 'وضع', 'تنفيذ', 'إدارة', 'جسر']
+const GROUPS = ['تحليل', 'قرار', 'مخاطر', 'وضع', 'تنفيذ', 'إدارة', 'جسر']
 
 // بند 18 (دفتر 97): كل مجموعة تُشرح بجملة واحدة — شو مسؤوليّتها بالضبط
 const GROUP_DESC: Record<string, string> = {
+  'تحليل': 'مصدر أسعار التحليل من سي‑تريدر. بيانات فقط — لا يفتح صفقة ولا يكتب للمنصّة.',
   'قرار': 'تجمع الأدلّة وتحسب الدرجة وتفلتر وتقرّر: شراء أم بيع أم انتظار.',
   'مخاطر': 'تحرس رأس المال: قاطع الأمان، حدود الخسارة، حجم اللوت، وأسعار الوقف.',
   'وضع': 'تحسب المركز الدائم المستهدَف لكل أصل والفرق بينه وبين الواقع.',
@@ -252,6 +255,7 @@ export default function Control() {
 
   return (
     <div>
+      <AccountsPair />
       <div className="scard" style={{
         marginTop: 14,
         borderColor: active.length ? '#5a2020' : unknown.length ? '#4a4420' : '#1e5a2e',

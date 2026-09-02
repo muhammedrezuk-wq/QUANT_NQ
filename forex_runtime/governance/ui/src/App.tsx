@@ -5,6 +5,8 @@ import { startEngine } from './core/engine'
 import { dangerCommand } from './core/commands'
 import { getTabOrder, TAB_ORDER_EVENT } from './core/appearance'
 import TouchClipboard from './components/TouchClipboard'
+import FeedLeds from './components/FeedLeds'
+import AccountsBar from './components/AccountsBar'
 import Network from './sections/Network'
 import AtomModal from './sections/AtomModal'
 import Diag from './sections/Diag'
@@ -187,9 +189,8 @@ export default function App() {
           if (staleRef.current.textContent !== text) staleRef.current.textContent = text
         }
       }
-      // ختم المالك 2026-08-20: مؤشّرات المصادر (المنصّة · سي‑تريدر · تلغرام)
-      // نزلت من الشريط العلوي إلى مربّع «التغذية» بالرئيسية — تُقرأ هناك من
-      // نفس المصدر (تدفّق الأحداث الفعليّ)، فلا نسخة ثانية للحقيقة هنا.
+      // ٢٠٢٦-٠٩-٠٣: مؤشّرات الاستلام رجعت للشريط العلوي — بلاطة التغذية
+      // بالرئيسية مطفية افتراضيًا والمالك ما عنده عين غير اللوحة.
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -222,7 +223,11 @@ export default function App() {
           title="يوقف كل إرسال الأوامر فورًا — عبر بوّابة الأوامر (901) بتأكيد"
           onClick={async () => { const r = await dangerCommand('halt'); if (r.message) window.alert(r.message) }}
         >⛔ إيقاف طارئ</button>}
-        <div className="clock num" ref={clockRef}>--:--:--.---</div>
+        <div className="hdr-right">
+          <AccountsBar />
+          <FeedLeds />
+          <div className="clock num" ref={clockRef}>--:--:--.---</div>
+        </div>
       </header>
 
       <nav className="nav">

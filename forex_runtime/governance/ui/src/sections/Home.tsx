@@ -29,7 +29,7 @@ import Log from './Log'
 import Connection from './Connection'
 import NQ from './NQ'
 
-interface Account { balance?: number; equity?: number }
+interface Account { account_id?: string; balance?: number; equity?: number }
 interface Pos { symbol: string; profit?: number | null }
 interface Positions { floating_pnl?: number; positions?: Pos[] }
 interface Term { trade_allowed?: boolean }
@@ -294,6 +294,7 @@ export default function Home({ onGo }: { onGo: (id: string) => void }) {
     {
       id: 'money', title: 'المال', go: 'portfolios',
       render: () => (<div style={{ paddingTop: 4 }}>
+        <Line k="حساب التنفيذ" v={(acc as { account_id?: string } | undefined)?.account_id ?? 'ما وصل'} />
         <Line k="القيمة / الرصيد" v={acc ? `${money(acc.equity)} · ${money(acc.balance)}` : '—'} />
         <Line k="الربح العائم" v={pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}${money(pnl)}`} c={(pnl ?? 0) >= 0 ? 'var(--green)' : 'var(--red)'} />
         <Line k="صفقات مفتوحة" v={int(posState?.positions?.length ?? null)} />

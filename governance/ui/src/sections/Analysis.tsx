@@ -4,6 +4,7 @@ import AnalystsPanel from './AnalystsPanel'
 // «تحديث» يتحقّق بقراءة مستقلّة من الخادم (لا ثقة بتقرير المنفّذ) ثم «تمّ الضبط».
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnalysisSettingsCard } from './Settings'
+import { AccountsPair } from '../components/AccountsBar'
 import { useStore, type AnalyzerContribution, type AnalysisState, type PathCard, type SectionFusionState } from '../core/store'
 import { ANALYZER_AR, analyzerLabel } from '../core/analyzerLabels'
 import { arabicVisible, fieldAr } from '../core/arabic'
@@ -153,6 +154,73 @@ function PathDialCell({ dial }: { dial: Dial }) {
           disabled={busy || !dirty} onClick={() => void save()}>{busy ? '…' : 'حفظ'}</button>
       </div>
       {note ? <span style={{ fontSize: 11.5, color: note.ok ? 'var(--green)' : 'var(--amber)' }}>{note.text}</span> : null}
+    </div>
+  )
+}
+
+const OWNER_KEYS: { name: string; label: string; hint: string; merged?: boolean }[] = [
+  { name: 'MASTER_KEY', label: 'مدموج', hint: 'يحرّك السرعة والأفق والحدود مع بعض. 50 = محايد.', merged: true },
+  { name: 'ANALYSIS_SPEED', label: 'سرعة', hint: 'قدّيش التحليل سريع. أعلى = نوافذ أقصر.' },
+  { name: 'TRADING_HORIZON', label: 'أفق', hint: 'أعلى = سكالب أضيق. أدنى = سوينغ أوسع.' },
+  { name: 'QUALITY_BAR', label: 'حدود', hint: 'أعلى = أشد قبولًا. أدنى = أسهل.' },
+]
+
+function OwnerKeyKnob({ dial, label, hint, merged }: { dial: Dial; label: string; hint: string; merged?: boolean }) {
+  const [draft, setDraft] = useState(() => String(Math.round(dial.value * 100) / 100))
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  useEffect(() => { setDraft(String(Math.round(dial.value * 100) / 100)) }, [dial.value, dial.version, dial.status])
+  const [lo, hi] = dial.bounds
+  const n = Number(draft)
+  const dirty = Number.isFinite(n) && Math.abs(n - dial.value) > 0.001
+  const save = async () => {
+    if (draft.trim() === '' || !Number.isFinite(n)) { setNote({ ok: false, text: 'رقم غير صالح' }); return }
+    if (n < lo || n > hi) { setNote({ ok: false, text: `من ${lo} إلى ${hi}` }); return }
+    setBusy(true); setNote(null)
+    const r = await confirmedCommand('decision_setting', { name: dial.name, value: Math.round(n * 100) / 100 })
+    setBusy(false)
+    setNote(r.ok ? { ok: true, text: 'أُرسل' } : { ok: false, text: r.message ?? 'تعذّر' })
+  }
+  return (
+    <div className={`owner-key${merged ? ' merged' : ''}`} title={hint}>
+      <div className="owner-key-head">
+        <b>{label}</b>
+        <em className="num">{Number.isFinite(n) ? n.toFixed(0) : '—'}</em>
+      </div>
+      <input type="range" min={lo} max={hi} step={1} value={Number.isFinite(n) ? n : 50}
+        onChange={(e) => setDraft(e.target.value)} />
+      <div className="owner-key-row">
+        <input className="cfginput num" type="number" min={lo} max={hi} step={0.01}
+          value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <button className="btn" disabled={busy || !dirty} onClick={() => void save()}>{busy ? '…' : 'حفظ'}</button>
+      </div>
+      {dial.status !== 'APPROVED' ? <span className="dim" style={{ fontSize: 11 }}>غير معتمد — 50 نقطة التطابق</span> : null}
+      {note ? <span style={{ fontSize: 11.5, color: note.ok ? 'var(--green)' : 'var(--amber)' }}>{note.text}</span> : null}
+    </div>
+  )
+}
+
+function OwnerKeysBar() {
+  const { dials, err } = useDecisionDials(OWNER_KEYS.map((k) => k.name))
+  return (
+    <div className="scard owner-keys">
+      <div className="st" style={{ fontWeight: 700 }}>مفاتيح التحليل — الثلاثة + المدموج</div>
+      <div className="ss dim" style={{ marginBottom: 8 }}>
+        المدموج يحرّك الثلاثة مع بعض. بعد حفظه بتقدر تلفّ أي واحد لحالو. 50 = سلوك اليوم. ما بيفتح صفقة.
+      </div>
+      {err ? <div className="ss" style={{ color: 'var(--amber)' }}>{err}</div> : null}
+      {dials == null ? <div className="ss dim">جارٍ جلب المفاتيح…</div>
+        : (
+          <div className="owner-keys-grid">
+            {OWNER_KEYS.map((k) => {
+              const dial = (dials ?? []).find((d) => d.name === k.name)
+              if (!dial) return (
+                <div key={k.name} className="owner-key dim">{k.label} — ما وصل من الخادم</div>
+              )
+              return <OwnerKeyKnob key={k.name} dial={dial} label={k.label} hint={k.hint} merged={k.merged} />
+            })}
+          </div>
+        )}
     </div>
   )
 }
@@ -741,12 +809,12 @@ export default function Analysis() {
           هون منشوف جاهزية التحليل ونتيجة المحلّلين ومساري التكّات والشموع. هذا القسم للبيانات والضبط فقط، وما بيفتح صفقة.
         </div>
       </div>
+      <OwnerKeysBar />
+      <AccountsPair />
+
       <div className="scard">
         <div className="st">نطاق التحليل والضبط</div>
-        <div className="ss dim" style={{ marginBottom: 10 }}>الإعدادات معزولة بالحساب والأصل والمحلل. اللوحة لا تصنع قرار تداول.</div>
-        <div className="ss" style={{ marginBottom: 10, color: 'var(--amber)' }}>
-          ⚠️ حساب <b>بيانات فقط</b> — تحليل وأسعار، لا تنفيذ عليه أبدًا. حساب التنفيذ الفعلي (ميتاتريدر 5) منفصل تمامًا وظاهر بقسم «الاتصال».
-        </div>
+        <div className="ss dim" style={{ marginBottom: 10 }}>الإعدادات معزولة بالحساب والأصل والمحلل. اللوحة لا تصنع قرار تداول. الحساب اللي بتكتبو تحت هو حساب البيانات — مو حساب التنفيذ.</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           <label style={{ minWidth: 220, flex: 1 }}><span className="dim">الحساب (بيانات فقط)</span><input className="cfginput" value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="أدخل معرّف الحساب" /></label>
           <label style={{ minWidth: 180, flex: 1 }}><span className="dim">الأصل</span><input className="cfginput" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="أدخل رمز الأصل" /></label>

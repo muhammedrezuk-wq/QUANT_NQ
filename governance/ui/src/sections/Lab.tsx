@@ -412,7 +412,7 @@ export default function Lab() {
             <option key={id} value={id}>{id} · {names[id] ?? id}</option>
           ))}
         </select>
-        {cfgAtom !== '' ? <div style={{ marginTop: 10 }}><AtomConfigForm atomId={cfgAtom} /></div> : null}
+        {cfgAtom !== '' ? <div style={{ marginTop: 10 }}><AtomConfigForm atomId={cfgAtom} sandbox /></div> : null}
       </div>
     </div>
   )

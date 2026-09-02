@@ -952,6 +952,175 @@ def candles(symbol: str, tf: int, limit: int) -> list:
     except Exception:
         return []
 
+
+# تبويب الشارت = تنفيذ ميتاتريدر عبر الإكسبرت، لا تحليل ولا مخزن 701 المختلط.
+# العدد الافتراضي يطابق InpWarmupBars في mt5/QUANT_NQ.mq5 (آخر مثال مختوم).
+_EA_WARMUP_BARS = 200
+_EA_TICK_CAP = 20000
+
+
+def _trade_table_names(con: sqlite3.Connection) -> set[str]:
+    return {str(row[0]) for row in con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def _ohlc_bar(time_s: int, open_: float, high: float, low: float, close: float) -> dict | None:
+    if time_s <= 0 or not (open_ > 0 and high > 0 and low > 0 and close > 0):
+        return None
+    return {"time": time_s, "open": open_, "high": high, "low": low, "close": close}
+
+
+def _ea_copyrates(con: sqlite3.Connection, symbol: str, period_seconds: int, limit: int) -> list:
+    rows = con.execute(
+        "SELECT period_start, open, high, low, close FROM candles_history "
+        "WHERE symbol=? AND period_seconds=? ORDER BY period_start ASC",
+        (symbol, period_seconds)).fetchall()
+    out: list[dict] = []
+    last_t = None
+    for row in rows:
+        bar = _ohlc_bar(int(float(row["period_start"] or 0)),
+                        float(row["open"] or 0), float(row["high"] or 0),
+                        float(row["low"] or 0), float(row["close"] or 0))
+        if bar is None:
+            continue
+        if last_t is not None and bar["time"] <= last_t:
+            out[-1] = bar
+        else:
+            out.append(bar)
+        last_t = bar["time"]
+    return out[-limit:]
+
+
+def _agg_ohlc(bars: list, tf: int, limit: int) -> list:
+    buckets: dict[int, list] = {}
+    order: list[int] = []
+    for bar in bars:
+        t = int(bar["time"] // tf) * tf
+        cur = buckets.get(t)
+        if cur is None:
+            buckets[t] = [bar["open"], bar["high"], bar["low"], bar["close"]]
+            order.append(t)
+        else:
+            if bar["high"] > cur[1]:
+                cur[1] = bar["high"]
+            if bar["low"] < cur[2]:
+                cur[2] = bar["low"]
+            cur[3] = bar["close"]
+    return [_ohlc_bar(t, *buckets[t]) for t in order if _ohlc_bar(t, *buckets[t])][-limit:]
+
+
+def _ea_ticks_ohlc(con: sqlite3.Connection, symbol: str, tf: int, limit: int) -> list:
+    cap = min(_EA_TICK_CAP, max(400, limit * 80))
+    rows = con.execute(
+        "SELECT tick_ms, bid, ask FROM ticks_v2 WHERE symbol=? ORDER BY id DESC LIMIT ?",
+        (symbol, cap)).fetchall()
+    buckets: dict[int, list] = {}
+    order: list[int] = []
+    for row in reversed(rows):
+        ms = int(row["tick_ms"] or 0)
+        bid = float(row["bid"] or 0)
+        ask = float(row["ask"] or 0)
+        if ms <= 0 or bid <= 0 or ask < bid:
+            continue
+        # tick_ms كما كتبه الإكسبرت (ملّي ثانية وسيط) — بلا تحويل منطقة زمنية.
+        t = int((ms / 1000.0) // tf) * tf
+        mid = (bid + ask) / 2.0
+        cur = buckets.get(t)
+        if cur is None:
+            buckets[t] = [mid, mid, mid, mid]
+            order.append(t)
+        else:
+            if mid > cur[1]:
+                cur[1] = mid
+            if mid < cur[2]:
+                cur[2] = mid
+            cur[3] = mid
+    return [_ohlc_bar(t, *buckets[t]) for t in order if _ohlc_bar(t, *buckets[t])][-limit:]
+
+
+def exec_chart(symbol: str, tf: int, limit: int) -> dict:
+    """شموع تبويب الشارت من قاعدة الإكسبرت (nq_brain) — مزامنة ميتاتريدر لا التحليل.
+
+    CopyRates → candles_history بنفس فريم المنصّة. إن غاب الفريم تُجمَّع شموع
+    أصغر كتبها الإكسبرت. تحت الدقيقة: تِكّات ticks_v2. لا market_data ولا cTrader.
+    انقطاع النواة لا يمسح الجدول: الإكسبرت يكتب القاعدة وحده.
+    """
+    tf = max(1, int(tf))
+    limit = min(2000, max(1, int(limit)))
+    out: dict = {
+        "symbol": symbol, "tf": tf, "limit": limit,
+        "warmup_bars": _EA_WARMUP_BARS, "source": "none",
+        "ea_db": bool(MARKET == "forex" and TRADE_DB.is_file()),
+        "candles": [], "symbols": [], "count": 0, "last_tick": None,
+    }
+    if MARKET != "forex" or not TRADE_DB.is_file():
+        return out
+    try:
+        con = sqlite3.connect(f"file:{TRADE_DB}?mode=ro", uri=True, timeout=3)
+        con.row_factory = sqlite3.Row
+        tables = _trade_table_names(con)
+        names: list[str] = []
+        seen: set[str] = set()
+        for table, sql in (
+            ("symbol_specs_v2", "SELECT DISTINCT symbol FROM symbol_specs_v2 "
+                                "WHERE symbol IS NOT NULL AND symbol<>''"),
+            ("candles_history", "SELECT DISTINCT symbol FROM candles_history "
+                                "WHERE symbol IS NOT NULL AND symbol<>''"),
+        ):
+            if table not in tables:
+                continue
+            for row in con.execute(sql):
+                name = str(row[0] or "")
+                if name and name not in seen:
+                    seen.add(name)
+                    names.append(name)
+        out["symbols"] = names
+        if not symbol:
+            con.close()
+            return out
+
+        candles: list = []
+        source = "none"
+        if "candles_history" in tables:
+            candles = _ea_copyrates(con, symbol, tf, limit)
+            if candles:
+                source = "ea_copyrates"
+            else:
+                periods = [int(row[0]) for row in con.execute(
+                    "SELECT DISTINCT period_seconds FROM candles_history WHERE symbol=?",
+                    (symbol,)) if row[0]]
+                bases = sorted((p for p in periods if tf % p == 0 and p < tf), reverse=True)
+                for base in bases:
+                    src = _ea_copyrates(con, symbol, base,
+                                        min(2000, limit * max(1, tf // base)))
+                    if src:
+                        candles = _agg_ohlc(src, tf, limit)
+                        source = "ea_agg"
+                        break
+        if not candles and "ticks_v2" in tables:
+            candles = _ea_ticks_ohlc(con, symbol, tf, limit)
+            if candles:
+                source = "ea_ticks"
+        last_tick = None
+        if "ticks_v2" in tables:
+            row = con.execute(
+                "SELECT bid, ask, tick_ms FROM ticks_v2 WHERE symbol=? "
+                "ORDER BY id DESC LIMIT 1", (symbol,)).fetchone()
+            if row is not None:
+                bid = float(row["bid"] or 0)
+                ask = float(row["ask"] or 0)
+                if bid > 0 and ask >= bid:
+                    last_tick = {"bid": bid, "ask": ask,
+                                 "tick_ms": int(row["tick_ms"] or 0)}
+        con.close()
+        out["candles"] = candles
+        out["source"] = source
+        out["count"] = len(candles)
+        out["last_tick"] = last_tick
+        return out
+    except Exception:
+        return out
+
 # ── طبقة الترجمة: حالة خام → معنى عربي (دالة نقية · ١٤ §٩) ──────────────────────
 _STATE_AR = {
     "running": "شغّالة", "stopped": "واقفة", "failed": "فيها خلل",
@@ -2173,6 +2342,18 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 tf, limit = 60, 400
             self._json(200, {"symbol": sym, "tf": tf, "candles": candles(sym, tf, limit)})
+            return
+
+        if p == "/gov/exec-candles":
+            # تبويب الشارت — شموع الإكسبرت / CopyRates ميتاتريدر، لا تحليل.
+            q = parse_qs(urlparse(self.path).query)
+            sym = (q.get("symbol") or [""])[0]
+            try:
+                tf = max(1, int((q.get("tf") or ["60"])[0]))
+                limit = min(2000, max(1, int((q.get("limit") or [str(_EA_WARMUP_BARS)])[0])))
+            except ValueError:
+                tf, limit = 60, _EA_WARMUP_BARS
+            self._json(200, exec_chart(sym, tf, limit))
             return
 
         cm = re.fullmatch(r"/gov/atoms/(\d+)/config", p)

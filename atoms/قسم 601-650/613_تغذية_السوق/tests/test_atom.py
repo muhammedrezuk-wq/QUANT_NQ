@@ -247,6 +247,7 @@ async def main():
         test_propagates_account_id_identity_key,
         test_incomplete_payload_dropped_without_crash,
         test_health_check_surfaces_single_dead_provider,
+        test_mt5_alone_does_not_fake_analyst_health,
         test_volume_published_when_present,
         test_garbage_only_feed_does_not_fake_freshness,
     ]

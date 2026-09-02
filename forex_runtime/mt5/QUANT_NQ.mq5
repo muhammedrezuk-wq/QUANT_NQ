@@ -12,7 +12,7 @@
 //|    ? المراكز   — صورة حيّة ? 609/611/571                          |
 //|    ? المواصفات — contract/tick ? symbol_specs (618)              |
 //|    ? التقويم   — تقويم MT5 الأصلي (UTC) ? calendar (616/109)      |
-//|    ? الإحماء   — آخر 200 شمعة M1 ? candles_history (602)          |
+//|    ? الإحماء   — آخر 200 شمعة لكل فريم MT5 ? candles_history      |
 //|    ? العمق     — دفتر الأوامر (MarketBook) ? depth               |
 //|    ? التنفيذ   — يقرأ commands وينفّذ CTrade ويكتب trade_events_v2 |
 //|                                                                  |
@@ -26,8 +26,8 @@
 //|  والقرار هناك — فلا يُعاد تصريف هذا الملف حين يتغيّر الذكاء.        |
 //+------------------------------------------------------------------+
 #property copyright "محمد رزوق"
-#property version   "3.10"
-#property description "QUANT_NQ — الإكسبرت الواحد الشامل (v3.10 · لوحة عربية كاملة · التذكرة تُكتب في نتيجة الأمر)"
+#property version   "3.12"
+#property description "QUANT_NQ — الإكسبرت الواحد الشامل (v3.12 · شموع CopyRates لكل فريم الشارت)"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -37,7 +37,7 @@
 // v3.10 (2026-08-25): التذكرة تُكتب في صفّ الأمر عند النجاح (كانت تضيع،
 // فبقيت المطابقة في بايثون عمياء عن هوية المركز) + اللوحة عربية كاملة
 // بأعمدة مفصولة (أمر المالك: «بدي كل شي عربي»).
-#define QNQ_VERSION "3.11"
+#define QNQ_VERSION "3.12"
 
 //??????????????????????????????????????????????????????????????????
 //  المدخلات
@@ -61,7 +61,7 @@ input string InpProjectBuildId= "QUANT_NQ_FULL_212"; // بصمة بناء الم
 input int    InpDeviationPts  = 500;             // أقصى انزلاق مسموح (نقاط)
 
 input group "??? ? التغذية ???"
-input int    InpWarmupBars     = 200;            // شموع الإحماء لكل رمز (M1)
+input int    InpWarmupBars     = 200;            // شموع الإحماء لكل رمز ولكل فريم
 input int    InpWarmupRefreshS = 300;            // تحديث الإحماء (ثانية)
 input int    InpCalRefreshS    = 300;            // تحديث التقويم (ثانية)
 
@@ -596,7 +596,7 @@ void SyncPositions()
          for(int d = 0; d < deals; d++)
          {
             ulong dtk = HistoryDealGetTicket(d);
-            if(dtk > 0) comm += HistoryDealGetDouble(dtk, DEAL_COMMISSION);
+            if(dtk > 0) comm += HistoryDealGetDouble(ddtk > 0) comm += HistoryDealGetDouble(dtk, DEAL_COMMISSION);
          }
       }
 
@@ -846,32 +846,41 @@ void WriteCalendar()
 }
 
 //??????????????????????????????????????????????????????????????????
-//  الإحماء — آخر شموع M1 ? candles_history (تقرؤها 602)
+//  الإحماء — CopyRates ميتاتريدر لكل فريم الشارت ? candles_history
+//  العدد = InpWarmupBars (افتراضي 200، آخر مثال). الطابع كما تُعطيه المنصّة.
 //??????????????????????????????????????????????????????????????????
 void WriteCandlesHistory()
 {
    if(!BridgeUp) return;
    DatabaseExecute(DbHandle, "DELETE FROM candles_history;");
    g_warmup_written = 0;
-   int psec = PeriodSeconds(PERIOD_M1);            // 60 لـM1
+   ENUM_TIMEFRAMES periods[12];
+   periods[0]  = PERIOD_M1;  periods[1]  = PERIOD_M3;  periods[2]  = PERIOD_M5;
+   periods[3]  = PERIOD_M15; periods[4]  = PERIOD_M30; periods[5]  = PERIOD_H1;
+   periods[6]  = PERIOD_H2;  periods[7]  = PERIOD_H3;  periods[8]  = PERIOD_H4;
+   periods[9]  = PERIOD_D1;  periods[10] = PERIOD_W1;  periods[11] = PERIOD_MN1;
    DatabaseTransactionBegin(DbHandle);
    for(int s = 0; s < SymCount; s++)
    {
       string sym = Syms[s];
       int    dg  = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-      MqlRates rates[];
-      ArraySetAsSeries(rates, false);              // الأقدم ? الأحدث
-      int copied = CopyRates(sym, PERIOD_M1, 0, InpWarmupBars, rates);
-      for(int i = 0; i < copied; i++)
+      for(int p = 0; p < 12; p++)
       {
-         // نمط الـFeed المُثبت حرفًا بحرف: DoubleToString لا %.*f
-         string q = "INSERT INTO candles_history(symbol,period_seconds,period_start,"
-            "open,high,low,close,volume) VALUES('" + sym + "'," + (string)psec + ","
-            + DoubleToString((double)rates[i].time, 0) + ","
-            + DoubleToString(rates[i].open, dg) + "," + DoubleToString(rates[i].high, dg) + ","
-            + DoubleToString(rates[i].low, dg) + "," + DoubleToString(rates[i].close, dg) + ","
-            + DoubleToString((double)rates[i].tick_volume, 2) + ")";
-         if(DatabaseExecute(DbHandle, q)) { g_warmup_written++; WrWarmMs = GetTickCount64(); }
+         int psec = PeriodSeconds(periods[p]);
+         MqlRates rates[];
+         ArraySetAsSeries(rates, false);              // الأقدم ? الأحدث
+         int copied = CopyRates(sym, periods[p], 0, InpWarmupBars, rates);
+         for(int i = 0; i < copied; i++)
+         {
+            // نمط الـFeed المُثبت حرفًا بحرف: DoubleToString لا %.*f
+            string q = "INSERT INTO candles_history(symbol,period_seconds,period_start,"
+               "open,high,low,close,volume) VALUES('" + Esc(sym) + "'," + (string)psec + ","
+               + DoubleToString((double)rates[i].time, 0) + ","
+               + DoubleToString(rates[i].open, dg) + "," + DoubleToString(rates[i].high, dg) + ","
+               + DoubleToString(rates[i].low, dg) + "," + DoubleToString(rates[i].close, dg) + ","
+               + DoubleToString((double)rates[i].tick_volume, 2) + ")";
+            if(DatabaseExecute(DbHandle, q)) { g_warmup_written++; WrWarmMs = GetTickCount64(); }
+         }
       }
    }
    DatabaseTransactionCommit(DbHandle);

@@ -9,6 +9,7 @@ import '../styles-dashboard.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../core/store'
 import { dangerCommand } from '../core/commands'
+import { useTwinAccounts } from '../components/AccountsBar'
 import { isWaitingMessage } from '../core/i18n'
 
 // ═══════════════════════════════════════════════════════════
@@ -500,6 +501,7 @@ function EarlyWarningBar() {
 export default function NewDashboard() {
   const safety = useSafety()
   const market = useStore((s) => s.market)
+  const accts = useTwinAccounts()
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
@@ -529,6 +531,12 @@ export default function NewDashboard() {
         <span className="dl-safety-label">{safety.label}</span>
         <span className="dl-safety-detail">{safety.detail}</span>
         <div className="dl-prices">
+          <span className="dl-price" title="سي-تريدر — بيانات فقط">
+            تحليل <b className="num">{accts.analysisId ?? '—'}</b>
+          </span>
+          <span className="dl-price" title="ميتاتريدر 5 — عليه الصفقة">
+            تنفيذ <b className="num">{accts.execId ?? '—'}</b>
+          </span>
           {tickSymbols.map(([sym, t]) => (
             <span key={sym} className="dl-price">
               {sym} <b className="num">{t.bid?.toFixed(1)}</b>

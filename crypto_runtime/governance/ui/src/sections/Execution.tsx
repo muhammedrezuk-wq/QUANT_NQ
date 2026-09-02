@@ -16,6 +16,7 @@ import { arabicVisible, arabicHealth } from '../core/arabic'
 import { confirmedCommand } from '../core/commands'
 import { DialRow, useDecisionDials } from './Settings'
 import { SectionConfigTable } from '../components/SectionAtoms'
+import { AccountsPair } from '../components/AccountsBar'
 
 const num = (n?: number | null, dp = 2) =>
   n == null ? '—' : n.toLocaleString('ar-EG-u-nu-latn', { maximumFractionDigits: dp })
@@ -519,6 +520,8 @@ export default function Execution() {
 
   return (
     <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <AccountsPair />
+      <div className="ss dim">هالقسم يشتغل على حساب التنفيذ (ميتاتريدر). حساب التحليل فوق ما بينكتب عليه أمر.</div>
       {/* بند ١٨ (ورقة ٩٩): بطاقة موحّدة لكل بوّابة — السبب + المفتاح + العيار بمكانها.
           بطاقة 552 المفردة القديمة صارت وحدة من تسع بنفس مسار 901 حرفيًّا. */}
       <GatesBoard />

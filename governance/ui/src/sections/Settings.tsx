@@ -299,7 +299,7 @@ export function DecisionDialsCard({ excludeNames = [], onlyNames, includeExtras 
 
 // كل ما يخص قسم التحليل يُدار من قسم التحليل نفسه، لا من الإعدادات العامة.
 export const ANALYSIS_DIAL_NAMES = [
-  'HORIZON_PROFILE_ACTIVE', 'ANALYSIS_SPEED', 'TRADING_HORIZON', 'QUALITY_BAR',
+  'MASTER_KEY', 'HORIZON_PROFILE_ACTIVE', 'ANALYSIS_SPEED', 'TRADING_HORIZON', 'QUALITY_BAR',
   'ANALYSIS_FAST_WEIGHT', 'ANALYSIS_SLOW_WEIGHT',
   'ANALYSIS_FAST_REQUIRED_DEPTH', 'ANALYSIS_SLOW_REQUIRED_DEPTH',
 ]

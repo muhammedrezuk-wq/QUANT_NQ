@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sqlite3
 import time
@@ -9,7 +10,7 @@ from typing import Any
 import clock
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "4.3.0"
+ATOM_VERSION = "4.4.0"
 
 SUBSECOND_CLOCK_REASON = "tick receipt time needs sub-second resolution"
 
@@ -36,6 +37,37 @@ def broker_clock(broker_stamp: float, received_at: float):
     offset = broker_stamp - received_at
     aligned = abs(offset) <= _CLOCK_TOLERANCE_S
     return offset, (broker_stamp if aligned else None)
+
+
+def utc_gate(broker_stamp: float, received_at: float) -> dict[str, Any] | None:
+    """باب التطبيع: جوّا النظام UTC فقط. الاستلام بديل الطابع الفاسد."""
+    if not math.isfinite(received_at) or received_at <= 0:
+        return None
+    raw = broker_stamp if math.isfinite(broker_stamp) else None
+    if raw is None:
+        return {
+            "broker_timestamp_raw": None,
+            "received_at": received_at,
+            "exchange_timestamp": None,
+            "timestamp": received_at,
+            "timestamp_source": "received",
+            "clock_domain": "UTC",
+            "clock_offset_s": None,
+            "clock_valid": False,
+        }
+    offset, exchange_stamp = broker_clock(raw, received_at)
+    valid = exchange_stamp is not None
+    stamp = raw if valid else received_at
+    return {
+        "broker_timestamp_raw": raw,
+        "received_at": received_at,
+        "exchange_timestamp": exchange_stamp,
+        "timestamp": stamp,
+        "timestamp_source": "broker" if valid else "received",
+        "clock_domain": "UTC",
+        "clock_offset_s": offset,
+        "clock_valid": valid,
+    }
 _MID_DIVISOR = 2.0
 _BUSY_TIMEOUT_MS = 3000
 _CONNECT_TIMEOUT_S = 5.0
@@ -95,9 +127,10 @@ class Atom(AtomBase):
         self._db_path = _resolve_db(str(cfg["db_path"]))
         self._table = str(cfg["table_name"])
         self._spec_table = str(cfg["spec_table"])
-        if self._table!="ticks_v2" or self._spec_table!="symbol_specs_v2":
-            self._table="ticks_v2";self._spec_table="symbol_specs_v2"
-            self._last_error="LEGACY_MARKET_TABLE_FORBIDDEN"
+        if self._table != "ticks_v2" or self._spec_table != "symbol_specs_v2":
+            self._table = "ticks_v2"
+            self._spec_table = "symbol_specs_v2"
+            self._last_error = "LEGACY_MARKET_TABLE_FORBIDDEN"
         self._spec_refresh_s = float(cfg["spec_refresh_s"])
         self._poll_interval_s = float(cfg["poll_interval_s"])
         self._batch_limit = int(cfg["batch_limit"])
@@ -117,7 +150,8 @@ class Atom(AtomBase):
 
     async def _on_pulse(self, payload: dict[str, Any]) -> None:
         stamp = _to_float(payload.get("official_time")) if isinstance(payload, dict) else None
-        if stamp is not None: self._official_time = stamp
+        if stamp is not None:
+            self._official_time = stamp
 
     async def start(self) -> None:
         if self._running or self._context is None:
@@ -243,7 +277,10 @@ class Atom(AtomBase):
             self._symbols.add((account_id, str(symbol)))
             received = time.time()
             broker_stamp = tick_ms / _MS_PER_SECOND
-            offset, exchange_stamp = broker_clock(broker_stamp, received)
+            gated = utc_gate(broker_stamp, received)
+            if gated is None:
+                self.dropped_count += 1
+                continue
             await self._context.publish(EVENT_TICK, {
                 "provider": PROVIDER,
                 "account_id": account_id,
@@ -254,14 +291,21 @@ class Atom(AtomBase):
                 "price": (bid + ask) / _MID_DIVISOR,
                 "volume": _to_float(row.get("volume")),
                 "last_trade": _to_float(row.get("last")),
-                "broker_timestamp": broker_stamp,
-                "broker_clock_offset_s": offset,
-                "exchange_timestamp": exchange_stamp,
-                "received_at": received,
+                "broker_timestamp": gated["broker_timestamp_raw"],
+                "broker_timestamp_raw": gated["broker_timestamp_raw"],
+                "broker_clock_offset_s": gated["clock_offset_s"],
+                "clock_offset_s": gated["clock_offset_s"],
+                "exchange_timestamp": gated["exchange_timestamp"],
+                "received_at": gated["received_at"],
+                "timestamp": gated["timestamp"],
+                "timestamp_source": gated["timestamp_source"],
+                "clock_domain": gated["clock_domain"],
+                "clock_valid": gated["clock_valid"],
                 "source_row_id": row_id,
             })
             self.published_count += 1
-            if self._official_time > 0: self._last_data_official = self._official_time
+            if self._official_time > 0:
+                self._last_data_official = self._official_time
         self._last_id = highest
         if self._delete_consumed and highest > 0:
             try:
@@ -310,7 +354,7 @@ class Atom(AtomBase):
         details = {"published": self.published_count, "dropped": self.dropped_count,
                    "failures": self.failure_count, "last_id": self._last_id,
                    "symbols": len(self._symbols), "last_error": self._last_error,
-                   "age_s": (self._official_time-self._last_data_official) if self._official_time and self._last_data_official else None}
+                   "age_s": (self._official_time - self._last_data_official) if self._official_time and self._last_data_official else None}
         if self._last_error:
             return HealthStatus(state=HealthState.DEGRADED, message=self._last_error, details=details)
         if self.published_count == 0:

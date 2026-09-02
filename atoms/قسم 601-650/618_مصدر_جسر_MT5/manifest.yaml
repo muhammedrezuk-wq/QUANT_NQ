@@ -1,6 +1,6 @@
 id: 618
 name: MT5 Bridge Source
-version: 4.3.0
+version: 4.4.0
 core_version: '>=1.0.0,<2.0.0'
 critical: false
 entrypoint: atom:Atom

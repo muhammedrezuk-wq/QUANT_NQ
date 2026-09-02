@@ -93,15 +93,16 @@ export function startEngine(): () => void {
             st.setMarketTick(p.symbol, p.bid, p.ask, p.timestamp ?? p.received_at ?? 0)
           }
         }
-        // ٢٠٢٦-٠٨-٣١ (ختم NQ): سعر الوسيط (ميتاتريدر) على قناته المستقلّة —
-        // غزارته لا تُرمى، وتظهر على الشارت واللوحة كسعر تنفيذ فعليّ بسبريده.
-        // تُخزَّن في خريطة منفصلة فلا تختلط بسعر المرجع الذي يقود التحليل.
-        if (name === 'market.broker_tick') {
+        // تنفيذ ميتاتريدر على خريطة منفصلة عن تحليل سي‑تريدر:
+        // feed.mt5.tick (618) هو التِكّ الحيّ؛ market.broker_tick يبقى توافقًا إن وصل.
+        // لا يُدمجان مع market.tick ولا يُحوَّل طابعهما.
+        if (name === 'feed.mt5.tick' || name === 'market.broker_tick') {
           const p = payload as { symbol?: string; bid?: number; ask?: number; spread?: number; provider?: string; timestamp?: number; received_at?: number }
           if (p.symbol && typeof p.bid === 'number' && typeof p.ask === 'number') {
             st.setBrokerTick(p.symbol, p.bid, p.ask,
               typeof p.spread === 'number' ? p.spread : p.ask - p.bid,
-              p.provider ?? 'الوسيط', p.timestamp ?? p.received_at ?? 0)
+              p.provider ?? (name === 'feed.mt5.tick' ? 'mt5' : 'الوسيط'),
+              p.timestamp ?? p.received_at ?? 0)
           }
         }
         if (name === 'analysis.raw.completed') {
