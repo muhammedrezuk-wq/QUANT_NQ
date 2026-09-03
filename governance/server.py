@@ -1052,6 +1052,9 @@ def exec_chart(symbol: str, tf: int, limit: int) -> dict:
         "warmup_bars": _EA_WARMUP_BARS, "source": "none",
         "ea_db": bool(MARKET == "forex" and TRADE_DB.is_file()),
         "candles": [], "symbols": [], "count": 0, "last_tick": None,
+        # دقّة العرض من مواصفة الوسيط نفسه، لا ثابت مكتوب هنا. `None` تعني
+        # «مجهولة» فتترك الواجهةُ افتراضَ مكتبة الشارت بلا اختراع رقم.
+        "digits": None, "tick_size": None,
     }
     if MARKET != "forex" or not TRADE_DB.is_file():
         return out
@@ -1078,6 +1081,26 @@ def exec_chart(symbol: str, tf: int, limit: int) -> dict:
         if not symbol:
             con.close()
             return out
+
+        # مواصفة الرمز كما يعلنها الوسيط (EURUSD=5 · DXY_U6=3 · الباقي=2).
+        # الجدول مقروء أصلاً أعلاه للأسماء؛ هنا يُقرأ حقلاه الباقيان بدل رميهما.
+        if "symbol_specs_v2" in tables:
+            spec = con.execute(
+                "SELECT digits, tick_size FROM symbol_specs_v2 WHERE symbol=? LIMIT 1",
+                (symbol,)).fetchone()
+            if spec is not None:
+                try:
+                    spec_digits = int(spec["digits"] or 0)
+                except (TypeError, ValueError):
+                    spec_digits = 0
+                try:
+                    spec_tick = float(spec["tick_size"] or 0)
+                except (TypeError, ValueError):
+                    spec_tick = 0.0
+                if spec_digits > 0:
+                    out["digits"] = spec_digits
+                if spec_tick > 0:
+                    out["tick_size"] = spec_tick
 
         candles: list = []
         source = "none"

@@ -38,6 +38,16 @@ export default function Diag() {
   const flows = useStore((s) => s.flows)
   const namesAr = useStore((s) => s.namesAr)
   const telemetry = atoms[810]
+  // NQ ٢٠٢٦-٠٩-٠٣: نبض الأحداث يُجمَع منذ فتح اللوحة، فأوّل ثوانٍ تُظهر ذرّات
+  // سليمة كأنّها ساكتة — باني الشموع مثلاً أصغر إطاره ١٠ ثوانٍ. لا يُعلَن
+  // انقطاعٌ زمنيّ قبل نافذة الإحماء؛ الانقطاع البنيويّ (يتيمة · بلا ناشر)
+  // مقروء من المانيفستات لا من الزمن، فيظهر فورًا كما كان.
+  const WARMUP_S = 15
+  const [warm, setWarm] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setWarm(true), WARMUP_S * 1000)
+    return () => clearTimeout(t)
+  }, [])
 
   useEffect(() => {
     const load = () => {
@@ -82,6 +92,9 @@ export default function Diag() {
       const orphan = work.filter((e) => !(pubs[e]?.length))
       if (orphan.length === work.length) { push('يتيمة — محدا بينشر مدخلها', a.id, streamAr(orphan[0])); continue }
       const firedWork = work.filter((e) => fired.has(e))
+      // الحكمان التاليان زمنيّان — يقرآن نبض الأحداث. قبل نافذة الإحماء لا
+      // يُنطَق بانقطاع: تُجمَع في صنف محايد معلَن بدل وجه إنذار كاذب.
+      if (!warm) { push(`لسّا عم نجمع النبض (${WARMUP_S} ثانية)`, a.id, ''); continue }
       if (!firedWork.length) {
         const upstream = new Set<number>()
         for (const e of work) for (const p of pubs[e] ?? []) if (!spoke.has(p)) upstream.add(p)
@@ -113,11 +126,12 @@ export default function Diag() {
     }
     const forDashboard = (e: string) => /\.state$|\.snapshot$|\.synced$|\.collected$|\.updated$|\.completed$/.test(e)
     return { groups, spokeCount: spoke.size, noPublisher, inheritedForex, foreignMarket, noListener: noListener.filter((e) => !forDashboard(e)) }
-  }, [wiring, atoms, flows, namesAr])
+  }, [wiring, atoms, flows, namesAr, warm])
 
   const bootMs = b ? Math.round((b.finished_at - b.started_at) * 1000) : null
   const ORDER = ['⚠ وصلها مدخلها وما نطقت — تستاهل تحقيق', 'يتيمة — محدا بينشر مدخلها',
-    'مجوّعة — ناشر مدخلها ساكت', 'واقفة (بيد المالك)', 'دورية — بتنشر على دورتها (طبيعي)',
+    'مجوّعة — ناشر مدخلها ساكت', `لسّا عم نجمع النبض (${WARMUP_S} ثانية)`,
+    'واقفة (بيد المالك)', 'دورية — بتنشر على دورتها (طبيعي)',
     'مستهلِكة فقط — ما بتنشر أصلًا (طبيعي)']
 
   return (

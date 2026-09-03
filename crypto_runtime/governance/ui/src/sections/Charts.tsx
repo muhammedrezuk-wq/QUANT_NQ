@@ -41,6 +41,9 @@ interface ExecPayload {
   last_tick?: { bid: number; ask: number; tick_ms: number } | null
   symbols?: string[]
   ea_db?: boolean
+  // دقّة السعر كما يعلنها الوسيط (symbol_specs_v2). غيابها يترك افتراض المكتبة.
+  digits?: number
+  tick_size?: number
 }
 
 let __marketCache: string | null = null
@@ -96,6 +99,7 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
     let cur: Candle | null = null
     let lastTime = 0
     let fitted = false
+    let appliedDigits = 0
 
     const paint = (cs: Candle[], mode: 'ok' | 'held') => {
       if (!cs.length) return
@@ -129,6 +133,16 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
     if (cached.length) paint(cached, 'held')
 
     const ingest = (d: ExecPayload, fromPoll: boolean) => {
+      // الدقّة من مواصفة الوسيط، لا من جدول ثوابت هنا: بلاها ترجع المكتبة
+      // لافتراضها (precision 2) فينقصّ EURUSD إلى 1.16. تُطبَّق عند التغيّر
+      // فقط — لا في كل استطلاع (كل 2.5 ثانية).
+      if (typeof d.digits === 'number' && d.digits > 0 && d.digits !== appliedDigits) {
+        const mv = typeof d.tick_size === 'number' && d.tick_size > 0
+          ? d.tick_size
+          : Math.pow(10, -d.digits)
+        series.applyOptions({ priceFormat: { type: 'price', precision: d.digits, minMove: mv } })
+        appliedDigits = d.digits
+      }
       const cs = d.candles ?? []
       if (cs.length) {
         paint(cs, 'ok')

@@ -596,7 +596,7 @@ void SyncPositions()
          for(int d = 0; d < deals; d++)
          {
             ulong dtk = HistoryDealGetTicket(d);
-            if(dtk > 0) comm += HistoryDealGetDouble(ddtk > 0) comm += HistoryDealGetDouble(dtk, DEAL_COMMISSION);
+            if(dtk > 0) comm += HistoryDealGetDouble(dtk, DEAL_COMMISSION);
          }
       }
 
