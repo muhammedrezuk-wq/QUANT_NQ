@@ -596,11 +596,20 @@ export function ParameterRow({ param, audit, auditErr }: { param: GovParameter; 
         المطلوبة (آخر أمر مالك): {approved ? <b className="num">{paramShown(param.value)}</b> : 'لا طلب مسجَّل بعد — القيمة الأولية العادلة سارية'}
       </div>
       <input className="cfginput num" type="number" inputMode="decimal" step={0.01}
-        value={draft} onChange={(e) => setDraft(e.target.value)} />
+        value={draft} disabled={!param.approvable} onChange={(e) => setDraft(e.target.value)} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
-        <button className="btn" disabled={busy} onClick={save}>{busy ? 'جارٍ الإرسال…' : 'اعتماد'}</button>
+        {/* ٢٠٢٦-٠٩-٠٤ (ختم NQ): الصفحة صارت تعرض الستّ والثلاثين كلّها. وما ليس قابلًا
+            للاعتماد يُعرض للقراءة بزرّ معطَّل — لا مخفيًّا ولا بزرٍّ يفشل عند الخادم. */}
+        <button className="btn" disabled={busy || !param.approvable} onClick={save}>
+          {busy ? 'جارٍ الإرسال…' : param.approvable ? 'اعتماد' : 'للقراءة فقط'}
+        </button>
         <span className="ss num" style={{ marginTop: 0 }}>{param.name}</span>
       </div>
+      {param.approvable ? null : (
+        <div className="ss dim" style={{ marginTop: 4 }}>
+          لا يُعتمد من هنا — يُضبط من بطاقة «عيارات القرار» أو من مانيفست ذرّته.
+        </div>
+      )}
       {note ? <div style={{ fontSize: 12.5, marginTop: 5, color: note.ok ? 'var(--green)' : 'var(--amber)' }}>{note.text}</div> : null}
       <div className="ss dim" title={`يحكم: ${param.governs} · المصدر بالكود: ${param.declared_at}`}
         style={{ marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -644,8 +653,14 @@ export function DeclaredParametersCard() {
       .then((r) => r.json())
       .then((d: { available?: boolean; parameters?: GovParameter[] }) => {
         const order = Object.keys(PARAM_AR)
-        setParams((d.parameters ?? []).filter((p) => p.approvable)
-          .slice().sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)))
+        // ٢٠٢٦-٠٩-٠٤ (ختم NQ): كان الفلتر يُبقي المُعامِلات القابلة للاعتماد وحدها — ستًّا
+        // من ستٍّ وثلاثين — فيفتح المالك الصفحة ولا يرى ثلاثين قيمة يعمل بها نظامه.
+        // بحكمه: «انا اعمى ما عم شوف شي قدام عيني». الآن تُعرض كلّها؛ وغير القابل
+        // للاعتماد يظهر للقراءة بزرّ معطَّل وسببٍ مكتوب (انظر ParameterRow).
+        // الترتيب: المعروف بـPARAM_AR أوّلًا بترتيبه، ثم الباقي أبجديًّا بلا إخفاء.
+        const rank = (n: string): number => { const i = order.indexOf(n); return i === -1 ? order.length : i }
+        setParams((d.parameters ?? []).slice()
+          .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)))
         setErr(d.available === false ? 'سجلّ المُعامِلات غير متاح بعد — يتكوّن مع أول تشغيل للنواة' : '')
       })
       .catch(() => setErr('تعذّر جلب المُعامِلات — تأكّد أن خادم الحوكمة شغّال'))
@@ -656,12 +671,18 @@ export function DeclaredParametersCard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div className="scard">
-        <div className="st" style={{ fontWeight: 700 }}>المُعامِلات المعلنة</div>
+        <div className="st" style={{ fontWeight: 700 }}>
+          المُعامِلات المعلنة{params ? ` — ${params.length} بطاقة` : ''}
+          {params ? <span className="ss dim" style={{ fontWeight: 400 }}>
+            {'  · قابلة للاعتماد: '}{params.filter((p) => p.approvable).length}
+            {' · معتمدة: '}{params.filter((p) => p.status === 'APPROVED').length}
+          </span> : null}
+        </div>
         <div className="ss dim">
-          الستّة التحليلية التي تحكم بوّابة الجاهزية (READY) — القيمة الأولية العادلة هي المعلنة بالسجلّ
-          وتبقى سارية غير رسمية حتى يعتمدها المالك من هنا (حكم ق١). بقاء أي واحدة غير معتمدة يبقي كل
-          بطاقات العقد provisional. الاعتماد يمرّ ببوّابة الأوامر بتأكيد بخطوتين؛ وعيارات القرار لها
-          بطاقتها فوق ولا تُعتمد من هنا.
+          كل مُعامِل معلن بالسجلّ — لا المعتمَد وحده. القيمة الأولية العادلة سارية غير رسمية حتى
+          يعتمدها المالك (حكم ق١)، وبقاء أي واحدة غير معتمدة يبقي كل بطاقات العقد provisional.
+          الاعتماد يمرّ ببوّابة الأوامر بتأكيد بخطوتين. وما ليس قابلًا للاعتماد من هنا يظهر
+          <b> للقراءة فقط</b> بزرٍّ معطَّل — معروضًا لا مخفيًّا، كي تُرى القيمة التي يعمل بها النظام.
         </div>
         {err ? <div style={{ marginTop: 6, fontSize: 13, color: 'var(--amber)' }}>{err}</div> : null}
       </div>
@@ -813,7 +834,15 @@ export default function Settings() {
           <div className="settings-legend"><span><i className="settings-dot green" /> حيّ</span><span><i className="settings-dot amber" /> يحتاج انتباه</span><span><i className="settings-dot red" /> خطر</span></div>
         </div>
       ) : null}
-      {governedDials ? <DecisionDialsCard excludeNames={[...ANALYSIS_DIAL_NAMES, ...DECISION_DIAL_NAMES, ...RISK_DIAL_NAMES]} includeExtras={false} /> : null}
+      {/* ٢٠٢٦-٠٩-٠٤ (ختم NQ): صفحة الإعدادات كانت تعرض البقايا وحدها — تستثني عيارات
+          التحليل والقرار والمخاطر لأنّها معروضة في صفحات أخرى، و«المُعامِلات المعلَنة»
+          الستّ والثلاثين كانت داخل AnalysisSettingsCard الذي يُستدعى في صفحة «التحليل»
+          وحدها (Analysis.tsx:890) ولا يُستدعى هنا إطلاقًا. فالمالك يفتح «الإعدادات»
+          ولا يرى بطاقاته. بحكمه: «بدي اشوف كل شي على لوحاتي وانا بنص تداول».
+          الآن: المعامِلات المعلَنة + عيارات التحليل، ثم كل العيارات الباقية بلا استثناء
+          سوى ما عُرض للتوّ — صفحة واحدة تجمع الجميع بلا تكرار. */}
+      {governedDials ? <AnalysisSettingsCard /> : null}
+      {governedDials ? <DecisionDialsCard excludeNames={ANALYSIS_DIAL_NAMES} includeExtras={false} /> : null}
       {/* بند ١٥ — لوحة تخصيص الشكل: مبنيّة حول بطاقة «عيارات القرار» لا فوقها */}
       <AppearancePanel />
       <select className="search" value={id} onChange={(e) => setId(e.target.value === '' ? '' : Number(e.target.value))}>

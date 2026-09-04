@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "2.5.0"
+ATOM_VERSION = "2.6.0"
+
+#: ٢٠٢٦-٠٩-٠٤ (ختم NQ): مهلة تقادم الرمز غير المخرَّط. كان `_unmapped` قاموسًا
+#: بلا نسيان — يُحفظ في اللقطة ويُستعاد، فرمزٌ ظهر مرّة واحدة يبقى معلَنًا عطلًا
+#: إلى الأبد. مقيس ٢٠٢٦-٠٩-٠٤: بعد إلغاء `DXY_U6` من الإكسبرت توقّف وصوله تمامًا
+#: (صفر تِكّة في ١٨٠ ثانية) وبقيت الذرّة تقول `unmapped: DXY_U6` — حالة بائتة
+#: تُعرض على لوحة المالك كحاضر. وقانون المالك: «ممنوع لوحة تكذب أبدًا».
+#: العدّاد يبقى للسجلّ؛ الإعلان وحده هو ما يتقادم — النسيان لا يُخفي شيئًا حصل،
+#: بل يمنع إعلان ما لم يعد يحصل.
+UNMAPPED_STALE_AFTER_S = 300.0
 
 EVENT_RESOLVE_REQUESTED = "storage.symbol.resolve_requested"
 EVENT_RESOLVE_REQUESTED_NEW = "symbol.resolve.requested"
@@ -32,6 +42,7 @@ class Atom(AtomBase):
         self._strip_suffixes: list[str] = []
         self._passthrough_unknown = True
         self._unmapped: dict[str, int] = {}
+        self._unmapped_seen: dict[str, float] = {}   # الرمز -> آخر ظهور فعليّ
         self._cache: dict[str, str] = {}
         self._specs: dict[tuple[str, str], dict[str, Any]] = {}
         self._reference_specs: dict[tuple[str, str], dict[str, Any]] = {}
@@ -110,6 +121,7 @@ class Atom(AtomBase):
                     break
         if canonical is None:
             self._unmapped[symbol] = self._unmapped.get(symbol, 0) + 1
+            self._unmapped_seen[symbol] = time.time()
             self.unmapped_count += 1
             if not self._passthrough_unknown:
                 return None
@@ -213,7 +225,9 @@ class Atom(AtomBase):
             return [{"account_id": account, "symbol": symbol, "spec": dict(spec)}
                     for (account, symbol), spec in source.items()]
         return {"version": ATOM_VERSION, "cache": dict(self._cache),
-                "unmapped": dict(self._unmapped), "specs": rows(self._specs),
+                "unmapped": dict(self._unmapped),
+            "unmapped_seen": dict(self._unmapped_seen),
+            "specs": rows(self._specs),
                 "reference_specs": rows(self._reference_specs),
                 "current_account": self._current_account,
                 "resolved_count": self.resolved_count,
@@ -235,6 +249,10 @@ class Atom(AtomBase):
             return result
         self._cache = {str(k): str(v) for k,v in (state.get("cache") or {}).items()}
         self._unmapped = {str(k): int(v) for k,v in (state.get("unmapped") or {}).items()}
+        # لقطة قديمة (قبل 2.6.0) لا تحمل الأزمنة: تُقرأ صفرًا فتُعدّ بائتة فورًا —
+        # وهو الصواب، لأنّ رمزًا من حياة سابقة لم يُرَ في هذه الحياة بعد.
+        self._unmapped_seen = {str(k): float(v)
+                               for k, v in (state.get("unmapped_seen") or {}).items()}
         self._specs = load(state.get("specs", []))
         self._reference_specs = load(state.get("reference_specs", []))
         self._current_account = str(state.get("current_account") or "")
@@ -244,19 +262,34 @@ class Atom(AtomBase):
     async def health_check(self) -> HealthStatus:
         if not self._running:
             return HealthStatus(state=HealthState.UNHEALTHY, message=REASON_NOT_STARTED)
+        # الحيّ وحده يُعلَن عطلًا؛ والبائت يبقى مرئيًّا بالتفاصيل مؤرَّخًا لا مخفيًّا.
+        now = time.time()
+        live = sorted(sym for sym in self._unmapped
+                      if now - self._unmapped_seen.get(sym, 0.0) <= UNMAPPED_STALE_AFTER_S)
+        stale = sorted(set(self._unmapped) - set(live))
         details = {
             "aliases": len(self._exact), "patterns": len(self._patterns),
             "resolved": self.resolved_count, "unmapped": self.unmapped_count,
             "unmapped_symbols": dict(self._unmapped),
+            "unmapped_live": live,
+            "unmapped_stale": {sym: round(now - self._unmapped_seen.get(sym, 0.0), 1)
+                               for sym in stale},
+            "unmapped_stale_after_s": UNMAPPED_STALE_AFTER_S,
         }
         if not self._exact and not self._patterns:
             return HealthStatus(
                 state=HealthState.DEGRADED, message=REASON_NO_MAP, details=details)
-        if self._unmapped:
+        if live:
             return HealthStatus(
                 state=HealthState.DEGRADED,
-                message="unmapped: %s" % ",".join(sorted(self._unmapped)),
-                details=details)
+                message="unmapped: %s" % ",".join(live), details=details)
+        # لا رمز حيّ بلا خريطة. إن بقي بائت، يُقال بصراحة أنّه بائت — لا يُطمس
+        # ولا يُعرض عطلًا: «سليم، وسبق أن مرّ كذا رمزًا لم يعد يصل».
+        if stale:
+            return HealthStatus(
+                state=HealthState.HEALTHY, details=details,
+                message="resolved=%d · بائت بلا خريطة (لم يعد يصل): %s"
+                        % (self.resolved_count, ",".join(stale)))
         return HealthStatus(
             state=HealthState.HEALTHY,
             message="resolved=%d" % self.resolved_count, details=details)

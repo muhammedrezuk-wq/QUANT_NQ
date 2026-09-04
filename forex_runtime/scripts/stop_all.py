@@ -118,9 +118,19 @@ def main() -> int:
             for pid, label in sorted(targets.items()):
                 try:
                     proc = psutil.Process(pid)
-                    print(f"  إرسال CTRL_BREAK إلى PID={pid:<7} {label}")
-                    if _send_ctrl_break(pid):
-                        procs.append(proc)
+                    # ٢٠٢٦-٠٩-٠٤ (ختم NQ): كانت العمليّة تُضاف إلى `procs` **فقط** عند
+                    # نجاح إرسال CTRL_BREAK. و`os.kill(pid, CTRL_BREAK_EVENT)` على
+                    # ويندوز يخاطب مجموعةَ عمليّات لا عمليّةً، فلا ينجح إلّا مع رئيس
+                    # مجموعة — وأبناء `governance/app.py` ليسوا كذلك، فيُرمى OSError
+                    # ويُرجَع False. النتيجة: مَن فشلت إشارته يخرج من القائمة، فلا
+                    # يصله `terminate()` أصلًا — الاحتياط يحمي مَن لا يحتاجه وحده.
+                    # مقيس ٢٠٢٦-٠٩-٠٤ ٠٢:٢٥: طُبعت ستّ رسائل «إرسال CTRL_BREAK» ثمّ
+                    # «تمّ الإيقاف» ولم تمت عمليّة واحدة، وخمسة منافذ بقيت تستمع.
+                    # الآن: تُضاف دائمًا، ويُعلَن ما إذا وصلت الإشارة أم لا.
+                    delivered = _send_ctrl_break(pid)
+                    print(f"  إرسال CTRL_BREAK إلى PID={pid:<7} {label}"
+                          f"{'' if delivered else '  (لم تصل الإشارة — سيُستعمل terminate)'}")
+                    procs.append(proc)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
             # انتظر ١٠ ثوانٍ للإغلاق النظيف (يُنفَّذ snapshot_all)

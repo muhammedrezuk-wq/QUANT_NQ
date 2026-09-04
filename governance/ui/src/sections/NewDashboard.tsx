@@ -230,6 +230,147 @@ function WhyNotPanel() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// ٣-ب — العتبات · زوج التحوّط · حالة الأصل — بأرقامها الحيّة
+// ═══════════════════════════════════════════════════════════
+// ٢٠٢٦-٠٩-٠٤ (ختم NQ): ثلاثة أرقام كانت تُقاس بالطرفيّة ولا تظهر على أي شاشة،
+// فيبقى المالك «بنص تداول ما يعرف شو عم يصير» (حكمه حرفيًّا):
+//   ١) القوّة/الثقة/الاتجاه/العمق مقابل عتباتها — بطاقة «لماذا لست في صفقة»
+//      تقول REASON بلا رقم، فلا يُعرف أقريبٌ الرقم من العتبة أم بعيد.
+//   ٢) زوج التحوّط: حالته وسبب فشل رجليه — مقيس ٢٠٢٦-٠٩-٠٤:
+//      USTEC · EXHAUSTED · REFERENCE_NOT_USABLE بعد ٣ محاولات، ولا شيء يعرضه.
+//   ٣) الأصل: مُفعَّل أم أوقفته ٥٧٨ بأمر pause بعد الاستنفاد — فيظنّه المالك
+//      مفعَّلًا وهو مفصول عند بوّابة الأصول ٤٦٨.
+// المصادر أحداثٌ يشترك فيها المحرّك أصلًا (455/456/576/578) — بلا نداء جديد.
+
+const CHECK_AR: Record<string, string> = {
+  strength: 'القوّة', confidence: 'الثقة',
+  direction: 'الاتجاه', current_depth: 'العمق', state: 'الحالة',
+}
+
+interface GateRow { key: string; ar: string; vTxt: string; tTxt: string; passed: boolean }
+
+const asRec = (v: unknown): Record<string, unknown> =>
+  (v && typeof v === 'object' ? v as Record<string, unknown> : {})
+
+// ٢٠٢٦-٠٩-٠٤ (ختم NQ): فحص `state` بـ455 نصّيّ لا رقميّ — يقارن الحالة المجمَّعة
+// بـREADY (السطر ٢٦٠). فقراءته رقمًا كانت تطبع «—/—» بلا معنى. الآن: الرقم
+// يُعرض برقمين عشريّين، والنصّ كما هو، والغياب «غير معروف» صراحةً لا شرطة صامتة.
+const cellText = (v: unknown): string => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v.toFixed(2)
+  if (typeof v === 'string' && v.trim() !== '') return v
+  return 'غير معروف'
+}
+
+function gateRows(payload: unknown): GateRow[] {
+  const checks = asRec(payload).checks
+  if (!Array.isArray(checks)) return []
+  return checks.map((c) => {
+    const r = asRec(c)
+    const key = String(r.name ?? '')
+    return {
+      key,
+      ar: CHECK_AR[key] ?? key,
+      vTxt: cellText(r.value),
+      tTxt: cellText(r.threshold),
+      passed: r.passed === true,
+    }
+  }).filter((r) => r.key !== '')
+}
+
+function GateNumbersPanel() {
+  const symbolStreams = useStore((s) => s.symbolStreams)
+  const streams = useStore((s) => s.streams)
+  const atoms = useStore((s) => s.atoms)
+
+  // ١ — العتبات لكل رمز (الشراء أوّلًا، وإن غاب فالبيع)
+  const perSymbol = useMemo(() => {
+    const buy = asRec(symbolStreams['decision.eligibility.buy.state'])
+    const sell = asRec(symbolStreams['decision.eligibility.sell.state'])
+    const names = Array.from(new Set([...Object.keys(buy), ...Object.keys(sell)]))
+    return names.map((sym) => {
+      const rows = gateRows(buy[sym])
+      return { sym, rows: rows.length ? rows : gateRows(sell[sym]) }
+    }).filter((x) => x.rows.length > 0)
+  }, [symbolStreams])
+
+  // ٢ — زوج التحوّط: الحمولة الحيّة إن وصلت، وإلّا صحّة ٥٧٨ كما هي
+  const pair = asRec(streams['perpetual.pair.state'])
+  const pairLegs = asRec(pair.legs)
+  const a578 = atoms[578]
+  const a576 = atoms[576]
+  const a468 = atoms[468]
+
+  return (
+    <div className="dl-panel">
+      <div className="dl-panel-title">العتبات وزوج التحوّط — بالأرقام</div>
+
+      {/* ١ — الأرقام مقابل العتبات */}
+      {perSymbol.length === 0 ? (
+        <div className="dl-all-clear dim">ما وصلت بطاقة أهليّة بعد — لا أرقام تُعرض</div>
+      ) : (
+        <div className="dl-blockers">
+          {perSymbol.map(({ sym, rows }) => (
+            <div key={sym} className="dl-blocker" data-color={rows.every((r) => r.passed) ? 'green' : 'amber'}>
+              <span className="dl-blocker-name">{sym}</span>
+              <span className="dl-blocker-val">
+                {rows.map((r) => (
+                  <span key={r.key} style={{ marginInlineEnd: 10, whiteSpace: 'nowrap' }}>
+                    {r.ar}{' '}
+                    <b className="num" style={{ color: r.passed ? C.green : C.amber }}>{r.vTxt}</b>
+                    <span className="dim">{' / '}{r.tTxt}</span>
+                    {' '}{r.passed ? '✓' : '✗'}
+                  </span>
+                ))}
+              </span>
+              <span className="dl-blocker-th dim">
+                {rows.filter((r) => !r.passed).length === 0
+                  ? 'كل العتبات مرّت'
+                  : `يفشل: ${rows.filter((r) => !r.passed).map((r) => r.ar).join(' · ')}`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ٢ — زوج التحوّط */}
+      <div className="dl-blockers" style={{ marginTop: 8 }}>
+        <div className="dl-blocker" data-color={a578?.health?.state === 'healthy' ? 'green' : 'amber'}>
+          <span className="dl-blocker-name">زوج التحوّط (578)</span>
+          <span className="dl-blocker-val">
+            {pair.symbol ? (
+              <>
+                <b className="num">{String(pair.symbol)}</b>
+                {pair.volume != null ? <span className="num">{' حجم '}{String(pair.volume)}</span> : null}
+                {Object.keys(pairLegs).length > 0 ? (
+                  <span>{' · '}{Object.entries(pairLegs).map(([role, leg]) => {
+                    const l = asRec(leg)
+                    return `${role}: ${String(l.status ?? '—')}${l.last_reason ? ` (${String(l.last_reason)})` : ''}`
+                  }).join(' · ')}</span>
+                ) : null}
+              </>
+            ) : (a578?.health?.message || 'لا زوج بعد')}
+          </span>
+          <span className="dl-blocker-th dim">
+            {pair.status ? `الحالة ${String(pair.status)}` : 'من صحّة الذرّة — لم تصل حمولة زوج بعد'}
+          </span>
+        </div>
+
+        {/* ٣ — حالة الأصل: مُفعَّل أم مفصول عند بوّابة الأصول */}
+        <div className="dl-blocker" data-color={a576?.health?.state === 'healthy' ? 'green' : 'amber'}>
+          <span className="dl-blocker-name">تفعيل الأصل (576 → 468)</span>
+          <span className="dl-blocker-val">
+            {a576?.health?.message || '—'}
+          </span>
+          <span className="dl-blocker-th dim">
+            {a468?.health?.message ? `بوّابة الأصول: ${a468.health.message}` : 'بوّابة الأصول: —'}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════
 // ٤ — ما المعطوب؟
 // ═══════════════════════════════════════════════════════════
 
@@ -562,6 +703,7 @@ export default function NewDashboard() {
       {/* ═══ ٣ — الأقسام الأربعة ═══ */}
       <main className="dl-main">
         <WhyNotPanel />
+        <GateNumbersPanel />
         <GuardChainPanel />
         <WhatBrokenPanel />
         <TimelinePanel />

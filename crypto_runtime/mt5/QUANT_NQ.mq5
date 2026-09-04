@@ -52,7 +52,14 @@ input int    InpMaxSymbols    = 100;             // سقف رموز الإقلا
 input group "??? ? الرموز ???"
 // فارغ = كل ما في Market Watch. أو اكتبها مفصولة بفاصلة.
 // v3.00: أي رمز يصل بأمر من النظام يُضاف تلقائيًّا (EnsureSymbol) ولو لم يكن هنا.
-input string InpSymbols       = ""; // فارغ = أي زوج (كل Market Watch)
+// v3.13 (ختم NQ · ٢٠٢٦-٠٩-٠٤ · أمر المالك «الغيه» عن DXY):
+//   كانت القيمة "" أي «كل Market Watch»، فأي رمز يدخل نافذة ميتاتريدر يدخل
+//   النظام بلا إعلان. مقيس ٢٠٢٦-٠٩-٠٤: الجسر ٦١٨ بثّ ٨ رموز بينما التغذية ٦٢٢
+//   تعلن ٧، والثامن `DXY_U6` وصل ٧٠٨ بلا خريطة فأعلنها `unmapped` — رمزٌ لم
+//   يطلبه أحد يُعطّل سجلّ الرموز. القائمة الصريحة تطابق الآن رموز ٦٢٢ حرفيًّا.
+//   الإضافة التلقائيّة عند أمر النظام (EnsureSymbol) تبقى كما هي، فلا يُمنع رمز
+//   يطلبه النظام صراحةً — يُمنع الدخول الصامت وحده.
+input string InpSymbols       = "BTCUSD,XAUUSD,EURUSD,GBPUSD,US30,USTEC,US500"; // اتركها فارغة = كل Market Watch
 
 input group "??? ? الهوية ???"
 input long   InpMagic         = 20260801;        // رقم سحريّ (توقيع صفقات النظام)
@@ -596,7 +603,7 @@ void SyncPositions()
          for(int d = 0; d < deals; d++)
          {
             ulong dtk = HistoryDealGetTicket(d);
-            if(dtk > 0) comm += HistoryDealGetDouble(ddtk > 0) comm += HistoryDealGetDouble(dtk, DEAL_COMMISSION);
+            if(dtk > 0) comm += HistoryDealGetDouble(dtk, DEAL_COMMISSION);
          }
       }
 

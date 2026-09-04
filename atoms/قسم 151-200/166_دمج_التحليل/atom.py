@@ -348,6 +348,10 @@ class Atom(AtomBase):
                          and current_depth >= required_depth and confidence >= threshold)
             row = {"analyzer_id": analyzer_id, "included": ready,
                    "identity_valid": identity_ok, "fresh": fresh,
+                   # `current_depth` أعلاه يصير 0.0 عند غياب المفتاح، فيختلط
+                   # «لم يُرسَل» بـ«صفر مقيس». هذا العلَم يفصلهما — ويُستعمل في
+                   # حساب المخزون أدناه فلا يُسحب المتوسّط بمن لم يرسل شيئًا.
+                   "depth_known": item.get("current_depth") is not None,
                    "weight": weight, "weight_applied": weight if ready else 0.0,
                    "score": _num(item.get("score")),
                    "strength": _opt(item.get("strength")),
@@ -359,6 +363,30 @@ class Atom(AtomBase):
                 valid.append(row)
         active_weight = sum(_num(item.get("weight_applied")) for item in valid)
         missing_weight = max(0.0, available_weight - active_weight)
+        # ٢٠٢٦-٠٩-٠٤ (ختم NQ · حكم المالك: «هو اسمه عمق، ممكن يخزن تكات، لا يخرجه»):
+        # العمق **مخزون لا رصد**. تعريفه في `shared/atom_evidence.py:32` حرفيًّا
+        # «نسبة ما جمعته إلى ما تحتاجه» — أي كم امتلأت نافذة الأدلّة. والنافذة
+        # لا تُفرَّغ لأنّ آخر تِكّة تأخّرت، بخلاف الاتجاه والقوّة والثقة التي تصف
+        # السوق **الآن** فتبطل بالقِدَم. وكان الأربعة يمرّون من بوّابة `ready`
+        # نفسها (وفيها `fresh`)، فإذا هدأ السوق سقط `active_weight` إلى صفر
+        # وأُعلن العمق «مجهولًا» — وهو محسوب فعلًا لدى كل محلّل.
+        # مقيس ٢٠٢٦-٠٩-٠٤ على EURUSD: التِكّة أقدم بـ365 ثانية، والمحلّلون
+        # يحملون 54.7 والمطلوب 50 — رقمٌ جاهز يُرمى، وأكثر ما يُحتاج وقت البيات.
+        # لذلك يُحسب المخزون من كل مساهم **صحيح الهويّة أرسل عمقًا**، بوزنه
+        # المُعلَن لا بوزنه المُطبَّق. داخل ١٦٦ لا شيء يتغيّر: `ready` و`fresh`
+        # و`weight_applied` و`active_weight` و`state` كما هي حرفيًّا.
+        # ⚠️ وأثرٌ خارج ١٦٦ يجب أن يُقال صراحةً: فحص العمق في ٤٥٥ كان يفشل بـ
+        # `FIELD_UNKNOWN:current_depth` — لا لأنّ الرقم منخفض بل لأنّه غائب.
+        # بعد هذا التغيير يقارَن رقمٌ حقيقيّ بعتبته، فيمرّ إن كان فوقها. هذا
+        # تصحيح لا تخفيف: العمق كان فوق عتبته فعلًا (54.7 مقابل 30 المعتمدة)،
+        # والحجب كان بسبب الغياب الكاذب. وبقيّة حواجز ٤٥٥ — الاتجاه والقوّة
+        # والثقة والحالة — تبقى كما هي ولم تُمَسّ.
+        depth_rows = [row for row in contributors.values()
+                      if row.get("identity_valid") and row.get("depth_known")]
+        depth_mass = sum(_num(row.get("weight")) for row in depth_rows)
+        stock_depth = (sum(_num(row.get("current_depth")) * _num(row.get("weight"))
+                           for row in depth_rows) / depth_mass
+                       if depth_mass > 0 else None)
         fast_meta = {
             "account_id": account,
             "broker": str(payload.get("broker") or "").strip() or None,
@@ -373,9 +401,11 @@ class Atom(AtomBase):
             "contributors": contributors,
         }
         if not valid or active_weight <= 0:
+            # الاتجاه والقوّة والثقة تبقى مجهولة — لا مساهم طازج يصفها.
+            # والعمق يُنشر: مخزونٌ قائم لا رصدٌ بطل. (انظر التعليق أعلاه.)
             fast_card = {"path": "fast", "source": "ticks", **fast_meta,
                          "quality": QUALITY_LOW, "warnings": [WARN_NO_VALID],
-                         **self._eight(None, None, None, None,
+                         **self._eight(None, None, None, stock_depth,
                                        self._fast_required_depth, self._fast_weight,
                                        STATE_CARD_NOT_READY)}
         else:

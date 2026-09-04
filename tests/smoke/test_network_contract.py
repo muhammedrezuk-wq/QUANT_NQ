@@ -31,7 +31,19 @@ def test_crypto_api_binding_contract() -> None:
     assert cfg["api"]["port"] == 8020
     assert cfg["secrets"]["enabled"] is True
     assert cfg["secrets"]["allow_prompt"] is False
-    assert cfg["secrets"]["dpapi_blob"] == "runtime/crypto.key"
+    # ٢٠٢٦-٠٩-٠٤ (ختم NQ): كان يثبّت النصّ `"runtime/crypto.key"` — ملفٌّ لا وجود
+    # له، فبقي الاختبار أخضر فوق خزنة لا تُفتح أبدًا. نصّ يطابق نصًّا ليس عقدًا:
+    # العقد أن يصل المسار إلى ملفٍّ **موجود**. الآن يُقاس الوجود لا الإملاء.
+    # (خرق البند ١٦ من قواعد المالك: «الاختبار يجب أن يفشل عند وجود الفشل».)
+    root = Path(__file__).resolve().parents[2]
+    runtime = root / "crypto_runtime"
+    for key in ("vault_path", "dpapi_blob"):
+        raw = cfg["secrets"][key]
+        assert not Path(raw).is_absolute(), f"{key} يجب أن يبقى نسبيًّا: {raw}"
+        resolved = (runtime / raw).resolve()
+        assert resolved.parent == (root / "runtime").resolve(), (
+            f"{key}={raw} يُحلّ إلى {resolved} — والخزنة تعيش في {root / 'runtime'}")
+        assert resolved.exists(), f"{key}={raw} يشير إلى ملفّ غير موجود: {resolved}"
 
 
 def test_generic_core_stays_local() -> None:

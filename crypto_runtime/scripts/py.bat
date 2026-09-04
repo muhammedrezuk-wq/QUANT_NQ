@@ -28,14 +28,30 @@ REM  (%APPDATA%\Python\Python312\site-packages) from sys.path.  Without it
 REM  anything the owner pip-installs for his account leaks into our runtime
 REM  and can shadow a vendored library.  Measured 2026-09-01: that folder
 REM  does not exist yet, so this closes the door before it is used.
-if exist "%ROOT%\vendor\python\runtime\python.exe" (
-  "%ROOT%\vendor\python\runtime\python.exe" -s %*
-  exit /b %ERRORLEVEL%
-)
-if exist "%ROOT%\venv\Scripts\python.exe" (
-  "%ROOT%\venv\Scripts\python.exe" -s %*
-  exit /b %ERRORLEVEL%
-)
+REM  2026-09-04 (NQ seal): the two launchers below used to sit inside
+REM  "if exist (...)" blocks.  cmd expands %ERRORLEVEL% when it PARSES a
+REM  parenthesised block, not when it runs it, so "exit /b %ERRORLEVEL%"
+REM  returned the errorlevel from BEFORE python ran - practically always 0.
+REM  Every button in the project calls this file, so every button reported
+REM  success no matter what happened.  Measured 2026-09-04 02:25: the stop
+REM  button printed "done - all eight ports measured free" while stop_all.py
+REM  had returned 1 and five ports were still listening.
+REM  Fix: goto labels instead of blocks.  On its own line, outside any
+REM  parentheses, %ERRORLEVEL% expands at execution time and is correct.
+REM  (Delayed expansion was rejected: it would mangle any argument with "!".)
+if exist "%ROOT%\vendor\python\runtime\python.exe" goto :run_vendored
+if exist "%ROOT%\venv\Scripts\python.exe" goto :run_venv
+goto :no_interpreter
+
+:run_vendored
+"%ROOT%\vendor\python\runtime\python.exe" -s %*
+exit /b %ERRORLEVEL%
+
+:run_venv
+"%ROOT%\venv\Scripts\python.exe" -s %*
+exit /b %ERRORLEVEL%
+
+:no_interpreter
 
 REM  No project interpreter.  Falling through to the machine Python is how
 REM  the forex core spent 16.5 hours on an environment missing

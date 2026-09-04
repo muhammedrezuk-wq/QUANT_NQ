@@ -258,6 +258,16 @@ class Atom(AtomBase):
         stamp = fx.parse_sending_time(fx.first(pairs, fx.TAG_SENDING_TIME) or "")
         if msg_type == fx.MSG_LOGON:
             self._ever_logged_on = True
+            # 2026-09-04 (NQ seal): `_last_error` was written on failure (line 170,
+            # and from `session.last_error`) but never cleared on success, while
+            # `health_check` prints it for any DOWN link.  So the panel kept
+            # showing the FIRST failure of the process for the rest of its life.
+            # Measured 2026-09-04: the feed had reconnected and streamed 26,625
+            # ticks, and the card still read `NO_PASSWORD_IN_VAULT` from a boot
+            # attempt made before the vault opened -- a stale reason reported as
+            # the current one, which is exactly what an owner cannot act on.
+            # A completed logon means the previous error is history, not state.
+            self._last_error = ""
             now = time.time()
             stream.send(session.security_list_request("SEC-%d" % self._connects, now))
             self._last_sent = now

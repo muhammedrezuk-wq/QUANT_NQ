@@ -1,0 +1,433 @@
+﻿// ط§ظ„ط±ط¦ظٹط³ظٹط© (850) v8 آ«ط­ط§ظ…ظ„ط© ط§ظ„ط¨ظ„ط§ط·ط§طھآ» â€” ط®طھظ… ط§ظ„ظ…ط§ظ„ظƒ ظ¢ظ ظ¢ظ¦-ظ ظ¨-ظ¢ظ .
+// ط£ظ…ط±ظ‡ ط§ظ„ط­ط±ظپظٹظ‘: آ«ط­ط· ظ…ط¬ظ…ظˆط¹ ظƒظ„ ط§ظ„ظ„ظˆط­ط§طھ ط¨ظ‡ظٹ ظ„ظˆط­ط©â€¦ ظˆط£ظ†ط§ ط¨طµط؛ظ‘ط± ظˆط¨ظƒط¨ظ‘ط± ط¨ط§ظ„ط·ظˆظ„ ظˆط¨ط§ظ„ط¹ط±ط¶
+// ظˆط¨ط؛ظٹظ‘ط± ط§ظ„ظ…ظƒط§ظ†آ» ط«ظ…ظ‘ آ«ظƒظ„ ظ…ظˆط¬ظˆط¯ ط¹ظٹظ‘ظپظ‡ظ… â€” ط¶ظٹظپ ط§ظ„ظ†ط§ظ‚طµ ط¨ط³آ».
+// ظ„ط°ظ„ظƒ: **ظ„ط§ ظٹظڈط¹ط§ط¯ ط¨ظ†ط§ط، ط£ظٹ ظ‚ط³ظ… ظ‡ظ†ط§.** ط§ظ„ط£ظ‚ط³ط§ظ… طھظڈط±ظƒظژظ‘ط¨ ظƒظ…ط§ ظ‡ظٹ (ظ†ظپط³ ط´ظٹظپط±طھظ‡ط§ ظˆظ†ظپط³
+// ط£ط±ظ‚ط§ظ…ظ‡ط§) ط¯ط§ط®ظ„ ط¨ظ„ط§ط·ط§طھطŒ ظˆط§ظ„ظ…ظƒطھظˆط¨ ظ‡ظ†ط§ ظ‡ظˆ ط§ظ„ظ†ط§ظ‚طµ ظپظ‚ط·: ط§ظ„ط­ظƒظ… ط¨ط¬ظ…ظ„ط© آ· ط¬ط¯ظˆظ„ ط§ظ„ط±ظ…ظˆط² آ·
+// ط§ظ„ط­ط§ط¬ط¨ظˆظ† آ· طµط­ظ‘ط© ط§ظ„ط£ط³ط·ظˆظ„ آ· ط§ظ„ظ…ط§ظ„ آ· ط§ظ„طھط؛ط°ظٹط©.
+// ط§ظ„ظ‚ظˆط§ظ†ظٹظ† ظ…ظ† ظˆط±ظ‚طھظژظٹ ظ©ظ© ظˆظ©ظ§: ط£ط±ظ‚ط§ظ… ط£ط¬ظ†ط¨ظٹط© (ظ،) آ· طµظپط± ط¥ظ†ظƒظ„ظٹط²ظٹ ط®ط§ظ… (ظ،/ظ¢ط¬) آ·
+// ظ„ط§ ط²ط±ظ‘ ظ…ظٹظ‘طھ آ· ظ„ط§ ط­ظ‚ظ„ ظ…ط®طھط±ط¹ â€” ظˆط§ظ„ط؛ظٹط§ط¨ ظٹظڈط¹ظ„ظژظ† ط؛ظٹط§ط¨ظ‹ط§.
+import { useEffect, useMemo, useState } from 'react'
+import { DecisionDialsCard } from './Settings'
+import { useStore } from '../core/store'
+import { TileBoard, useLayout, type Layout, type TileDef } from '../components/Tiles'
+import { RoomBar } from '../components/RoomBar'
+import { EarlyWarningStrip } from '../components/EarlyWarning'
+
+// â”€â”€ ط§ظ„ط£ظ‚ط³ط§ظ… طھظڈط±ظƒظژظ‘ط¨ ظƒظ…ط§ ظ‡ظٹ â”€â”€
+import Network from './Network'
+import Charts from './Charts'
+import Control from './Control'
+import Analysis from './Analysis'
+import Market from './Market'
+import Risk from './Risk'
+import Alerts from './Alerts'
+import Monitor from './Monitor'
+import Execution from './Execution'
+import Atoms from './Atoms'
+import Portfolios from './Portfolios'
+import Log from './Log'
+import Connection from './Connection'
+import NQ from './NQ'
+
+interface Account { account_id?: string; balance?: number; equity?: number }
+interface Pos { symbol: string; profit?: number | null }
+interface Positions { floating_pnl?: number; positions?: Pos[] }
+interface Term { trade_allowed?: boolean }
+interface Tg { running: boolean; paired: boolean; token: boolean }
+
+const money = (n?: number | null) => (n == null ? 'â€”'
+  : n.toLocaleString('ar-EG-u-nu-latn', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+const int = (n?: number | null) => (n == null ? 'â€”' : n.toLocaleString('ar-EG-u-nu-latn'))
+
+const FILTER_AR: Record<string, [string, number]> = {
+  confidence_filter: ['ظپظ„طھط± ط§ظ„ط«ظ‚ط©', 460], conditions_filter: ['ظپظ„طھط± ط§ظ„ط´ط±ظˆط·', 461],
+  timing_filter: ['ظپظ„طھط± ط§ظ„طھظˆظ‚ظٹطھ', 462], position_filter: ['ط­ط§ط±ط³ ط§ظ„ظ…ط±ط§ظƒط²', 463],
+  freshness_filter: ['ظپظ„طھط± ط§ظ„ط·ط²ط§ط¬ط©', 464], asset_filter: ['ط§ظ„طھط­ظƒظ‘ظ… ط¨ط§ظ„ط£طµظˆظ„', 468],
+}
+const filterAr = (id: string) => (FILTER_AR[id] ? `${FILTER_AR[id][0]} ${FILTER_AR[id][1]}` : id)
+
+const SIG: Record<string, [string, string]> = {
+  up: ['طµط§ط¹ط¯', 'var(--green)'], down: ['ظ‡ط§ط¨ط·', 'var(--red)'], sideways: ['ط¹ط±ط¶ظٹ', 'var(--dim)'],
+  neutral: ['ظ…ط­ط§ظٹط¯', 'var(--dim)'], buy: ['ط´ط±ط§ط،', 'var(--green)'], sell: ['ط¨ظٹط¹', 'var(--red)'],
+  none: ['ط¨ظ„ط§', 'var(--dim)'],
+}
+const TREND: Record<string, [string, string]> = {
+  uptrend: ['طµط§ط¹ط¯', 'var(--green)'], downtrend: ['ظ‡ط§ط¨ط·', 'var(--red)'],
+  ranging: ['ط¹ط±ط¶ظٹ', 'var(--dim)'], neutral: ['ظ…ط­ط§ظٹط¯', 'var(--dim)'],
+  sideways: ['ط¹ط±ط¶ظٹ', 'var(--dim)'], none: ['ط¨ظ„ط§ ط§طھط¬ط§ظ‡', 'var(--dim)'],
+}
+const pair = (m: Record<string, [string, string]>, k?: string): [string, string] =>
+  (k ? m[k] ?? m[k.toLowerCase()] ?? [k, 'var(--dim)'] : ['ظ„ط³ط§', 'var(--dim)'])
+
+function ageOfTick(ts: number, now: number): [string, string] {
+  const ms = ts > 1e11 ? ts : ts * 1000
+  const s = Math.max(0, (now - ms) / 1000)
+  if (s < 3) return ['ط­ظٹظ‘', 'var(--green)']
+  if (s < 15) return [`${Math.round(s)} ط«`, 'var(--green)']
+  if (s < 60) return [`${Math.round(s)} ط«`, 'var(--amber)']
+  return [`${Math.round(s / 60)} ط¯`, 'var(--red)']
+}
+
+function Line({ k, v, c }: { k: string; v: string; c?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, lineHeight: 1.6, minWidth: 0, padding: '0 9px' }}>
+      <span className="dim" style={{ flex: 'none' }}>{k}</span>
+      <span className="num" style={{ color: c, fontWeight: 600, textAlign: 'end', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</span>
+    </div>
+  )
+}
+
+const DEFAULT_LAYOUT: Layout = {
+  verdict: { x: 0, y: 0, w: 12, h: 1, on: true },
+  symbols: { x: 0, y: 1, w: 7, h: 4, on: true },
+  blockers: { x: 7, y: 1, w: 5, h: 2, on: true },
+  money: { x: 7, y: 3, w: 5, h: 2, on: true },
+  charts: { x: 0, y: 5, w: 7, h: 7, on: true },
+  risk: { x: 7, y: 5, w: 5, h: 4, on: true },
+  alerts: { x: 7, y: 9, w: 5, h: 3, on: true },
+  fleet: { x: 0, y: 12, w: 4, h: 3, on: false },
+  feed: { x: 4, y: 12, w: 4, h: 3, on: false },
+  network: { x: 0, y: 12, w: 8, h: 6, on: false },
+  analysis: { x: 0, y: 12, w: 12, h: 6, on: false },
+  market: { x: 0, y: 12, w: 6, h: 5, on: false },
+  execution: { x: 0, y: 12, w: 12, h: 6, on: false },
+  control: { x: 0, y: 12, w: 12, h: 6, on: false },
+  atoms: { x: 0, y: 12, w: 12, h: 6, on: false },
+  portfolios: { x: 0, y: 12, w: 6, h: 4, on: false },
+  log: { x: 0, y: 12, w: 6, h: 5, on: false },
+  monitor: { x: 0, y: 12, w: 6, h: 5, on: false },
+  connection: { x: 0, y: 12, w: 6, h: 4, on: false },
+  nq: { x: 0, y: 12, w: 4, h: 5, on: false },
+  dials: { x: 0, y: 12, w: 6, h: 5, on: false },
+}
+
+export default function Home({ onGo }: { onGo: (id: string) => void }) {
+  const atoms = useStore((s) => s.atoms)
+  const acc = useStore((s) => s.streams['platform.account.state']) as Account | undefined
+  const posState = useStore((s) => s.streams['platform.positions.state']) as Positions | undefined
+  const term = useStore((s) => s.streams['platform.terminal_state']) as Term | undefined
+  const risk = useStore((s) => s.risk)
+  const gate = useStore((s) => s.gate)
+  const execution = useStore((s) => s.execution)
+  const market = useStore((s) => s.market)
+  const analysis = useStore((s) => s.analysis)
+  const structure = useStore((s) => s.structure)
+  const strategy = useStore((s) => s.strategy)
+  const decision = useStore((s) => s.decision)
+  const conn = useStore((s) => s.conn)
+  const flows = useStore((s) => s.flows)
+  // ظ¢ظ ظ¢ظ¦-ظ ظ©-ظ ظ¤ (ط®طھظ… NQ): ط«ظ„ط§ط«ط© ط£ط±ظ‚ط§ظ… ظƒط§ظ†طھ طھظڈظ‚ط§ط³ ط¨ط§ظ„ط·ط±ظپظٹظ‘ط© ظˆظ„ط§ طھط¸ظ‡ط± ط¹ظ„ظ‰ ط£ظٹ ط¨ظ„ط§ط·ط©طŒ
+  // ظپظٹط¨ظ‚ظ‰ ط§ظ„ظ…ط§ظ„ظƒ آ«ط¨ظ†طµ طھط¯ط§ظˆظ„ ظ…ط§ ظٹط¹ط±ظپ ط´ظˆ ط¹ظ… ظٹطµظٹط±آ» (ط­ظƒظ…ظ‡ ط­ط±ظپظٹظ‹ظ‘ط§). ط¨ظ„ط§ط·ط© آ«ظ…ظٹظ† ظˆط§ظ‚ظپ
+  // ط¨ظˆط¬ظ‡ ط§ظ„طµظپظ‚ط©آ» ظƒط§ظ†طھ طھط³ظ…ظ‘ظٹ ط§ظ„ط­ط§ط¬ط¨ ط¨ظ„ط§ ط±ظ‚ظ…ظ‡ â€” ظپظ„ط§ ظٹظڈط¹ط±ظپ ط£ظ‚ط±ظٹط¨ظŒ ط§ظ„ط±ظ‚ظ… ظ…ظ† ط¹طھط¨طھظ‡ ط£ظ…
+  // ط¨ط¹ظٹط¯. طھظڈظ‚ط±ط£ ظ…ظ† ط£ط­ط¯ط§ط« ظٹط´طھط±ظƒ ظپظٹظ‡ط§ ط§ظ„ظ…ط­ط±ظ‘ظƒ ط£طµظ„ظ‹ط§ (455/456/578) â€” ط¨ظ„ط§ ظ†ط¯ط§ط، ط¬ط¯ظٹط¯.
+  const symbolStreams = useStore((s) => s.symbolStreams)
+  const pairState = useStore((s) => s.streams['perpetual.pair.state']) as Record<string, unknown> | undefined
+
+  const gateNumbers = useMemo(() => {
+    const AR: Record<string, string> = { strength: 'ظ‚ظˆظ‘ط©', confidence: 'ط«ظ‚ط©', direction: 'ط§طھط¬ط§ظ‡', current_depth: 'ط¹ظ…ظ‚' }
+    const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? v as Record<string, unknown> : {})
+    const numOf = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+    const rowsOf = (p: unknown) => {
+      const cs = rec(p).checks
+      if (!Array.isArray(cs)) return []
+      return cs.map((c) => {
+        const r = rec(c)
+        const key = String(r.name ?? '')
+        return { key, ar: AR[key] ?? key, value: numOf(r.value), threshold: numOf(r.threshold), passed: r.passed === true }
+      }).filter((r) => AR[r.key] != null)
+    }
+    const buy = rec(symbolStreams['decision.eligibility.buy.state'])
+    const sell = rec(symbolStreams['decision.eligibility.sell.state'])
+    return Array.from(new Set([...Object.keys(buy), ...Object.keys(sell)]))
+      .map((sym) => { const rows = rowsOf(buy[sym]); return { sym, rows: rows.length ? rows : rowsOf(sell[sym]) } })
+      .filter((x) => x.rows.length > 0).slice(0, 4)
+  }, [symbolStreams])
+
+  const hedgePair = useMemo(() => {
+    const p = pairState ?? {}
+    const legs = (p.legs && typeof p.legs === 'object' ? p.legs as Record<string, unknown> : {})
+    const parts = Object.entries(legs).map(([role, leg]) => {
+      const l = (leg && typeof leg === 'object' ? leg as Record<string, unknown> : {})
+      return `${role} ${String(l.status ?? 'â€”')}${l.last_reason ? ` (${String(l.last_reason)})` : ''}`
+    })
+    if (p.symbol != null) {
+      return {
+        bad: String(p.status ?? '').toUpperCase().includes('EXHAUST'),
+        text: `${String(p.symbol)}${p.volume != null ? ` آ· ط­ط¬ظ… ${String(p.volume)}` : ''} آ· ${parts.join(' آ· ') || String(p.status ?? 'â€”')}`,
+      }
+    }
+    const m = atoms[578]?.health?.message ?? ''
+    return { bad: /EXHAUST/i.test(m), text: m || 'ظ„ط§ ط²ظˆط¬ ط¨ط¹ط¯' }
+  }, [pairState, atoms])  // hedgePair
+
+  const dialState = useStore((s) => s.streams['dial.profile.state']) as
+    { profiles?: Array<{ dial?: number; hedge_target?: number }> } | undefined
+  const profile = dialState?.profiles?.[0]
+  const dialPct = typeof profile?.dial === 'number' ? profile.dial : null
+  const hedge = typeof profile?.hedge_target === 'number' ? profile.hedge_target : null
+
+  const [tg, setTg] = useState<Tg | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const { layout, save, reset } = useLayout(DEFAULT_LAYOUT)
+
+  useEffect(() => {
+    let alive = true
+    const ask = () => fetch('/gov/telegram').then((r) => r.json())
+      .then((j: Tg) => { if (alive) setTg(j) }).catch(() => { if (alive) setTg(null) })
+    ask()
+    const id = window.setInterval(ask, 5000)
+    return () => { alive = false; window.clearInterval(id) }
+  }, [])
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const fleet = useMemo(() => {
+    const sick: Array<{ id: number; name: string; state: string }> = []
+    let running = 0
+    for (const a of Object.values(atoms)) {
+      if (a.state === 'running') running++
+      const hs = a.health?.state
+      if (hs && hs !== 'healthy') sick.push({ id: a.id, name: a.name_ar ?? a.name, state: hs })
+    }
+    sick.sort((x, y) => x.id - y.id)
+    return { total: Object.keys(atoms).length, running, sick }
+  }, [atoms])
+
+  const blockers = useMemo(() => {
+    const msg = atoms[454]?.health?.message ?? ''
+    const g = (k: string) => {
+      const m = new RegExp(`${k}=([^\\s]+)`).exec(msg)
+      return m && m[1] !== '-' ? m[1].split(',').filter(Boolean) : []
+    }
+    const n = (k: string) => { const m = new RegExp(`${k}=(\\d+)`).exec(msg); return m ? Number(m[1]) : null }
+    return { fail: g('fail'), miss: g('miss'), seen: n('seen'), passed: n('passed') }
+  }, [atoms])
+
+  const symbols = useMemo(() => Object.keys(market).sort(), [market])
+  const posBySym = useMemo(() => {
+    const m: Record<string, { n: number; pnl: number }> = {}
+    for (const p of posState?.positions ?? []) {
+      const e = (m[p.symbol] ??= { n: 0, pnl: 0 }); e.n++; e.pnl += p.profit ?? 0
+    }
+    return m
+  }, [posState])
+
+  const analysisOf = (s: string) => analysis[s]
+    ?? analysis[Object.keys(analysis).find((k) => k.endsWith(`::${s}`)) ?? '']
+
+  const votes = (recs: Record<string, { results?: Record<string, { signal?: string }> }>, s: string) => {
+    let b = 0, k = 0
+    for (const u of Object.values(recs[s]?.results ?? {})) {
+      if (u.signal === 'buy') b++; else if (u.signal === 'sell') k++
+    }
+    return b > k ? [`ط´ط±ط§ط، ${int(b)}`, 'var(--green)'] as const
+      : k > b ? [`ط¨ظٹط¹ ${int(k)}`, 'var(--red)'] as const
+        : ['ط­ظٹط§ط¯', 'var(--dim)'] as const
+  }
+
+  const feedAge = (...names: string[]) => {
+    let best = Infinity
+    for (const n of names) { const t = flows[n]; if (t) best = Math.min(best, (performance.now() - t) / 1000) }
+    return best
+  }
+  const feedTxt = (age: number): [string, string] => {
+    if (conn !== 'live') return ['ظ„ط§ ظ†ط¹ط±ظپ', 'var(--dim)']
+    if (age === Infinity) return ['طµط§ظ…طھ', 'var(--red)']
+    if (age < 10) return ['ط­ظٹظ‘', 'var(--green)']
+    if (age < 60) return [`${Math.round(age)} ط«`, 'var(--amber)']
+    return [`${Math.round(age / 60)} ط¯`, 'var(--red)']
+  }
+
+  const pnl = posState?.floating_pnl ?? null
+  const kill = risk?.kill_switch_state === true
+  const gateOpen = gate?.status === 'LIVE'
+  const halted = execution?.halted === true || gate?.status === 'HALTED' || gate?.status === 'PARTIAL_HALT'
+
+  const verdict: [string, string, string?] =
+    conn !== 'live' ? ['â›” ط§ظ„ظ†ظˆط§ط© ظ…ظ‚ط·ظˆط¹ط© â€” ظ…ط§ ظپظٹ ظ‚ط±ط§ط،ط© ط­ظٹظ‘ط©', 'var(--red)', 'ط´ط؛ظ‘ظ„ آ«ط؛ط±ظپط© ط§ظ„ظ‚ظٹط§ط¯ط©آ» ط£ظˆ ط§ظپط­طµ ط§ظ„ط§طھطµط§ظ„']
+      : kill ? ['ًں›‘ ط§ظ„طھط¯ط§ظˆظ„ ظ…ظˆظ‚ظˆظپ â€” ظ‚ط§ط·ط¹ ط§ظ„ط£ظ…ط§ظ† ظ…ظڈظپط¹ظژظ‘ظ„', 'var(--red)', 'ط§ظ„طھطµظپظٹط± ط¨ظٹط¯ظƒ ظ…ظ† آ«ط§ظ„ظ…ط®ط§ط·ط±آ»']
+        : halted ? ['ًں›‘ ط¥ظٹظ‚ط§ظپ ط·ط§ط±ط¦ ظپط¹ظ‘ط§ظ„ â€” ظƒظ„ ط§ظ„ط£ظˆط§ظ…ط± ظ…ظ‚ظپظˆظ„ط©', 'var(--red)', 'ط±ظپط¹ظ‡ ط¨ظٹط¯ظƒ ظ…ظ† آ«طھط­ظƒظ‘ظ…آ»']
+          : !gateOpen ? ['ًں”’ ظٹط­ظ„ظ‘ظ„ ظˆظ„ط§ ظٹظپطھط­ طµظپظ‚ط§طھ â€” ط§ظ„ط¨ظˆظ‘ط§ط¨ط© ظ…ظ‚ظپظˆظ„ط© ط¨ظ‚ط±ط§ط±ظƒ', 'var(--amber)', 'ظپطھط­ظ‡ط§ ظ…ظ† آ«ط§ظ„طھظ†ظپظٹط°آ» ط£ظˆ آ«طھط­ظƒظ‘ظ…آ»']
+            : fleet.sick.length ? [`âڑ ï¸ڈ ط§ظ„ط¨ظˆظ‘ط§ط¨ط© ظ…ظپطھظˆط­ط© â€” ظˆ${int(fleet.sick.length)} ط°ط±ظ‘ط© ظ…ط´ ط³ظ„ظٹظ…ط©`, 'var(--amber)', 'ط£ط³ظ…ط§ط¤ظ‡ط§ ط¨ط¨ظ„ط§ط·ط© آ«طµط­ظ‘ط© ط§ظ„ط£ط³ط·ظˆظ„آ»']
+              : ['ًںں¢ ط§ظ„ظ†ط¸ط§ظ… ط´ط؛ظ‘ط§ظ„ â€” ط§ظ„ط£ظ…ط± ط§ظ„طµط§ظ„ط­ ط¨ظٹظˆطµظ„ ظ„ظ„ظ…ظ†طµظ‘ط© ظپط¹ظ„ظٹظ‹ظ‘ط§', 'var(--green)']
+
+  const th: React.CSSProperties = { padding: '3px 8px', textAlign: 'start', fontWeight: 500, borderBottom: '1px solid var(--glassb)', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '4px 8px', borderBottom: '1px solid var(--glassb)', whiteSpace: 'nowrap' }
+
+  const defs: TileDef[] = [
+    {
+      id: 'verdict', title: 'ط§ظ„ط­ظƒظ… ط¨ظ„ظ…ط­ط©', go: 'control',
+      render: () => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px', minWidth: 0 }}>
+          <span style={{ fontSize: 14, fontWeight: 800, color: verdict[1], whiteSpace: 'nowrap' }}>{verdict[0]}</span>
+          {verdict[2] ? <span className="dim" style={{ fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{verdict[2]}</span> : null}
+        </div>
+      ),
+    },
+    {
+      id: 'symbols', title: 'ط§ظ„ط±ظ…ظˆط² â€” ط³ط¹ط± آ· ط¹ظ…ط± آ· طھط­ظ„ظٹظ„ آ· ط«ظ‚ط© آ· ط¨ظ†ظٹط© آ· ط§ط³طھط±ط§طھظٹط¬ظٹط§طھ آ· ظ‚ط±ط§ط± آ· ظ…ط±ظƒط²', go: 'market',
+      render: () => (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
+          <thead>
+            <tr className="dim" style={{ fontSize: 10.5 }}>
+              <th style={{ ...th, width: '13%' }}>ط§ظ„ط±ظ…ط²</th><th style={{ ...th, width: '14%' }}>ط§ظ„ط³ط¹ط±</th>
+              <th style={{ ...th, width: '9%' }}>ط§ظ„ط¹ظ…ط±</th><th style={{ ...th, width: '12%' }}>ط§ظ„طھط­ظ„ظٹظ„</th>
+              <th style={{ ...th, width: '11%' }}>ط§ظ„ط«ظ‚ط©</th><th style={{ ...th, width: '11%' }}>ط§ظ„ط¨ظ†ظٹط©</th>
+              <th style={{ ...th, width: '14%' }}>ط§ظ„ط§ط³طھط±ط§طھظٹط¬ظٹط§طھ</th><th style={{ ...th, width: '10%' }}>ط§ظ„ظ‚ط±ط§ط±</th>
+              <th style={{ ...th, width: '10%' }}>ط§ظ„ظ…ط±ظƒط²</th>
+            </tr>
+          </thead>
+          <tbody>
+            {symbols.map((sym) => {
+              const a = analysisOf(sym)
+              const sig = pair(SIG, (a as { signal?: string } | undefined)?.signal ?? undefined)
+              const tr = pair(TREND, structure[sym]?.structure?.trend)
+              const st = votes(strategy, sym)
+              const dc = votes(decision, sym)
+              const p = posBySym[sym]
+              const age = ageOfTick(market[sym].ts, now)
+              const cf = a?.confidence
+              return (
+                <tr key={sym}>
+                  <td style={{ ...td, fontWeight: 700 }}>{sym}</td>
+                  <td className="num" style={td}>{money(market[sym].bid)}</td>
+                  <td className="num" style={{ ...td, color: age[1], fontSize: 11 }}>{age[0]}</td>
+                  <td style={{ ...td, color: sig[1] }}>{sig[0]}</td>
+                  <td className="num" style={{ ...td, color: cf == null ? 'var(--dim)' : cf >= 60 ? 'var(--green)' : cf > 0 ? 'var(--amber)' : 'var(--dim)' }}>
+                    {cf == null ? 'â€”' : `${Math.round(cf)}%`}
+                  </td>
+                  <td style={{ ...td, color: tr[1] }}>{tr[0]}</td>
+                  <td style={{ ...td, color: st[1] }}>{st[0]}</td>
+                  <td style={{ ...td, color: dc[1] }}>{dc[0]}</td>
+                  <td className="num" style={{ ...td, color: p ? (p.pnl >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--dim)', fontWeight: p ? 700 : 400 }}>
+                    {p ? `${int(p.n)} آ· ${money(p.pnl)}` : 'â€”'}
+                  </td>
+                </tr>
+              )
+            })}
+            {symbols.length === 0 ? <tr><td style={td} colSpan={9} className="dim">ط¨ط§ظ†طھط¸ط§ط± ط£ظˆظ‘ظ„ ط³ط¹ط± ظ…ظ† ط§ظ„ظ†ظˆط§ط©â€¦</td></tr> : null}
+          </tbody>
+        </table>
+      ),
+    },
+    {
+      id: 'blockers', title: 'ظ…ظٹظ† ظˆط§ظ‚ظپ ط¨ظˆط¬ظ‡ ط§ظ„طµظپظ‚ط©', go: 'execution',
+      render: () => (
+        <div style={{ padding: '5px 9px' }}>
+          {blockers.fail.length === 0 && blockers.miss.length === 0 ? (
+            <span className="dim" style={{ fontSize: 11.5 }}>
+              {atoms[454] ? 'ظ…ط§ ظپظٹ ط­ط§ط¬ط¨ ط¨ط¢ط®ط± ط¯ظˆط±ط©' : 'ظپظ„طھط± ط§ظ„ظ‚ط±ط§ط± (454) ظ…ط§ ظˆطµظ„طھ ط­ط§ظ„طھظ‡'}
+            </span>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+              {blockers.fail.map((f) => (
+                <span key={`f${f}`} style={{ fontSize: 10.5, padding: '1px 6px', borderRadius: 6, border: '1px solid var(--red)', color: 'var(--red)', whiteSpace: 'nowrap' }}>âœ— {filterAr(f)}</span>
+              ))}
+              {blockers.miss.map((f) => (
+                <span key={`m${f}`} style={{ fontSize: 10.5, padding: '1px 6px', borderRadius: 6, border: '1px solid var(--amber)', color: 'var(--amber)', whiteSpace: 'nowrap' }}>âƒ  {filterAr(f)} â€” ظ…ط§ ظˆطµظ„ ط­ظƒظ…ظ‡</span>
+              ))}
+            </div>
+          )}
+          {blockers.seen != null ? <div className="dim num" style={{ fontSize: 10.5, marginTop: 4 }}>ط¯ظˆط±ط§طھ {int(blockers.seen)} آ· ظ…ط±ظ‚طھ {int(blockers.passed)}</div> : null}
+
+          {/* ظ، â€” ط§ظ„ط±ظ‚ظ… ظ…ظ‚ط§ط¨ظ„ ط¹طھط¨طھظ‡ ظ„ظƒظ„ ط±ظ…ط²: ط§ظ„ط§ط³ظ… ظˆط­ط¯ظ‡ ظ„ط§ ظٹظ‚ظˆظ„ ط£ظ‚ط±ظٹط¨ظŒ ط£ظ… ط¨ط¹ظٹط¯ */}
+          {gateNumbers.length > 0 ? (
+            <div style={{ marginTop: 6, borderTop: '1px solid var(--line)', paddingTop: 5 }}>
+              {gateNumbers.map((g) => (
+                <div key={g.sym} style={{ fontSize: 10.5, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <b className="num">{g.sym}</b>{' '}
+                  {g.rows.map((r) => (
+                    <span key={r.key} style={{ marginInlineStart: 6 }}>
+                      {r.ar}{' '}
+                      <b className="num" style={{ color: r.passed ? 'var(--green)' : 'var(--red)' }}>
+                        {r.value == null ? 'â€”' : r.value.toFixed(1)}
+                      </b>
+                      <span className="dim">/{r.threshold == null ? 'â€”' : r.threshold.toFixed(1)}</span>
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {/* ظ¢ â€” ط²ظˆط¬ ط§ظ„طھط­ظˆظ‘ط· ظˆط³ط¨ط¨ ظپط´ظ„ ط±ط¬ظ„ظٹظ‡ آ· ظ£ â€” ط§ظ„ط£طµظ„: ظ…ظڈظپط¹ظژظ‘ظ„ ط£ظ… ط£ظˆظ‚ظپطھظ‡ ظ¥ظ§ظ¨ */}
+          <div className="dim" style={{ fontSize: 10.5, marginTop: 5, borderTop: '1px solid var(--line)', paddingTop: 5 }}>
+            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              ط²ظˆط¬ ط§ظ„طھط­ظˆظ‘ط·:{' '}
+              <span style={{ color: hedgePair.bad ? 'var(--red)' : 'var(--ink)' }}>{hedgePair.text}</span>
+            </div>
+            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              ط§ظ„ط£طµظ„: {atoms[576]?.health?.message || 'â€”'}
+            </div>
+            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              ط¨ظˆظ‘ط§ط¨ط© ط§ظ„ط£طµظˆظ„ (468): {atoms[468]?.health?.message || 'â€”'}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'money', title: 'ط§ظ„ظ…ط§ظ„', go: 'portfolios',
+      render: () => (<div style={{ paddingTop: 4 }}>
+        <Line k="ط­ط³ط§ط¨ ط§ظ„طھظ†ظپظٹط°" v={(acc as { account_id?: string } | undefined)?.account_id ?? 'ظ…ط§ ظˆطµظ„'} />
+        <Line k="ط§ظ„ظ‚ظٹظ…ط© / ط§ظ„ط±طµظٹط¯" v={acc ? `${money(acc.equity)} آ· ${money(acc.balance)}` : 'â€”'} />
+        <Line k="ط§ظ„ط±ط¨ط­ ط§ظ„ط¹ط§ط¦ظ…" v={pnl == null ? 'â€”' : `${pnl >= 0 ? '+' : ''}${money(pnl)}`} c={(pnl ?? 0) >= 0 ? 'var(--green)' : 'var(--red)'} />
+        <Line k="طµظپظ‚ط§طھ ظ…ظپطھظˆط­ط©" v={int(posState?.positions?.length ?? null)} />
+        <Line k="ط§ظ„طھط¹ط±ظ‘ط¶ / ط§ظ„طھط­ظˆظ‘ط·" v={`${dialPct == null ? 'â€”' : `${Math.round(dialPct)}%`} آ· ${hedge == null ? 'â€”' : `${Math.round(hedge * 100)}%`}`} />
+      </div>),
+    },
+    {
+      id: 'fleet', title: 'طµط­ظ‘ط© ط§ظ„ط£ط³ط·ظˆظ„', go: 'atoms',
+      render: () => (<div style={{ paddingTop: 4 }}>
+        <Line k="ظ…ط³ط¬ظ‘ظ„ط© / ط´ط؛ظ‘ط§ظ„ط©" v={`${int(fleet.total)} آ· ${int(fleet.running)}`} />
+        <Line k="ظ…ط´ ط³ظ„ظٹظ…ط©" v={int(fleet.sick.length)} c={fleet.sick.length ? 'var(--red)' : 'var(--green)'} />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, padding: '4px 9px' }}>
+          {fleet.sick.map((s) => (
+            <span key={s.id} className="num" title={`${s.name} â€” ${s.state}`}
+              style={{ fontSize: 10.5, padding: '1px 5px', borderRadius: 5, border: '1px solid var(--glassb)', color: s.state === 'unhealthy' ? 'var(--red)' : 'var(--amber)' }}>{s.id}</span>
+          ))}
+        </div>
+      </div>),
+    },
+    {
+      id: 'feed', title: 'ط§ظ„ط³ظˆظ‚ ظˆط§ظ„ط§طھطµط§ظ„', go: 'market',
+      render: () => (<div style={{ paddingTop: 4 }}>
+        <Line k="ط§ظ„ط§طھطµط§ظ„ ط¨ط§ظ„ظ†ظˆط§ط©" v={conn === 'live' ? 'ط­ظٹظ‘' : conn === 'down' ? 'ظ…ظ‚ط·ظˆط¹' : 'ط¬ط§ط±ظچ'} c={conn === 'live' ? 'var(--green)' : 'var(--red)'} />
+        {(() => { const f = feedTxt(feedAge('feed.mt5.tick', 'platform.terminal_state', 'platform.account.state')); return <Line k="ط§ظ„ظ…ظ†طµظ‘ط©" v={f[0]} c={f[1]} /> })()}
+        {(() => { const f = feedTxt(feedAge('feed.ctrader.tick')); return <Line k="ط³ظٹâ€‘طھط±ظٹط¯ط±" v={f[0]} c={f[1]} /> })()}
+        <Line k="طھظ„ط؛ط±ط§ظ…" v={!tg ? 'ظ„ط§ ظ†ط¹ط±ظپ' : tg.running && tg.paired ? 'ط­ظٹظ‘' : tg.running ? 'ط¨ظ„ط§ ط§ظ‚طھط±ط§ظ†' : tg.token ? 'ظ…طھظˆظ‚ظ‘ظپ' : 'ط؛ظٹط± ظ…ظپط¹ظ‘ظ„'}
+          c={tg?.running && tg?.paired ? 'var(--green)' : 'var(--amber)'} />
+        <Line k="ط§ظ„طھط¯ط§ظˆظ„ ط¹ظ†ط¯ ط§ظ„ظ…ظ†طµظ‘ط©" v={term == null ? 'â€”' : term.trade_allowed ? 'ظ…ط³ظ…ظˆط­' : 'ظ…ظˆظ‚ظˆظپ'} c={term?.trade_allowed ? 'var(--green)' : 'var(--amber)'} />
+        <Line k="ط±ظ…ظˆط² طھط¨ط«ظ‘ ط§ظ„ط¢ظ†" v={int(symbols.length)} />
+      </div>),
+    },
+
+    { id: 'control', title: 'طھط­ظƒظ‘ظ…', go: 'control', render: () => <Control /> },
+    // â”€â”€ ط§ظ„ط£ظ‚ط³ط§ظ… ظƒظ…ط§ ظ‡ظٹطŒ ط¨ظ„ط§ ط¥ط¹ط§ط¯ط© ط¨ظ†ط§ط، â”€â”€
+    { id: 'charts', title: 'ط§ظ„ط´ط§ط±طھ', go: 'charts', render: () => <Charts /> },
+    { id: 'risk', title: 'ط§ظ„ظ…ط®ط§ط·ط±', go: 'risk', render: () => <Risk /> },
+    { id: 'alerts', title: 'ط§ظ„طھظ†ط¨ظٹظ‡ط§طھ', go: 'alerts', render: () => <Alerts /> },
+    { id: 'network', title: 'ط§ظ„ط´ط¨ظƒط©', go: 'network', render: () => <Network /> },
+    { id: 'analysis', title: 'ط§ظ„طھط­ظ„ظٹظ„', go: 'analysis', render: () => <Analysis /> },
+    { id: 'market', title: 'ط§ظ„ط³ظˆظ‚', go: 'market', render: () => <Market /> },
+    { id: 'execution', title: 'ط§ظ„طھظ†ظپظٹط°', go: 'execution', render: () => <Execution /> },
+    { id: 'atoms', title: 'ط§ظ„ط°ط±ط§طھ', go: 'atoms', render: () => <Atoms /> },
+    { id: 'portfolios', title: 'ط§ظ„ظ…ط­ط§ظپط¸', go: 'portfolios', render: () => <Portfolios /> },
+    { id: 'log', title: 'ط§ظ„ط³ط¬ظ„', go: 'log', render: () => <Log /> },
+    { id: 'monitor', title: 'ط§ظ„ظ…ط±ط§ظ‚ط¨ط©', go: 'monitor', render: () => <Monitor /> },
+    { id: 'connection', title: 'ط§ظ„ط§طھطµط§ظ„', go: 'connection', render: () => <Connection /> },
+    { id: 'nq', title: 'ط°ط±ظ‘ط© NQ', go: 'nq', render: () => <NQ /> },
+    { id: 'dials', title: 'ط¹ظٹط§ط±ط§طھ ط§ظ„ظ‚ط±ط§ط±', go: 'settings', render: () => <DecisionDialsCard /> },
+  ]
+
+  return (
+    <div className="section" style={{ height: '100%', width: '100%', minWidth: 0, overflow: 'hidden' }}>
+      {/* ط¥ظ‚ظپط§ظ„ 150 ظ…ط±ط­ظ„ط© ظ¤/ظ¥: ط§ظ„ط¥ظ†ط°ط§ط± ط§ظ„ظ…ط¨ظƒظ‘ط± + ط´ط±ظٹط· ط§ظ„ظ‚ط±ط§ط± ط§ظ„ط¹ظ„ظˆظٹظ‘ â€” ط§ظ„ط±ظˆظ… ط§ظ„ط­ظٹظ‘ */}
+      <EarlyWarningStrip />
+      <RoomBar />
+      <TileBoard defs={defs} layout={layout} save={save} reset={reset} onGo={onGo} />
+    </div>
+  )
+}

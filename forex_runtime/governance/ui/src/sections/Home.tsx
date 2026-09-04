@@ -116,6 +116,57 @@ export default function Home({ onGo }: { onGo: (id: string) => void }) {
   const decision = useStore((s) => s.decision)
   const conn = useStore((s) => s.conn)
   const flows = useStore((s) => s.flows)
+  // ٢٠٢٦-٠٩-٠٤ (ختم NQ): ثلاثة أرقام كانت تُقاس بالطرفيّة ولا تظهر على أي بلاطة،
+  // فيبقى المالك «بنص تداول ما يعرف شو عم يصير» (حكمه حرفيًّا). بلاطة «مين واقف
+  // بوجه الصفقة» كانت تسمّي الحاجب بلا رقمه، فلا يُعرف أقريبٌ الرقم من عتبته أم
+  // بعيد. المصادر أحداث يشترك فيها المحرّك أصلًا (455/456/578) — بلا نداء جديد.
+  const symbolStreams = useStore((s) => s.symbolStreams)
+  const pairState = useStore((s) => s.streams['perpetual.pair.state']) as Record<string, unknown> | undefined
+
+  const gateNumbers = useMemo(() => {
+    const AR: Record<string, string> = {
+      strength: 'قوّة', confidence: 'ثقة', direction: 'اتجاه', current_depth: 'عمق', state: 'حالة',
+    }
+    const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? v as Record<string, unknown> : {})
+    // فحص `state` بـ455 نصّيّ (يقارن الحالة المجمَّعة بـREADY، السطر ٢٦٠) لا رقميّ —
+    // فقراءته رقمًا تطبع شرطة بلا معنى. الرقم برقم عشريّ، والنصّ كما هو، والغياب يُعلَن.
+    const cell = (v: unknown): string => {
+      if (typeof v === 'number' && Number.isFinite(v)) return v.toFixed(1)
+      if (typeof v === 'string' && v.trim() !== '') return v
+      return 'مجهول'
+    }
+    const rowsOf = (p: unknown) => {
+      const cs = rec(p).checks
+      if (!Array.isArray(cs)) return []
+      return cs.map((c) => {
+        const r = rec(c)
+        const key = String(r.name ?? '')
+        return { key, ar: AR[key] ?? key, vTxt: cell(r.value), tTxt: cell(r.threshold), passed: r.passed === true }
+      }).filter((r) => r.key !== '')
+    }
+    const buy = rec(symbolStreams['decision.eligibility.buy.state'])
+    const sell = rec(symbolStreams['decision.eligibility.sell.state'])
+    return Array.from(new Set([...Object.keys(buy), ...Object.keys(sell)]))
+      .map((sym) => { const rows = rowsOf(buy[sym]); return { sym, rows: rows.length ? rows : rowsOf(sell[sym]) } })
+      .filter((x) => x.rows.length > 0).slice(0, 4)
+  }, [symbolStreams])
+
+  const hedgePair = useMemo(() => {
+    const p = pairState ?? {}
+    const legs = (p.legs && typeof p.legs === 'object' ? p.legs as Record<string, unknown> : {})
+    const parts = Object.entries(legs).map(([role, leg]) => {
+      const l = (leg && typeof leg === 'object' ? leg as Record<string, unknown> : {})
+      return `${role} ${String(l.status ?? '—')}${l.last_reason ? ` (${String(l.last_reason)})` : ''}`
+    })
+    if (p.symbol != null) {
+      return {
+        bad: String(p.status ?? '').toUpperCase().includes('EXHAUST'),
+        text: `${String(p.symbol)}${p.volume != null ? ` · حجم ${String(p.volume)}` : ''} · ${parts.join(' · ') || String(p.status ?? '—')}`,
+      }
+    }
+    const m = atoms[578]?.health?.message ?? ''
+    return { bad: /EXHAUST/i.test(m), text: m || 'لا زوج بعد' }
+  }, [pairState, atoms])
 
   const dialState = useStore((s) => s.streams['dial.profile.state']) as
     { profiles?: Array<{ dial?: number; hedge_target?: number }> } | undefined
@@ -288,6 +339,37 @@ export default function Home({ onGo }: { onGo: (id: string) => void }) {
             </div>
           )}
           {blockers.seen != null ? <div className="dim num" style={{ fontSize: 10.5, marginTop: 4 }}>دورات {int(blockers.seen)} · مرقت {int(blockers.passed)}</div> : null}
+
+          {/* ١ — الرقم مقابل عتبته لكل رمز: اسم الحاجب وحده لا يقول أقريبٌ أم بعيد */}
+          {gateNumbers.length > 0 ? (
+            <div style={{ marginTop: 6, borderTop: '1px solid var(--line)', paddingTop: 5 }}>
+              {gateNumbers.map((g) => (
+                <div key={g.sym} style={{ fontSize: 10.5, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <b className="num">{g.sym}</b>
+                  {g.rows.map((r) => (
+                    <span key={r.key} style={{ marginInlineStart: 6 }}>
+                      {r.ar}{' '}
+                      <b className="num" style={{ color: r.passed ? 'var(--green)' : 'var(--red)' }}>{r.vTxt}</b>
+                      <span className="dim">/{r.tTxt}</span>
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {/* ٢ — زوج التحوّط وسبب فشل رجليه · ٣ — الأصل: مُفعَّل أم أوقفته ٥٧٨ بأمر pause */}
+          <div className="dim" style={{ fontSize: 10.5, marginTop: 5, borderTop: '1px solid var(--line)', paddingTop: 5 }}>
+            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              زوج التحوّط: <span style={{ color: hedgePair.bad ? 'var(--red)' : 'var(--ink)' }}>{hedgePair.text}</span>
+            </div>
+            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              الأصل: {atoms[576]?.health?.message || '—'}
+            </div>
+            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              بوّابة الأصول (468): {atoms[468]?.health?.message || '—'}
+            </div>
+          </div>
         </div>
       ),
     },
