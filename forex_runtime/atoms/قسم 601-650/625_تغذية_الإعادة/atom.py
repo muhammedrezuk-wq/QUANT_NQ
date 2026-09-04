@@ -40,9 +40,40 @@ REASON_NOT_STARTED = "NOT_STARTED"
 REASON_NO_SESSION = "NO_SESSION_YET"
 REASON_DB_UNREADABLE = "DB_UNREADABLE"
 
-DEFAULT_DB = "var/store/market_data.db"
+BARE_DEFAULT_DB = "var/store/market_data.db"
+DEFAULT_DB = (lambda _p=Path(__file__).resolve(): __import__("shared.runtime_paths", fromlist=["anchored_state_path"]).anchored_state_path(BARE_DEFAULT_DB, code_root=_p))()
+
 # Streaming batch size for the read-only cursor -- bounded memory per fetch.
 FETCH_BATCH_ROWS = 500
+
+
+def _rebased_config(raw_cfg: dict) -> dict:
+    """config المانيفست على يد مالك المسارات — نسبةً لجذر الـruntime.
+
+    الذرّة لا تعرف أين شُغِّلت: قراءة القيمة النسبية من المانيفست نسبةً إلى
+    مجلد التشغيل كانت تُنشئ شجرة ``var/store`` موازية تحت جذر المشروع لا
+    يقرأها أحد. لذلك تُحلَّ القيمة عند مالك المسارات: يُتقدَّم جذرُ تشغيل
+    صالح (فيه ``shared/runtime_paths.py`` — نسخة الـruntime أو الجذر العام)،
+    ثم تُمرَّر config إليه. المسار المطلق (``C:\\…`` في جسر المنصّة) يمرّ
+    حرفيًّا — إعادة صياغته قرار نشر لا تصحيح مسار. وتعذُّر الحلّ يرجع
+    config كما هي: لا يُعطَّل إقلاع ذرّة بأزمة مسار.
+    """
+    here = Path(__file__).resolve()
+    code_root = None
+    for parent in here.parents:
+        if (parent / "shared" / "runtime_paths.py").is_file():
+            code_root = parent
+            break
+    if code_root is None:
+        return raw_cfg
+    import sys as _sys
+    if str(code_root) not in _sys.path:
+        _sys.path.insert(0, str(code_root))
+    try:
+        from shared.runtime_paths import manifest_config_rebase
+        return manifest_config_rebase(raw_cfg, code_root=code_root)
+    except Exception:  # noqa: BLE001 — لا يُعطَّل الإقلاع بأزمة مسار
+        return raw_cfg
 
 
 class Atom(AtomBase):
@@ -70,7 +101,7 @@ class Atom(AtomBase):
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
-        cfg = context.config
+        cfg = _rebased_config(context.config)
         self._db_path = str(cfg.get("db_path") or DEFAULT_DB)
         self._symbols = [str(s) for s in (cfg.get("symbols") or [])]
         self._limit = max(0, int(cfg.get("limit") or 0))

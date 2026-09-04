@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -157,6 +158,34 @@ def _normal_path(value: str) -> Path:
     return Path(text)
 
 
+def _resolve_db_path(raw: Path) -> Path:
+    """Where the command bridge lives — asked of its owner, never guessed.
+
+    A relative ``db_path`` used to be joined to ``Path.cwd()``. That made the
+    gateway agree with the dashboard only by accident: ``scripts/run_forex.py``
+    chdirs into ``forex_runtime`` so both sides met, but starting the board from
+    the repo root (``python3 governance/server.py``) pointed the queue at
+    ``<runtime>/var/governance/commands.db`` while 901 kept polling the copy
+    under the current directory. Owner commands then sat PENDING forever --
+    calibration stayed UNAPPROVED and the dashboard still answered "901 will
+    apply it in a second". The manifest path is stored relative to the runtime
+    root (it carries its own ``var/``), so resolution joins it to the root that
+    ``shared.runtime_paths`` owns -- ``QUANT_RUNTIME_ROOT`` first -- instead of
+    to a working directory the atom does not control. An absolute ``db_path``
+    stays exactly as written, and if the path owner refuses (unknown or missing
+    root) the previous behaviour stands so no boot can be blocked by this.
+    """
+    if raw.is_absolute():
+        return raw
+    here = Path(__file__).resolve()
+    sys.path.insert(0, str(here.parents[2]))
+    try:
+        from shared.runtime_paths import runtime_root
+        return runtime_root(code_root=here.parents[1]) / raw
+    except Exception:
+        return Path.cwd() / raw
+
+
 class Atom(AtomBase):
     def __init__(self) -> None:
         self._context: AtomContext | None = None
@@ -180,7 +209,7 @@ class Atom(AtomBase):
         self._context = context
         cfg = context.config
         raw = _normal_path(str(cfg["db_path"]))
-        self._db_path = raw if raw.is_absolute() else Path.cwd() / raw
+        self._db_path = _resolve_db_path(raw)
         self._max_age_s = float(cfg["max_age_s"])
         self._batch_limit = int(cfg["batch_limit"])
         context.subscribe(EVENT_PULSE, self._on_pulse)

@@ -22,6 +22,18 @@ def main() -> int:
     args = parser.parse_args()
     crypto = args.market == "crypto"
     os.environ["QUANT_GOV_MARKET"] = args.market
+    # الجذور تُشتقّ من `shared/runtime_paths.py` (المالك) — هنا نضبط عقد الإقلاع
+    # فقط، ولا نبني أيّ مسار بيانات يدويًّا (check_path_authority يحرس ذلك).
+    # ٢٠٢٦-٠٩-٠٣ (فصل ٢٣ · بند ٨): اللوحة يجب أن تقرأ الجذر القانوني نفسه الذي
+    # يكتبه المُقلِع — `forex_runtime/var` أو `crypto_runtime/var`. بلا هذا الضبط
+    # كان `server.py` يحسب أباه فيقلع في مجلّد بلا `var` (قِيس: available=false
+    # على قاعدة موجودة). المالك يظلّ يتقدّم: setdefault لا يدوس ما ضبطه المستخدم.
+    _runtime = ROOT / ("crypto_runtime" if crypto else "forex_runtime")
+    if _runtime.is_dir():
+        os.environ.setdefault("QUANT_RUNTIME_ROOT", str(_runtime))
+        os.environ.setdefault("QUANT_CORE_STATE_ROOT", str(_runtime / "var"))
+        os.environ.setdefault("QUANT_ANALYSIS_SETTINGS_DB",
+                              str(_runtime / "var" / "store" / "analysis_settings.db"))
     os.environ["QUANT_GOV_CORE"] = "http://127.0.0.1:%d" % (8020 if crypto else 8010)
     os.environ["QUANT_GOV_PORT"] = str(args.port or (8091 if crypto else 8090))
     # ٢٠٢٦-٠٨-٣١ (ختم NQ): كان هنا فرضٌ لـ`NQ_NEWS_DB` و`NQ_BRIDGE_DB` على

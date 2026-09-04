@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import sqlite3
+import sys
 import time
 from pathlib import Path
 
@@ -30,7 +31,14 @@ def main() -> int:
     ap.add_argument("budget", nargs="?", type=float, default=100.0)
     args = ap.parse_args()
     bridge = os.environ.get("NQ_BRIDGE_DB", "").strip() or DEFAULT_BRIDGE
-    governance = Path(__file__).resolve().parents[2] / "var" / "governance" / "commands.db"
+    # ٢٠٢٦-٠٩-٠٣ (المالك): جسر الأوامر يعيش تحت جذر الـruntime — لا جذر المشروع.
+    _root = Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(_root / "governance"))
+    try:
+        from runtime_paths import runtime_var as _rv
+        governance = _rv("governance", "commands.db")
+    except Exception:  # noqa: BLE001 — بلا شجرة shared/
+        governance = Path.cwd() / "var" / "governance" / "commands.db"
 
     try:
         con = sqlite3.connect(f"file:{bridge}?mode=ro", uri=True, timeout=5)

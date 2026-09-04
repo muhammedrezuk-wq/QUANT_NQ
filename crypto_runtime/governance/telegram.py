@@ -42,8 +42,22 @@ ROOT = Path(__file__).resolve().parent.parent
 # برسالة «الحزمة غير متاحة» بدل السبب الحقيقيّ. نفس ما يفعله secrets_admin.
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-CONF_PATH = ROOT / "var" / "governance" / "telegram.json"   # إعدادات، لا أسرار
-BEAT_PATH = ROOT / "var" / "governance" / "telegram_beat.json"   # نبض حيّ للّوحة
+# ٢٠٢٦-٠٩-٠٣ (فصل ٢٣ · بند ١١): كان ٦١٠ يقرأ `PROJECT_ROOT/var/governance/*`
+# بينما خادم الحوكمة يكتب `<runtime>/var/governance/*` — ضبطُ المنصّة من اللوحة
+# لا يصل البوت، ونبضه لا يصل اللوحة. المرسى الآن مالكٌ واحد (governance/
+# runtime_paths.py → shared/runtime_paths.py) لنفس الملفّ في الطرفين.
+def _runtime_var(*parts: str) -> Path:
+    try:
+        if str(ROOT / "governance") not in sys.path:
+            sys.path.insert(0, str(ROOT / "governance"))
+        from runtime_paths import runtime_var
+        return runtime_var(*parts)
+    except Exception:  # noqa: BLE001 — نسخة مقلَّمة بلا المالك: المرسى التراثيّ
+        return ROOT.joinpath("var", *parts)
+
+
+CONF_PATH = _runtime_var("governance", "telegram.json")          # إعدادات، لا أسرار
+BEAT_PATH = _runtime_var("governance", "telegram_beat.json")      # نبض حيّ للّوحة
 CORE_YAML = ROOT / "config" / "core.yaml"
 SECRET_KEY_NAME = "telegram_bot_token"                      # اسمه بالخزنة
 TRADE_DB = Path.home() / "AppData" / "Roaming" / "MetaQuotes" / "Terminal" / "Common" / "Files" / "nq_brain.db"

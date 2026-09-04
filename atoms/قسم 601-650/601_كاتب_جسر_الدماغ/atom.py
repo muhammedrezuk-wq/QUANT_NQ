@@ -7,6 +7,7 @@ import sqlite3
 import time
 from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
+from pathlib import Path
 
 ATOM_VERSION = "4.2.0"
 # v4.2.0 (2026-08-25): the result cursor is DURABLE. Measured gap: a cold
@@ -16,7 +17,8 @@ ATOM_VERSION = "4.2.0"
 # fail across a restart. The durable cursor resumes exactly where the last
 # life stopped; the snapshot cursor is still honored when it is FURTHER
 # ahead (prevents the restore-lag double-publish window too).
-_CURSOR_DB = "var/store/bridge_cursor_601.db"
+BARE_CURSOR_DB = "var/store/bridge_cursor_601.db"
+_CURSOR_DB = (lambda _p=Path(__file__).resolve(): __import__("shared.runtime_paths", fromlist=["anchored_state_path"]).anchored_state_path(BARE_CURSOR_DB, code_root=_p))()
 _CURSOR_SCHEMA = ("CREATE TABLE IF NOT EXISTS cursor ("
                   " id INTEGER PRIMARY KEY CHECK (id = 1),"
                   " done_at REAL NOT NULL, last_id INTEGER NOT NULL)")

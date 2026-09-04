@@ -202,6 +202,35 @@ import rules_store
 from ruling_math import _finite, _valid_points, interpolate, _contract_view, _declared_unknown, _read_number, _read_state, _side_applies
 
 
+def _rebased_config(raw_cfg: dict) -> dict:
+    """config المانيفست على يد مالك المسارات — نسبةً لجذر الـruntime.
+
+    الذرّة لا تعرف أين شُغِّلت: قراءة القيمة النسبية من المانيفست نسبةً إلى
+    مجلد التشغيل كانت تُنشئ شجرة ``var/store`` موازية تحت جذر المشروع لا
+    يقرأها أحد. لذلك تُحلَّ القيمة عند مالك المسارات: يُتقدَّم جذرُ تشغيل
+    صالح (فيه ``shared/runtime_paths.py`` — نسخة الـruntime أو الجذر العام)،
+    ثم تُمرَّر config إليه. المسار المطلق (``C:\\…`` في جسر المنصّة) يمرّ
+    حرفيًّا — إعادة صياغته قرار نشر لا تصحيح مسار. وتعذُّر الحلّ يرجع
+    config كما هي: لا يُعطَّل إقلاع ذرّة بأزمة مسار.
+    """
+    here = Path(__file__).resolve()
+    code_root = None
+    for parent in here.parents:
+        if (parent / "shared" / "runtime_paths.py").is_file():
+            code_root = parent
+            break
+    if code_root is None:
+        return raw_cfg
+    import sys as _sys
+    if str(code_root) not in _sys.path:
+        _sys.path.insert(0, str(code_root))
+    try:
+        from shared.runtime_paths import manifest_config_rebase
+        return manifest_config_rebase(raw_cfg, code_root=code_root)
+    except Exception:  # noqa: BLE001 — لا يُعطَّل الإقلاع بأزمة مسار
+        return raw_cfg
+
+
 class Atom(AtomBase):
     def __init__(self) -> None:
         self._context: AtomContext | None = None
@@ -225,14 +254,19 @@ class Atom(AtomBase):
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
-        cfg = context.config
+        cfg = _rebased_config(context.config)
         # S23/S43 -- the paper gives NO number: 0.0 (no tilt leaves the
         # engine) until the owner sets it. Config-only for now; promotion to
         # a governed dial needs a shared/ line by the coordinator.
         self._tilt_max_total = max(0.0, float(cfg.get("tilt_max_total", 0.0)))
         raw = Path(str(cfg.get("db_path", "var/store/tilt_rules.db")))
-        self._db_path = raw if raw.is_absolute() else (
-            Path(__file__).resolve().parents[2] / raw)
+        # ٢٠٢٦-٠٩-٠٣ (فصل ٢٣ · بند ٩): كان النسبيّ يُرسى على
+        # ``Path(__file__).parents[2]`` = ``atoms/var/store/tilt_rules.db`` وهو
+        # مجلّد لا وجود له في الشجرتين — فترفض اللوحة (تقرأ ``<runtime>/var``)
+        # وترفض الذرّة (تكتب في الهواء). المرسى الآن cwd كما في ٩٠١/٧٠٧/٦٢٥:
+        # عقد المُقلِع (``scripts/run_forex.py`` يعمل chdir إلى الـruntime) يجعله
+        # ``<runtime>/var/store/tilt_rules.db`` — نقطة لقيا واحدة للقرّاء والكتّاب.
+        self._db_path = raw if raw.is_absolute() else (Path.cwd() / raw)
         if self._ensure_store():
             self._load_rules()
             self._load_journal_tail()

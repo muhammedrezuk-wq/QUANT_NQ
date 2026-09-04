@@ -20,8 +20,13 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 BRIDGE = pathlib.Path(
     r"C:\Users\NQ\AppData\Roaming\MetaQuotes\Terminal\Common\Files\nq_brain.db")
-SNAPS = ROOT / "var" / "snapshots"
-STATE = ROOT / "var" / "governance" / "cycle_verdict.json"
+# ٢٠٢٦-٠٩-٠٣ (المالك): كان المرسى جذر المشروع فلا يرى تشخيصُه ما كتبتْه النواة
+# تحت الـruntime. الجسر يقرأ نفس الجذر القانوني (أو المرسى التراثيّ بلا مُقلِع).
+sys.path.insert(0, str(ROOT / "governance"))
+# المالك وحده يحدد المرسى؛ بلا shared/ نفشل بصوتٍ واضح بدل قراءة جذر متقاعِد.
+from runtime_paths import core_state_root as _core_state_root, runtime_var as _rv
+SNAPS = _core_state_root() / "forex" / "snapshots"
+STATE = _rv("governance", "cycle_verdict.json")
 
 marks: list[tuple[str, bool | None, str]] = []
 

@@ -88,14 +88,35 @@ def main() -> int:
               f"crypto={len(registry.crypto_all)} (المتوقع {EXPECTED_CRYPTO_ROOT}) — تغيير صامت بالمانيفستات؟")
         return 1
 
+    # ٢٠٢٦-٠٩-٠٣ (جولة ٢٠ · قرار مالك): قياس الإقلاع يجب أن يحترم **عقد الإقلاع**
+    # نفسه: المُقلِع الإنتاجي `scripts/run_forex.py` يعمل os.chdir إلى نسخة الـruntime
+    # قبل تحميل الذرّات. بقيت هذه الفحوص تُقلِع من جذر المستودع، فكل ثابت احتياطي على
+    # هيئة "var\store\…" أنبت شجرة `var/` موازية تحت الجذر (٢٦ ملفًّا على HEAD نقيّ،
+    # منها اسم بظهرٍ مائل حرفيٍّ) — أي أن الفحص كان يُخفي انحراف المسار بدل قياسه.
+    # الأولوية لـQUANT_RUNTIME_ROOT إن مضبوطًا، وإلا نسخة forex_runtime إن وُجدت.
+    boot_cwd = Path(os.environ.get("QUANT_RUNTIME_ROOT") or "") if os.environ.get("QUANT_RUNTIME_ROOT") else None
+    if boot_cwd is None or not (boot_cwd / "shared" / "runtime_paths.py").is_file():
+        boot_cwd = ROOT / "forex_runtime"
+        if not (boot_cwd / "shared" / "runtime_paths.py").is_file():
+            boot_cwd = ROOT          # لا شجرة runtime: نعود للجذر كما كان صراحةً
+
     temp = tempfile.TemporaryDirectory(prefix="quant_nq_boot_")
-    env = dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
+    # عقد المُقْلِع الإنتاجي حرفيًّا (انظر scripts/run_forex.py): مرسى حالة النواة
+    # وملفّ إعداد السوق — بغيابه كانت journal/snapshots تُرسى على PROJECT_ROOT/var
+    # (جذر المستودع) فتُنبت شجرة حالة موازية لا يقرأها أحد (قِيس ٢٦ ملفًّا على HEAD).
+    _boot_cfg = boot_cwd / "config" / ("core_crypto.yaml" if boot_cwd.name.startswith("crypto") else "core_forex.yaml")
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1",
+               QUANT_CORE_STATE_ROOT=str(boot_cwd / "var"),
+               QUANT_RUNTIME_ROOT=str(boot_cwd))
+    if _boot_cfg.is_file():
+        env.setdefault("QUANT_CORE_CONFIG", str(_boot_cfg))
     env["NQ_BRIDGE_DB"] = str(Path(temp.name) / "bridge.db")
     env["NQ_CTRADER_FEED"] = str(Path(temp.name) / "ctrader.jsonl")
     command = [sys.executable, str(ROOT / "governance" / "scripts" / "run_core.py"), "--no-api"]
+
     process = subprocess.Popen(
         command,
-        cwd=str(ROOT),
+        cwd=str(boot_cwd),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

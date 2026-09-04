@@ -106,11 +106,26 @@ class ParameterRegistry:
     _schema_ready: set[str] = set()
 
     def __init__(self, path: str | Path | None = None) -> None:
-        configured = path or os.environ.get("QUANT_ANALYSIS_SETTINGS_DB")
-        root = Path(__file__).resolve().parent.parent
-        candidate = (Path(configured) if configured
-                     else root / "var" / "store" / "analysis_settings.db")
-        self.path = candidate if candidate.is_absolute() else root / candidate
+        # المسار الافتراضيّ لمالك جذور المسارات (shared/runtime_paths.py) — كان
+        # يُشتقّ هنا من `Path(__file__).parent.parent` فيقع على `PROJECT_ROOT/var`
+        # بينما اللوحة تحسب `<runtime>/var` (قِيس ٢٠٢٦-٠٩-٠٣). المتغيّر
+        # البيئيّ والقيمة الصريحة كما هما — عقد `QUANT_ANALYSIS_SETTINGS_DB` لم يتغيّر.
+        try:                                    # نسخة الـruntime تُقدَّم على العامة
+            from shared.runtime_paths import settings_db_path
+        except ModuleNotFoundError:
+            import sys as _s
+            _s.path.insert(0, str(Path(__file__).resolve().parent.parent))
+            from shared.runtime_paths import settings_db_path
+        code_root = Path(__file__).resolve().parent.parent
+        if path is not None:
+            candidate = Path(path)
+            self.path = (candidate if candidate.is_absolute()
+                         else settings_db_path(code_root=code_root).parent.parent.parent
+                         / candidate)
+        else:
+            self.path = settings_db_path(
+                code_root=code_root,
+                market=str(os.environ.get("QUANT_GOV_MARKET", "")).strip().lower())
         self.path.parent.mkdir(parents=True, exist_ok=True)
         key = str(self.path)
         if key not in ParameterRegistry._schema_ready:
@@ -156,6 +171,56 @@ class ParameterRegistry:
             return [str(row["name"]) for row in conn.execute(
                 "SELECT name FROM parameters WHERE status!=? ORDER BY name",
                 (STATUS_APPROVED,))]
+
+    def write_value(self, name: str, *, value: float, scope: str = SCOPE_GLOBAL,
+                    changed_by: str = "", command_id: str = "",
+                    at: float = 0.0) -> dict[str, Any]:
+        """**حفظ قيمة مسودة دون اعتماد** (فصل «حفظ» عن «اعتماد» — بند ٥، ٢٠٢٦-٠٩-٠٣).
+
+        تكتب القيمة والصفّ يبقى ``status=UNAPPROVED`` بـ``source=UNSET``، فلا
+        يقرؤها أي محرّك: ``effective_value()`` و``approved_value()`` يشترطان
+        ``STATUS_APPROVED``، والقيمة الجارية تبقى قيمة المانيفست. الاعتماد يظلّ
+        قرارًا منفصلًا عبر ``approve()`` / ``/gov/command action=parameter_approve``
+        (أو ``decision_setting`` بحقل ``confirm: true``).
+        ⛔ لا ``source`` هنا: مصدر «المالك» حقّ الاعتماد لا الحقّ في الكتابة،
+        وإلا تحوّل حفظ عابر إلى قرار حاكم.
+        تُبذر الصفّ إن لم يكن مُعلَنًا (نفس عقد ``approve``).
+        """
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ValueError("PARAMETER_VALUE_INVALID") from None
+        if number != number:
+            raise ValueError("PARAMETER_VALUE_INVALID")
+        stamp = float(at or 0.0)
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT * FROM parameters WHERE name=? AND scope=?",
+                (name, scope)).fetchone()
+            if row is None:
+                conn.rollback()
+                raise ValueError("PARAMETER_NOT_DECLARED")
+            old = dict(row)
+            new = dict(old)
+            new.update({"value": number, "status": STATUS_UNAPPROVED,
+                        "version": int(old["version"]) + 1})
+            conn.execute(
+                """UPDATE parameters SET value=?,status=?,version=?
+                   WHERE name=? AND scope=?""",
+                (new["value"], new["status"], new["version"], name, scope))
+            conn.execute(
+                """INSERT INTO parameters_audit(name,scope,old_json,new_json,
+                   version,changed_at,changed_by,command_id)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (name, scope,
+                 json.dumps(old, ensure_ascii=False, sort_keys=True),
+                 json.dumps(new, ensure_ascii=False, sort_keys=True),
+                 new["version"], stamp, str(changed_by or ""),
+                 str(command_id or "")))
+            conn.commit()
+        refresh_gate()
+        return new
 
     def approve(self, name: str, *, value: float, source: str, approved_by: str,
                 command_id: str, approved_at: float,

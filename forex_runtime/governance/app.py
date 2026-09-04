@@ -30,8 +30,30 @@ PYEXE = (str(_RUNTIME_PY) if _RUNTIME_PY.exists()
          else str(_VENV_PY) if _VENV_PY.exists() else sys.executable)
 CORE = ROOT / "governance" / "scripts" / "run_core.py"
 SERVER = ROOT / "governance" / "server.py"
+
+# ٢٠٢٦-٠٩-٠٣ (بند ٨): غرفة القيادة تُقِلع من جذر المشروع، فبدون هذه المتغيّرات
+# كان النواة واللوحة يتشعبان: اللوحة تقرأ `<runtime>/var` والمحرّك يكتب
+# `PROJECT_ROOT/var/forex` — قِيس وانفصل المتحوّلان. تُضبط هنا بالـsetdefault
+# (يد المالك تتقدّم)، وتُورَّث لكل عمليّة تُقلع أدناه عبر `dict(os.environ)`.
+_FOREX_RUNTIME = ROOT / "forex_runtime"
+if _FOREX_RUNTIME.is_dir():
+    os.environ.setdefault("QUANT_RUNTIME_ROOT", str(_FOREX_RUNTIME))
+    os.environ.setdefault("QUANT_CORE_STATE_ROOT", str(_FOREX_RUNTIME / "var"))
+    os.environ.setdefault("QUANT_ATOMS_ROOT", str(_FOREX_RUNTIME / "atoms"))
+    os.environ.setdefault("QUANT_CORE_CONFIG", str(ROOT / "config" / "core_forex.yaml"))
+    os.environ.setdefault("QUANT_CORE_DOMAIN", "forex")
+    os.environ.setdefault("QUANT_ANALYSIS_SETTINGS_DB",
+                          str(_FOREX_RUNTIME / "var" / "store" / "analysis_settings.db"))
 TELEGRAM = ROOT / "governance" / "telegram.py"          # ٦١٠ — المنصّة المتنقّلة
-TELEGRAM_CONF = ROOT / "var" / "governance" / "telegram.json"
+# ٢٠٢٦-٠٩-٠٣ (المالك): كانت تقرأ `PROJECT_ROOT/var/...` بينما خادم الحوكمة
+# يقرأ `<runtime>/var/governance/telegram.json` — ضبطُ المنصّة من اللوحة كان
+# لا يصل هذا المشغّل أبدًا.
+try:
+    sys.path.insert(0, str(ROOT / "governance"))
+    from runtime_paths import telegram_conf_path as _tg_conf
+    TELEGRAM_CONF = _tg_conf()
+except Exception:  # noqa: BLE001
+    TELEGRAM_CONF = ROOT / "var" / "governance" / "telegram.json"
 CORE_PORT, GOV_PORT, TG_PORT = 8010, 8090, 8098
 
 # ٢٠٢٦-٠٩-٠١: السوق الثاني كان خارج هذا المشغّل، فيقلع الفوركس وحده ويبقى
@@ -64,7 +86,16 @@ _COURIER_TIMEOUT_S = 5.0
 _STILL_ACTIVE = 259
 _PROCESS_QUERY_LIMITED = 0x1000
 _CREATE_NO_WINDOW = 0x08000000
-SNAPSHOTS_DIR = ROOT / "var" / "snapshots"
+# كان `ROOT/var/snapshots` بينما النواة تكتب `var/forex/snapshots` (core_forex.yaml)
+# — فالعدّاد في `--stop` كان يقرأ مجلّدًا لا لقطة فيه ويعلن «لا لقطات» كذبًا.
+sys.path.insert(0, str(ROOT / "governance"))
+try:
+    from runtime_paths import core_state_root as _core_state_root
+except Exception as exc:  # noqa: BLE001 — بلا شجرة shared/ لا نخمّن مرسًى
+    raise RuntimeError(
+        "تعذّر تحميل shared/runtime_paths (مالك الجذور) من "
+        f"{ROOT / 'governance'} — لا يُقبل حدسُ مرسى اللقطات: {exc}") from exc
+SNAPSHOTS_DIR = _core_state_root() / "forex" / "snapshots"
 
 _COURIER_SOURCE = '''
 import ctypes, sys, time

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, type IChartApi, type ISeriesApi, type IPriceLine, type SeriesMarker, type Time } from 'lightweight-charts'
 import { useStore } from '../core/store'
 import { priceText } from '../core/i18n'
+import { BROKER_PLATFORM_AR, BROKER_ENGINE_AR } from '../core/arabic'
 
 interface Pos {
   ticket: number; symbol: string; side: string; volume: number
@@ -41,9 +42,6 @@ interface ExecPayload {
   last_tick?: { bid: number; ask: number; tick_ms: number } | null
   symbols?: string[]
   ea_db?: boolean
-  // دقّة السعر كما يعلنها الوسيط (symbol_specs_v2). غيابها يترك افتراض المكتبة.
-  digits?: number
-  tick_size?: number
 }
 
 let __marketCache: string | null = null
@@ -83,7 +81,7 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
     const chart = createChart(box, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#8a97ad', fontFamily: 'IBM Plex Sans Arabic, sans-serif', attributionLogo: false },
-      watermark: { visible: true, text: 'تنفيذ MT5', color: 'rgba(159,184,220,0.10)', fontSize: 22, horzAlign: 'center', vertAlign: 'bottom' },
+      watermark: { visible: true, text: `تنفيذ ${BROKER_PLATFORM_AR}`, color: 'rgba(159,184,220,0.10)', fontSize: 22, horzAlign: 'center', vertAlign: 'bottom' },
       grid: { vertLines: { color: 'rgba(159,184,220,0.06)' }, horzLines: { color: 'rgba(159,184,220,0.06)' } },
       rightPriceScale: { borderColor: 'rgba(159,184,220,0.12)' },
       timeScale: { borderColor: 'rgba(159,184,220,0.12)', timeVisible: true, secondsVisible: tf < 60, rightOffset: 4 },
@@ -99,7 +97,6 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
     let cur: Candle | null = null
     let lastTime = 0
     let fitted = false
-    let appliedDigits = 0
 
     const paint = (cs: Candle[], mode: 'ok' | 'held') => {
       if (!cs.length) return
@@ -133,16 +130,6 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
     if (cached.length) paint(cached, 'held')
 
     const ingest = (d: ExecPayload, fromPoll: boolean) => {
-      // الدقّة من مواصفة الوسيط، لا من جدول ثوابت هنا: بلاها ترجع المكتبة
-      // لافتراضها (precision 2) فينقصّ EURUSD إلى 1.16. تُطبَّق عند التغيّر
-      // فقط — لا في كل استطلاع (كل 2.5 ثانية).
-      if (typeof d.digits === 'number' && d.digits > 0 && d.digits !== appliedDigits) {
-        const mv = typeof d.tick_size === 'number' && d.tick_size > 0
-          ? d.tick_size
-          : Math.pow(10, -d.digits)
-        series.applyOptions({ priceFormat: { type: 'price', precision: d.digits, minMove: mv } })
-        appliedDigits = d.digits
-      }
       const cs = d.candles ?? []
       if (cs.length) {
         paint(cs, 'ok')
@@ -265,10 +252,10 @@ export function ChartPanel({ symbol, tf, tfLabel }: { symbol: string; tf: number
   const openHere = mine.length
   const pnlHere = mine.reduce((s2, p) => s2 + (p.profit ?? 0), 0)
   const histLabel =
-    hist === 'load' ? 'جارٍ جلب شموع MT5…'
+    hist === 'load' ? `جارٍ جلب شموع ${BROKER_PLATFORM_AR}…`
     : hist === 'held' ? `${nc} شمعة · آخر لقطة الإكسبرت`
-    : hist === 'empty' ? 'يبني من تِكّات MT5…'
-    : `${nc} شمعة · تنفيذ MT5`
+    : hist === 'empty' ? `يبني من تِكّات ${BROKER_PLATFORM_AR}…`
+    : `${nc} شمعة · تنفيذ ${BROKER_PLATFORM_AR}`
 
   return (
     <div className="chartpanel">
@@ -327,7 +314,7 @@ export default function Charts() {
     setFrames(frames.includes(v) ? frames.filter((f) => f !== v) : [...frames, v].sort((a, b) => a - b))
   const tfLabel = (v: number) => TFS.find(([x]) => x === v)?.[1] ?? String(v)
 
-  if (!symbols.length) return <div className="section"><div className="empty">بانتظار شموع الإكسبرت (MT5)… القطع لا يمسح آخر شارت إن وُجد.</div></div>
+  if (!symbols.length) return <div className="section"><div className="empty">{`بانتظار شموع ${BROKER_ENGINE_AR}… القطع لا يمسح آخر شارت إن وُجد.`}</div></div>
   const fSym = focusSym ?? symbols[0]
 
   return (

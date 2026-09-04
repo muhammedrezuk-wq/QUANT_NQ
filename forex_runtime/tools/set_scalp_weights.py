@@ -2,14 +2,14 @@
 """تطبيق جدولي أوزان المحلّلين (المرحلة C — ورقة Scalping Micro-Tick v3.0) على قاعدة الإعدادات الحيّة.
 
 التشغيل (من داخل مجلد المشروع — والنظام موقوف):
-    py tools\set_scalp_weights.py
-    (اختياري) py tools\set_scalp_weights.py --account 10096831 --symbol EURUSD
+    py tools/set_scalp_weights.py
+    (اختياري) py tools/set_scalp_weights.py --account 10096831 --symbol EURUSD
 
 ماذا يفعل:
   1. يحدد قاعدة الإعدادات الحيّة:
        - مسار متغيّر البيئة QUANT_ANALYSIS_SETTINGS_DB إن وُجد (كما يضبطه
-         run_forex.py عند الإقلاع: var/forex/analysis_settings.db)
-       - وإلا var/forex/analysis_settings.db (مسار فوركس الحيّ)
+         run_forex.py عند الإقلاع: <runtime>/var/store/analysis_settings.db)
+       - وإلا عقد المالك <runtime>/var/store/analysis_settings.db (مسار فوركس الحيّ)
        - وإلا var/store/analysis_settings.db (الافتراضي العام)
   2. يكتشف النطاقات الحقيقية (حساب+وسيط+رمز) من:
        - صفوف موجودة في قاعدة الإعدادات
@@ -67,14 +67,17 @@ _CYCLE_RE = re.compile(r'"cycle_id"\s*:\s*"([^"]+)"')
 
 
 def _pick_db_path(configured: str | None) -> Path:
-    """مسار قاعدة الإعدادات: متغيّر البيئة إن وُجد (كما يضبطه run_forex.py)،
-    وإلا مسار فوركس الحيّ var/forex/analysis_settings.db دومًا —
-    لأنه المسار الذي يقرؤه النظام الحيّ (run_forex.py) واللوحة (governance)."""
-    forex_live = ROOT / "var" / "forex" / "analysis_settings.db"
+    """مسار قاعدة الإعدادات: متغيّر البيئة إن وُجد، وإلا عقد المالك
+    `<runtime>/var/store/analysis_settings.db`.
+
+    ٢٠٢٦-٠٩-٠٣ (بند ٤): كان الافتراضيّ `var/forex/analysis_settings.db` بدعوى
+    «أنه ما يقرؤه النظام الحيّ» — وهذا انقلب مع توحيد الجذر، فصار أداةً تكتب في
+    ملفٍّ لا يقرأه محرّك. الاشتقاق صار لـ`shared/runtime_paths.py` وحده."""
+    from shared.runtime_paths import settings_db_path
     if configured:
         p = Path(configured)
         return p if p.is_absolute() else ROOT / p
-    return forex_live
+    return settings_db_path(code_root=ROOT, market="forex")
 
 
 def _discover_scopes_from_snapshots() -> list[tuple[str, str, str]]:
@@ -85,7 +88,9 @@ def _discover_scopes_from_snapshots() -> list[tuple[str, str, str]]:
     نمرّ على بنية JSON كاملة ونفكّ المفاتيح الشبيهة بمصفوفة ثلاثية.
     """
     found: dict[tuple[str, str, str], None] = {}
-    snap_dir = ROOT / "var" / "forex" / "snapshots"
+    # اللقطات تحت مرسى حالة النواة (المالك) — لا تحت `R/var/forex` المتقاعِد.
+    from shared.runtime_paths import core_state_root
+    snap_dir = core_state_root(code_root=ROOT, market="forex") / "forex" / "snapshots"
     if not snap_dir.is_dir():
         return []
     for f in sorted(snap_dir.glob("*.json")):
@@ -204,8 +209,19 @@ def main() -> int:
             print(f"  {marker} {account} · {broker} · {symbol} · {path}: "
                   f"المجموع={total} → {nonzero}")
 
-    others = [p for p in (ROOT / "var").rglob("analysis_settings*.db")
-              if p.is_file() and p.resolve() != db_path.resolve()]
+    # الكشّاف يمسح الجذور القانونيّين (جذر المشروع + جذرا الـruntime) — لا
+    # وجذرُ المشروع وحده، وإلا أخطأ في شجرة وصلات/نسخ كاملة (بند ٤).
+    def _scan(base: Path) -> list[Path]:
+        var = base / "var"
+        if not var.is_dir():
+            return []
+        return [c for c in var.rglob("analysis_settings*.db")
+                if c.is_file() and c.resolve() != db_path.resolve()]
+
+    others: list[Path] = []
+    for _base in [ROOT] + [ROOT / d for d in ("forex_runtime", "crypto_runtime")]:
+        others.extend(_scan(_base))
+    others.sort()
     if others:
         print("\n⚠ انتبه — قواعد إعدادات أخرى في المشروع (قد يقرأ النظام منها):")
         for p in others:

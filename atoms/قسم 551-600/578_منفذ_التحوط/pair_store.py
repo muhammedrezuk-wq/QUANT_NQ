@@ -17,7 +17,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-DEFAULT_PATH = "var/store/pair_memory_578.db"
+_BARE_PATH = "var/store/pair_memory_578.db"
+DEFAULT_PATH = str((lambda _p=Path(__file__).resolve(): __import__("shared.runtime_paths", fromlist=["anchored_state_path"]).anchored_state_path(_BARE_PATH, code_root=_p))())
 
 _SCHEMA = ("CREATE TABLE IF NOT EXISTS pair_state ("
            " id INTEGER PRIMARY KEY CHECK (id = 1),"

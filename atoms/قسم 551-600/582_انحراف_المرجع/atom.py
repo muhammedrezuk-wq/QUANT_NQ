@@ -103,6 +103,10 @@ class Atom(AtomBase):
         self._suspicious_repeats = 3
         self._expected_return_abs = 0.0005
         self._suspicious_return_abs = 0.005
+        self._cap_min_samples = 20
+        self._expected_pct = 0.95
+        self._suspicious_pct = 0.99
+        self._ratio_history_cap = 400
         self._updates = 0
         self._compared = 0
         self._waiting = 0
@@ -121,6 +125,12 @@ class Atom(AtomBase):
         self._suspicious_repeats = max(1, int(cfg.get("suspicious_repeats", 3)))
         self._expected_return_abs = float(cfg.get("expected_return_abs", 0.0005))
         self._suspicious_return_abs = float(cfg.get("suspicious_return_abs", 0.005))
+        # الأرقام التشغيلية ملك المانيفست (م9/ملف4): عتبة العيّنة، مئويّتا
+        # التوقّع/الريبة، وسقف سجلّ النسب — تُقرأ هنا مرة واحدة وتُستعمل بلا حدس.
+        self._cap_min_samples = max(2, int(cfg.get("cap_min_samples", 20)))
+        self._expected_pct = float(cfg.get("expected_percentile", 95)) / 100.0
+        self._suspicious_pct = float(cfg.get("suspicious_percentile", 99)) / 100.0
+        self._ratio_history_cap = max(2, int(cfg.get("ratio_history_cap", 400)))
         context.subscribe(EVENT_CTRADER, self._on_ct)
         context.subscribe(EVENT_MT5, self._on_mt)
         context.subscribe(EVENT_SPECS, self._on_specs)
@@ -219,10 +229,10 @@ class Atom(AtomBase):
     def _caps(self, slot: _SymbolState) -> tuple[float, float]:
         expected = self._expected_return_abs
         suspicious = self._suspicious_return_abs
-        if len(slot.ratio_abs) >= 20:
+        if len(slot.ratio_abs) >= self._cap_min_samples:
             ordered = sorted(slot.ratio_abs)
-            expected = max(_percentile(ordered, 0.95), expected)
-            suspicious = max(_percentile(ordered, 0.99), suspicious)
+            expected = max(_percentile(ordered, self._expected_pct), expected)
+            suspicious = max(_percentile(ordered, self._suspicious_pct), suspicious)
         return expected, suspicious
 
     def _classify(self, symbol: str, slot: _SymbolState, *, ingest: bool) -> dict[str, Any]:
@@ -306,8 +316,8 @@ class Atom(AtomBase):
             match_cap = expected_cap * _MATCH_FRAC
             if movement_ratio is not None:
                 slot.ratio_abs.append(abs(movement_ratio))
-                if len(slot.ratio_abs) > 400:
-                    slot.ratio_abs = slot.ratio_abs[-400:]
+                if len(slot.ratio_abs) > self._ratio_history_cap:
+                    slot.ratio_abs = slot.ratio_abs[-self._ratio_history_cap:]
 
             move = {
                 **base,

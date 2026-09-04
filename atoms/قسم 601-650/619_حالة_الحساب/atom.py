@@ -71,6 +71,19 @@ def _bridge_connect(db_path: str) -> sqlite3.Connection:
     return connection
 
 
+def _run_coro_sync(coro: Any) -> Any:
+    """شغّل coroutine في حلقة معزولة عند الحاجة — نفس تساهل ناقل الاختبار الخلفي."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    raise RuntimeError("read_now يحتاج سياقًا متزامنًا (الاختبار الخلفي)")
+
+
 class Atom(AtomBase):
     def __init__(self) -> None:
         self._context: AtomContext | None = None
@@ -182,6 +195,24 @@ class Atom(AtomBase):
                 await asyncio.sleep(self._poll_interval_s)
         except asyncio.CancelledError:
             pass
+
+    def read_now(self) -> int:
+        """قراءة متزامنة لصفّ الجسر — للاختبار الخلفي فقط.
+
+        في التشغيل الحيّ يقرأ ٦١٩ من مؤقّت داخلي (`_loop` على `poll_interval_s`)؛
+        وفي إعادة تشغيل متزامنة لا تُدار حلقة الأحداث بين التيكات فتبقى تلك
+        المهمة خاملة صفر القراءات (مقيَس: reads=0/published=0 مع أنّ الصفّ مكتوب
+        في `account_v2`). هذا الغلاف لا يغيّر شيئًا من العقد: يستدعي `_read_once`
+        نفسه — نفس الأعمدة، نفس شرط الطزاجة `0 <= age <= max_age_s`، نفس
+        الحمولتين `platform.account.state` و`platform.terminal_state` — وإنما
+        يُنادى من قِبَل المُعيد تشغيل بدل المؤقّت. لا يوقّف الحلقة الحيّة ولا
+        يمسّ أيّ ذرّة أخرى.
+        """
+        if self._context is None:
+            return 0
+        before = self.read_count
+        _run_coro_sync(self._read_once())
+        return self.read_count - before
 
     async def health_check(self) -> HealthStatus:
         if not self._running:

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """اعتماد المُعامِلات الستّة المعلنة — قرار المالك 2026-08-28 (سجلّ الختم)
-في قاعدة المعايرة الحيّة (var/forex/analysis_settings.db).
+في قاعدة المعايرة الحيّة (<runtime>/var/store/analysis_settings.db — مسار المالك).
 
 التشغيل (من داخل مجلد المشروع — والنظام موقوف):
     py tools\approve_scalp_params.py
@@ -27,8 +27,10 @@ sys.path.insert(0, str(ROOT))
 
 from shared.parameter_registry import ParameterRegistry, DECLARED  # noqa: E402
 
-configured = os.environ.get("QUANT_ANALYSIS_SETTINGS_DB")
-db = Path(configured) if configured else ROOT / "var" / "forex" / "analysis_settings.db"
+# ٢٠٢٦-٠٩-٠٣ (بند ٤): المسار من المالك لا من هنا — كان الافتراضيّ `var/forex/…`
+# وهو مسار متقاعِد لا يقرأه أحد بعد أن صارت المعايرة تحت `<runtime>/var/store`.
+from shared.runtime_paths import settings_db_path
+db = settings_db_path(code_root=ROOT, market="forex")
 if not db.is_absolute():
     db = ROOT / db
 print(f"[1/2] قاعدة المعايرة: {db}")

@@ -282,15 +282,19 @@ class TestEngine:
 
     @pytest.mark.asyncio
     async def test_run_backtest_convenience(self):
+        # الحرج ٣ باقٍ: المصدر لازم صراحةً. ما كان ينقص هنا وسيطٌ لا فرضٌ أعمى:
+        # run_backtest() لم تكن تمرّر allow_synthetic/بيانات الذاكرة إطلاقًا.
         result = await run_backtest(
             strategy_name="ma_crossover",
             strategy_params={"fast_period": 5, "slow_period": 10},
             symbol="EURUSD",
             initial_capital=100_000,
             ws_port=0,
+            allow_synthetic=True,
         )
         assert result.status == "completed"
         assert result.run_id
+        assert result.data_source == "synthetic:explicit"  # السند مُعلَن لا فارغ
 
     @pytest.mark.asyncio
     async def test_engine_stop(self):

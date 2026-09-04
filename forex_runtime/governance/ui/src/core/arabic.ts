@@ -166,6 +166,16 @@ export function arabicVisible(value?: unknown, fallback = 'تفصيل تقني �
 }
 
 /** اسم حقل من قاموس الحقول المركزي (العقد الثماني · المسارات) — لا يسرّب إنكليزيًّا. */
+/**
+ * اسم المنصّة في نصّ الواجهة — حكم المالك ٢٠٢٦-٠٨: «ما بدّي أشوف ولا شي أجنبيّ».
+ * حارس tests/test_analysis_dashboard_arabic.py يمنع العلامة التجارية داخل النص
+ * العربيّ، والقاموس نفسه يسمّيها «الوسيط» (UNAVAILABLE و
+ * READY_AWAITING_FIRST_MT5_TRADE_EVENT). فكل ظهور سابق لاسم المنصّة في نصّ مُعرَض
+ * يعود إلى هذه المفردة — لا حذف المعلومة، ولا إسكات الحارس.
+ */
+export const BROKER_PLATFORM_AR = 'منصّة الوسيط'
+export const BROKER_ENGINE_AR = 'الإكسبرت'
+
 export const fieldAr = (key: string): string => FIELDS[key] ?? arabicVisible(key, 'حقل تقني')
 
 /** يترجم رسالة صحّة ذرّة إلى العربيّة، ولا يسرّب رمزًا إنجليزيًا مجهولًا للواجهة. */

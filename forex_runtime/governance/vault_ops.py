@@ -49,7 +49,19 @@ def _locked(fn):
     return wrapper
 
 DEFAULT_VAULT = ROOT / "runtime" / "secrets.enc"
-AUDIT_PATH = ROOT / "var" / "governance" / "vault_audit.log"
+# ٢٠٢٦-٠٩-٠٣ (بند ١١): سجلّ تدقيق الخزنة تحت جذر الـruntime — حيث تقرأه اللوحة
+# وتكتبه، لا في جذر المشروع حيث لا يراه أحد.
+def _audit_path() -> Path:
+    try:
+        if str(ROOT / "governance") not in sys.path:
+            sys.path.insert(0, str(ROOT / "governance"))
+        from runtime_paths import runtime_var
+        return runtime_var("governance", "vault_audit.log")
+    except Exception:  # noqa: BLE001
+        return ROOT / "var" / "governance" / "vault_audit.log"
+
+
+AUDIT_PATH = _audit_path()
 
 KEY_NAME = re.compile(r"[A-Za-z0-9_.\-]{1,64}")
 MIN_PASSPHRASE = 12

@@ -9,6 +9,13 @@
 import os
 import tempfile
 
+# ٢٠٢٦-٠٩-٠٣ (فصل ٢٣ · البند ١٢): بعد أن صار `shared/runtime_paths.py` مالك
+# الجذور، «العزل» لا يعني السجلّ وحده — بل جذر التشغيل كلّه. قرصٌ مؤقت واحد
+# للجلسة: لا الفحوص تكتب في `forex_runtime/var` الحيّ، ولا قيمُ يوم المالك
+# تُقرأ داخل فحصٍ فينكسر عقده.
+_TEST_RUNTIME = tempfile.mkdtemp(prefix="nq_runtime_test_")
+os.environ.setdefault("QUANT_RUNTIME_ROOT", _TEST_RUNTIME)
+os.environ.setdefault("QUANT_CORE_STATE_ROOT", _TEST_RUNTIME)
 os.environ.setdefault(
     "QUANT_ANALYSIS_SETTINGS_DB",
     os.path.join(tempfile.mkdtemp(prefix="nq_params_test_"),

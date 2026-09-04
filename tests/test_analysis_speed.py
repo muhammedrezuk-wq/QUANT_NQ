@@ -66,26 +66,42 @@ def test_scope_resolution_chain(monkeypatch):
 
 
 def test_scoped_apply_command(tmp_path):
-    """اعتماد نطاقي (حساب␟رمز) لعيار معلَن scoped — على سجل مؤقت لا الحي."""
-    from shared.decision_dials import apply_command
+    """مسار نطاقي (حساب␟رمز) لعيار معلَن scoped — على سجل مؤقت لا الحي.
+
+    ٢٠٢٦-٠٩-٠٣ (فصل ٢٣ · بند ٥): كان الاختبار يثبت أن الأمر **يعتمد** مباشرة.
+    العقد الآن منفصل: بلا `confirm` تُحفظ القيمة مسودة (UNAPPROVED، لا تُطبَّق)،
+    ومع `confirm: true` — أي خطوة اعتماد المالك — تصير APPROVED وتَسري.
+    """
+    from shared.decision_dials import apply_command, effective_value
     from shared.parameter_registry import ParameterRegistry
 
     registry = ParameterRegistry(tmp_path / "params.db")
     base = {"value": 22.0, "command_id": "c-scope-1", "operator": "nq",
             "approved_at": 1.0, "account_id": "52992818", "symbol": "XAUUSD"}
-    applied = apply_command({"name": "ANALYSIS_SPEED", **base},
+    saved = apply_command({"name": "ANALYSIS_SPEED", **base},
+                          atom_id="150", registry=registry)
+    assert saved is not None
+    assert saved["scope"] == "52992818\x1fXAUUSD"
+    assert saved["value"] == 22.0 and saved["approved"] is False
+    draft = registry.get("ANALYSIS_SPEED", "52992818\x1fXAUUSD")
+    assert draft is not None and draft["status"] == "UNAPPROVED"
+    # المسودة لا تُقرأ سارية: محرّك الذرّة يمرّ عبر العام غير المعتمد،
+    # فالقيمة الجارية تبقى المانيفست (٥٠.٠) رغم أن صفّ النطاق يحمل ٢٢.٠.
+    assert effective_value("ANALYSIS_SPEED", 50.0, registry=registry) == 50.0
+
+    applied = apply_command({"name": "ANALYSIS_SPEED", **base, "confirm": True,
+                             "command_id": "c-scope-1b"},
                             atom_id="150", registry=registry)
-    assert applied is not None
-    assert applied["scope"] == "52992818\x1fXAUUSD"
-    assert applied["value"] == 22.0
+    assert applied is not None and applied["approved"] is True
     row = registry.get("ANALYSIS_SPEED", "52992818\x1fXAUUSD")
     assert row is not None and row["status"] == "APPROVED"
+    assert row["source"] == "OWNER"
     # العام لم يُمسّ — يبقى غير معتمد بقيمته.
     global_row = registry.get("ANALYSIS_SPEED", "global")
     assert global_row is not None and global_row["status"] == "UNAPPROVED"
 
     # عيار غير معلَن scoped يتجاهل حقلي النطاق (حماية النمط النائم): يبقى عامًا.
-    applied2 = apply_command({"name": "RISK_DIAL", **base,
+    applied2 = apply_command({"name": "RISK_DIAL", **base, "confirm": True,
                               "command_id": "c-scope-2", "value": 40.0},
                              atom_id="581", registry=registry)
     assert applied2 is not None and applied2["scope"] == "global"

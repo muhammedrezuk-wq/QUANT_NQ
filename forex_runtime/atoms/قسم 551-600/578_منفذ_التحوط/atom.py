@@ -13,6 +13,36 @@ import pair_store
 from request_identity import request_identity
 from stop_support import STOP_FROM_FALLBACK, catastrophe_stop
 from shared.financial_scope import text
+from pathlib import Path
+
+
+def _rebased_config(raw_cfg: dict) -> dict:
+    """config المانيفست على يد مالك المسارات — نسبةً لجذر الـruntime.
+
+    الذرّة لا تعرف أين شُغِّلت: قراءة القيمة النسبية من المانيفست نسبةً إلى
+    مجلد التشغيل كانت تُنشئ شجرة ``var/store`` موازية تحت جذر المشروع لا
+    يقرأها أحد. لذلك تُحلَّ القيمة عند مالك المسارات: يُتقدَّم جذرُ تشغيل
+    صالح (فيه ``shared/runtime_paths.py`` — نسخة الـruntime أو الجذر العام)،
+    ثم تُمرَّر config إليه. المسار المطلق (``C:\\…`` في جسر المنصّة) يمرّ
+    حرفيًّا — إعادة صياغته قرار نشر لا تصحيح مسار. وتعذُّر الحلّ يرجع
+    config كما هي: لا يُعطَّل إقلاع ذرّة بأزمة مسار.
+    """
+    here = Path(__file__).resolve()
+    code_root = None
+    for parent in here.parents:
+        if (parent / "shared" / "runtime_paths.py").is_file():
+            code_root = parent
+            break
+    if code_root is None:
+        return raw_cfg
+    import sys as _sys
+    if str(code_root) not in _sys.path:
+        _sys.path.insert(0, str(code_root))
+    try:
+        from shared.runtime_paths import manifest_config_rebase
+        return manifest_config_rebase(raw_cfg, code_root=code_root)
+    except Exception:  # noqa: BLE001 — لا يُعطَّل الإقلاع بأزمة مسار
+        return raw_cfg
 
 ATOM_VERSION = "5.4.0"
 # v5.3.0 (2026-08-25): pair memory is DURABLE (pair_store) -- every pair
@@ -154,7 +184,7 @@ class Atom(PairEventMixin, AtomBase):
 
     async def initialize(self, context: AtomContext) -> None:
         self._context = context
-        cfg = context.config
+        cfg = _rebased_config(context.config)
         self._lot_step = float(cfg.get("lot_step", 0.01))
         self._min_volume = float(cfg.get("min_volume", 0.01))
         self._reward_risk = float(cfg.get("reward_risk", 2.0))

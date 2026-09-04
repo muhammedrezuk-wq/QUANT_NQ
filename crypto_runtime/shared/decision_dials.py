@@ -268,12 +268,20 @@ def clamp_to_bounds(name: str, value: float) -> float:
 
 
 def apply_command(payload: dict[str, Any], *, atom_id: str,
-                  registry: ParameterRegistry | None = None) -> dict[str, Any] | None:
+                  registry: ParameterRegistry | None = None,
+                  confirm: bool | None = None) -> dict[str, Any] | None:
     """يعالج `decision.settings.command` لعيارٍ تملكه هذه الذرّة.
 
-    يعيد {name, value, version} عند الاعتماد (أو عند تكرار نفس command_id —
-    idempotent عبر سجلّ التدقيق)، وNone إن لم يكن الأمر لعيارٍ من عياراتها
-    أو كان ناقص الهوية (فيُكشف الرفض للمُنادي ليحصيه، لا يُبتلع بصمت).
+    يعيد {name, value, version, status, approved} عند الاعتماد (أو عند تكرار
+    نفس command_id — idempotent عبر سجلّ التدقيق)، وNone إن لم يكن الأمر
+    لعيارٍ من عياراتها أو كان ناقص الهوية (فيُكشف الرفض للمُنادي ليحصيه،
+    لا يُبتلع بصمت).
+
+    ⚖️ بند ٥ (٢٠٢٦-٠٩-٠٣): «حفظ» ≠ «اعتماد». حقل ``confirm`` في الـpayload هو
+    الخطّ الفاصل: ``true`` وحده يعتمد (``source=OWNER``)، وأي شيء آخر —بما فيه
+    الغياب والتراثيـة النصّية ``"true"``— حفظُ مسودة ``UNAPPROVED`` لا يقرأه
+    محرّك (`effective_value` يشترط STATUS_APPROVED). كان الاعتماد سابقًا يحدث
+    ضمن مسار الحفظ نفسه، فاختلط «سجّلتُ رقمًا» بـ«قرّرتُ».
     """
     if not isinstance(payload, dict):
         return None
@@ -287,6 +295,8 @@ def apply_command(payload: dict[str, Any], *, atom_id: str,
         return None
     command_id = str(payload.get("command_id") or "")
     operator = str(payload.get("operator") or "")
+    if confirm is None:          # حقل الـpayload هو الأصل؛ الصريحة تتقدّم
+        confirm = payload.get("confirm")
     approved_at = payload.get("approved_at", payload.get("command_requested_at"))
     try:
         approved_at = float(approved_at)
@@ -314,8 +324,18 @@ def apply_command(payload: dict[str, Any], *, atom_id: str,
                 (name, scope, float(spec["value"]), "UNSET", "UNAPPROVED",
                  str(spec["governs"]), str(spec["where"])))
             conn.commit()
+    if confirm is not True:
+        # حفظ مسودة فقط — بعد تأمين صفّ النطاق (scoped) أدناه، وإلا ضاع الحفظ
+        # على عيار مقيَّد بحساب/رمز. لا اعتماد ولا source=OWNER (بند ٥).
+        row = registry.write_value(name, value=value, scope=scope,
+                                   changed_by=operator, command_id=command_id,
+                                   at=approved_at)
+        return {"name": name, "value": float(row["value"]),
+                "version": int(row["version"]), "scope": scope,
+                "status": row.get("status", "UNAPPROVED"), "approved": False}
     row = registry.approve(name, value=value, source=SOURCE_OWNER,
                            approved_by=operator, command_id=command_id,
                            approved_at=approved_at, scope=scope)
     return {"name": name, "value": float(row["value"]),
-            "version": int(row["version"]), "scope": scope}
+            "version": int(row["version"]), "scope": scope,
+            "status": row.get("status", "APPROVED"), "approved": True}

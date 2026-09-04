@@ -17,7 +17,15 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-CONF = ROOT / "var" / "governance" / "telegram.json"
+# ٢٠٢٦-٠٩-٠٣: الفحص يجب أن يقرأ الملفّ الذي يكتبه الخادم فعلًا — عبر الجسر
+# إلى shared/runtime_paths، لا حسابه اليدويّ من جذر المشروع.
+if str(ROOT / "governance") not in sys.path:
+    sys.path.insert(0, str(ROOT / "governance"))
+try:
+    from runtime_paths import telegram_conf_path
+    CONF = telegram_conf_path()
+except Exception:  # noqa: BLE001 — بلا شجرة shared/ (نسخة مقلَّمة)
+    CONF = ROOT / "var" / "governance" / "telegram.json"
 SURFACE = ROOT / "governance" / "telegram.py"
 LOCK_PORT = 8098
 GOV = "http://127.0.0.1:8090"

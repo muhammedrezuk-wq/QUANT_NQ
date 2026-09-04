@@ -47,6 +47,20 @@ config_schema:
     suspicious_return_abs:
       type: number
       minimum: 0
+    cap_min_samples:
+      type: integer
+      minimum: 2
+    expected_percentile:
+      type: integer
+      minimum: 1
+      maximum: 100
+    suspicious_percentile:
+      type: integer
+      minimum: 1
+      maximum: 100
+    ratio_history_cap:
+      type: integer
+      minimum: 2
   required:
   - max_deviation_points
   - max_age_s
@@ -61,5 +75,9 @@ config:
   suspicious_repeats: 3
   expected_return_abs: 0.0005
   suspicious_return_abs: 0.005
+  cap_min_samples: 20
+  expected_percentile: 95
+  suspicious_percentile: 99
+  ratio_history_cap: 400
 metadata:
   max_idle_s: 51

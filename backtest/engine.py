@@ -46,8 +46,13 @@ class BacktestEngine:
         self._equity_points: list[EquityPoint] = []
         self._running = False
 
-    async def run(self, feed: DataFeed | None = None) -> BacktestResult:
-        """تشغيل البكتست على بيانات موجودة أو جلبها تلقائياً."""
+    async def run(self, feed: DataFeed | None = None,
+                  data_source: str = "") -> BacktestResult:
+        """تشغيل البكتست على بيانات موجودة أو جلبها تلقائياً.
+
+        data_source: سند المصدر حين يُمرَّر feed من البرّانية — بلا هذا الوسيط
+        يبقى حقل «حرج ٣» (data_source) فارغًا فتقرأ اللوحة جولةً بصندٍ مجهول.
+        """
         self.result.started_at = time.time()
         self.result.status = "running"
 
@@ -61,6 +66,8 @@ class BacktestEngine:
             # جلب البيانات إن لم تُقدَّم
             if feed is None:
                 feed = await self._load_data()
+            elif data_source:
+                self.result.data_source = data_source
 
             # التشغيل
             if feed.ticks:
@@ -374,6 +381,37 @@ class BacktestEngine:
 # واجهة مبسّطة — تشغيل سريع
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _feed_from_rows(candles: list[dict[str, Any]] | None,
+                    ticks: list[dict[str, Any]] | None,
+                    symbol: str) -> DataFeed:
+    """DataFeed من صفوف في الذاكرة — نفس أسماء الحقول وبدائلها في load_from_file.
+
+    الواجهة المبسّطة كانت تتيح data_file/ws_port فقط، فتبقى بيانات اللوحة
+    (الشموع الجاهزة في الذاكرة) بلا مدخل — أي أنّ «لا توجد بيانات» كان يُقرأ
+    عطلًا في المحرك وهو نقص في التوقيع.
+    """
+    feed = DataFeed()
+    for row in candles or []:
+        feed._candles.append(Candle(
+            symbol=str(row.get("symbol") or symbol),
+            timestamp=float(row.get("ts", row.get("timestamp", 0))),
+            open=float(row.get("o", row.get("open", 0))),
+            high=float(row.get("h", row.get("high", 0))),
+            low=float(row.get("l", row.get("low", 0))),
+            close=float(row.get("c", row.get("close", 0))),
+            volume=float(row.get("v", row.get("volume", 0))),
+        ))
+    for row in ticks or []:
+        feed._ticks.append(Tick(
+            symbol=str(row.get("symbol") or symbol),
+            timestamp=float(row.get("ts", row.get("timestamp", 0))),
+            bid=float(row.get("bid", 0)),
+            ask=float(row.get("ask", 0)),
+            volume=float(row.get("volume", row.get("vol", 0))),
+        ))
+    return feed
+
+
 async def run_backtest(
     strategy_name: str = "ma_crossover",
     strategy_params: dict[str, Any] | None = None,
@@ -383,11 +421,19 @@ async def run_backtest(
     data_file: str | None = None,
     ws_host: str = "127.0.0.1",
     ws_port: int = 8765,
+    allow_synthetic: bool = False,
+    candles: list[dict[str, Any]] | None = None,
+    ticks: list[dict[str, Any]] | None = None,
 ) -> BacktestResult:
     """تشغيل باك تست سريع — واجهة مبسّطة.
 
+    مصدر البيانات لازم صراحةً (حرج ٣ كما في BacktestEngine._load_data): ملف،
+    أو WebSocket، أو اصطناعي معلَن، أو صفوف جاهزة في الذاكرة. الحرج لا يُخفَّف:
+    لا سقوط اصطناعي صامت — من لم يصرّح سمع «لا توجد بيانات».
+
     مثال:
-        result = await run_backtest("ma_crossover", {"fast_period": 5, "slow_period": 20})
+        result = await run_backtest("ma_crossover", {"fast_period": 5},
+                                    allow_synthetic=True)
     """
     config = BacktestConfig(
         symbol=symbol,
@@ -397,11 +443,17 @@ async def run_backtest(
         strategy_params=strategy_params or {},
         ws_host=ws_host,
         ws_port=ws_port,
+        allow_synthetic=allow_synthetic,
     )
     engine = BacktestEngine(config)
 
     feed = None
-    if data_file:
+    source = ""
+    if candles or ticks:
+        feed = _feed_from_rows(candles, ticks, symbol)
+        source = "memory:candles" if candles else "memory:ticks"
+    elif data_file:
         feed = await load_from_file(data_file)
+        source = f"file:{data_file}"
 
-    return await engine.run(feed)
+    return await engine.run(feed, data_source=source)

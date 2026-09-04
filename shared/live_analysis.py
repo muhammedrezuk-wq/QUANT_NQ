@@ -160,15 +160,24 @@ class AnalysisSettingsStore:
         )"""
 
     def __init__(self, path: str | Path | None = None) -> None:
+        # ٢٠٢٦-٠٩-٠٣ (فصل ٢٣ · البند ٤): نفس العطلعاد بصيغة أخرى — الجذر كان
+        # يُحسب من `__file__` فيقع على `PROJECT_ROOT/var/store` بينما اللوحة
+        # والسجلّ المحكوم على `<runtime>/var/store`: «الحفظ ينجح ويُكتب بملفّ ظلّ
+        # لا يقرؤه أحد». المسار صار ملكًا لـ`shared/runtime_paths.py` وحده
+        # (`QUANT_ANALYSIS_SETTINGS_DB` أولًا، ثم عقد الـruntime) — فتلتقي
+        # اللوحة والسجلّ والمحرّك على ملفّ واحد. القياس: §ح/٤ من
+        # `قياس_الحاجز_والمنفذ.md`.
+        from shared.runtime_paths import settings_db_path
+        code_root = Path(__file__).resolve().parent.parent
         configured = path or os.environ.get("QUANT_ANALYSIS_SETTINGS_DB")
-        # ⛔ عطل مقيس (بند ٤ بورقة ٩٩ — 2026-08-19): `parent` وحدها تحلّ إلى
-        # `shared/` فكان الافتراضي يكتب في `shared/var/store/analysis_settings.db`
-        # بينما خادم الحوكمة (وكل مخازن المشروع) على `var/store/` بجذر المشروع —
-        # فالحفظ «ينجح» ويُكتب بملفّ ظلّ لا يقرؤه أحد، واللوحة تعرض الافتراضيّات
-        # للأبد (أوامر 901 رقم 36-38 موثّقة مكتوبة بملفّ الظلّ). الجذر = parent.parent.
-        _root = Path(__file__).resolve().parent.parent
-        candidate = Path(configured) if configured else _root / "var" / "store" / "analysis_settings.db"
-        self.path = candidate if candidate.is_absolute() else _root / candidate
+        if configured:
+            candidate = Path(configured)
+            self.path = (candidate if candidate.is_absolute()
+                         else code_root / candidate)
+        else:
+            self.path = settings_db_path(
+                code_root=code_root,
+                market=str(os.environ.get("QUANT_CORE_DOMAIN", "")).strip().lower())
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 

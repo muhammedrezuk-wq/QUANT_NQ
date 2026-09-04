@@ -48,10 +48,43 @@ async def run(enable_api: bool | None, demo_seconds: float | None = None) -> int
     )
     log = logging.getLogger("quant_nq.core.bootstrap")
 
-    atoms_root = PROJECT_ROOT / core_config.get("atoms_root", "atoms")
+    # بند ٨ (٢٠٢٦-٠٩-٠٣): `QUANT_ATOMS_ROOT` كان «مفتاحًا بلا سلك» — يضبطه
+    # scripts/run_forex.py:19 ولا يقرؤه أحد. صار المرجعَ الأوّل، والمانيفست
+    # remains the default — so an un-launched checkout behaves byte-identically.
+    _atoms_env = str(os.environ.get("QUANT_ATOMS_ROOT") or "").strip()
+    if _atoms_env:
+        _atoms = Path(_atoms_env)
+        atoms_root = _atoms if _atoms.is_absolute() else PROJECT_ROOT / _atoms
+    else:
+        atoms_root = PROJECT_ROOT / core_config.get("atoms_root", "atoms")
+    # مرسى حالة النواة (journal/snapshots) — مالك واحد shared/runtime_paths،
+    # وقيمه الافتراضية = ``PROJECT_ROOT`` تمامًا كما كان قبل هذا القياس.
+    try:
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from shared.runtime_paths import core_state_root
+        state_root = core_state_root(code_root=PROJECT_ROOT,
+                                     market=str(os.environ.get("QUANT_CORE_DOMAIN", "")).strip().lower())
+    except Exception:  # noqa: BLE001 — نسخة بلا shared/ ⇒ السلوك التراثيّ حرفيًا
+        state_root = PROJECT_ROOT
     # A unified checkout runs Forex and Crypto with separate config files while
     # sharing the same frozen runtime code. The config is selected by the
     # wrapper through QUANT_CORE_CONFIG; default remains config/core.yaml.
+    # ٢٠٢٦-٠٩-٠٣ (جولة ٢٠ · شقّ المسار، طبقة النواة): ``state_root`` هو **مرسى var**
+    # نفسه (يُعيده ``core_state_root``)، فكانت قيمتا ``journal.path`` و
+    # ``snapshot_root`` في ملفات الإعداد — وكلاهما يبدأ بـ``var/`` — تُلْصقان عليه
+    # مرة ثانية: ``<runtime>/var/var/forex/…`` (قِيس: 3460 سطرًا في journal مكرَّر
+    # وعشرات snapshot تحت ``forex_runtime/var/var``). والتقليم هنا لا يُنشئ فرعًا
+    # ثانيا للحلّ: قيمة مطلقة تمرّ كما هي، ونسبيّة تُقرأ على مرسى حالة النواة.
+    def _state_join(root: Path, raw: str) -> Path:
+        p = Path(str(raw))
+        if p.is_absolute():
+            return p
+        parts = p.parts
+        if parts and parts[0] == "var":
+            p = Path(*parts[1:]) if len(parts) > 1 else Path(".")
+        return root / p
+
     registry = Registry()
     event_bus_cfg = core_config.get("event_bus") or {}
     # The production runner uses the first executable slice of Event Ownership:
@@ -74,10 +107,10 @@ async def run(enable_api: bool | None, demo_seconds: float | None = None) -> int
     # «تشغيل + توصيل» فقط، بلا حقن منطق نواة.
     metrics = Metrics()
     journal_path = (core_config.get("journal") or {}).get("path")
-    journal = Journal(path=(PROJECT_ROOT / journal_path) if journal_path else None)
+    journal = Journal(path=_state_join(state_root, journal_path) if journal_path else None)
     health_manager = HealthManager(registry, event_bus, journal, metrics)
     snapshot_path = core_config.get("snapshot_root", "var/snapshots")
-    snapshot_engine = SnapshotEngine(registry, PROJECT_ROOT / snapshot_path)
+    snapshot_engine = SnapshotEngine(registry, _state_join(state_root, snapshot_path))
 
     # الأسرار تُهيّأ **قبل** الإقلاع: أول ما تفعله الذرة في
     # initialize() قد يكون طلب سرّها، فلا يجوز أن تجده فارغاً.
@@ -351,11 +384,29 @@ def _init_secret_provider(core_config: dict, log) -> None:  # noqa: ANN001
         log.info("حزمة security غير موجودة — يعمل النظام بلا مخزن أسرار")
         return
 
-    vault_path = Path(cfg.get("vault_path", "runtime/secrets.enc"))
+    # ٢٠٢٦-٠٩-٠٤ (ختم NQ): المسار النسبيّ كان يُحلّ على مجلّد العمل، ومجلّد
+    # العمل يختلف بين طريقَي الإقلاع: `scripts/run_forex.py` يعمل chdir إلى
+    # الـruntime، بينما `governance/app.py` (غرفة القيادة) يُطلق بـcwd=ROOT.
+    # فقيمة `../runtime/secrets.enc` بـ`config/core_forex.yaml` كانت تقفز خارج
+    # المشروع كلّه إلى `C:/Users/<user>/runtime` — مقيس 2026-09-04: غير موجود،
+    # فيبقى المزوّد UNAVAILABLE وتعلن الذرّة 622 حرفيًّا
+    # `NO_PASSWORD_IN_VAULT:ctrader_fix_password` والخزنة سليمة بمكانها.
+    # العلاج: يُجذَّر على جذر الـruntime المعلَن من المُقلِع (`QUANT_RUNTIME_ROOT`)
+    # لا على مجلّد العمل — نفس ما يفعله `governance/telegram.py:161`، ولذلك كان
+    # تلغرام يقرأ توكنه بينما النواة عمياء. وبغياب المتغيّر يبقى السلوك كما كان.
+    _anchor = Path(os.environ.get("QUANT_RUNTIME_ROOT") or Path.cwd())
+
+    def _rooted(value):  # noqa: ANN001, ANN202
+        if not value:
+            return value
+        path = Path(value)
+        return path if path.is_absolute() else Path(os.path.normpath(_anchor / path))
+
+    vault_path = _rooted(cfg.get("vault_path", "runtime/secrets.enc"))
     provider = ChainSecretProvider(
         FileSecretProvider(
             vault_path,
-            dpapi_blob=cfg.get("dpapi_blob"),
+            dpapi_blob=_rooted(cfg.get("dpapi_blob")),
             allow_prompt=bool(cfg.get("allow_prompt", True)),
         ),
         EnvSecretProvider(prefix=cfg.get("env_prefix", "QUANT_SECRET_")),

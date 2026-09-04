@@ -181,7 +181,7 @@ class BacktestResult:
     status: str = "idle"  # idle, running, completed, failed
     error: str = ""
     # حرج ٣ — مصدر البيانات (إلزامي)
-    data_source: str = ""  # "file:path" | "ws:host:port" | "synthetic:explicit" | ""
+    data_source: str = ""  # "file:path" | "ws:host:port" | "synthetic:explicit" | "memory:*" | ""
 
     def to_dict(self) -> dict[str, Any]:
         """تحويل لـ JSON."""

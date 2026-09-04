@@ -17,6 +17,7 @@
 import datetime
 import glob
 import os
+import sys
 import sqlite3
 import urllib.request
 
@@ -60,7 +61,15 @@ for url in ("http://127.0.0.1:8010/health",
 # ------------------------------------------------- 2. governed dials: approved?
 line("2. DECISION DIALS - is any value APPROVED by owner? (min_score etc.)")
 found = False
-for path in glob.glob(os.path.join(ROOT, "var", "store", "*.db")) + \
+# ٢٠٢٦-٠٩-٠٣ (المالك): المسح يجب أن يبدأ من الجذر القانوني للبيانات لا من جذر
+# المشروع، وإلاعلن «لا دوال معتمدة» بينما القاعدة ممتلئة تحت الـruntime.
+try:
+    sys.path.insert(0, os.path.join(ROOT, "governance"))
+    from runtime_paths import runtime_var as _rv
+    _VAR_ROOTS = [str(_rv("store")), str(os.path.join(ROOT, "var", "store"))]
+except Exception:  # noqa: BLE001
+    _VAR_ROOTS = [os.path.join(ROOT, "var", "store")]
+for path in sum([glob.glob(os.path.join(v, "*.db")) for v in _VAR_ROOTS], []) + \
             glob.glob(os.path.join(ROOT, "**", "parameters*.db"), recursive=True):
     try:
         conn = ro(path)
@@ -109,7 +118,7 @@ except Exception as exc:
 
 # ------------------------------------------------------- 4. store inventory
 line("4. STORE INVENTORY - which .db actually has rows?")
-paths = sorted(glob.glob(os.path.join(ROOT, "var", "store", "*.db")))
+paths = sorted(sum([glob.glob(os.path.join(v, "*.db")) for v in _VAR_ROOTS], []))
 print("   %d files in var/store\n" % len(paths))
 for path in paths:
     try:

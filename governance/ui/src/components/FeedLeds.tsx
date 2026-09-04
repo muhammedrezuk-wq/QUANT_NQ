@@ -2,6 +2,7 @@
 // لا حساب: عمر آخر حدث وصل، و`timestamp_source` كما نشرته ٦١٨.
 import { useEffect, useState } from 'react'
 import { useStore } from '../core/store'
+import { BROKER_PLATFORM_AR } from '../core/arabic'
 
 type Tone = 'green' | 'amber' | 'red' | 'dim'
 
@@ -46,7 +47,7 @@ export default function FeedLeds() {
   } else if (mt5.tone === 'red') {
     timeTone = 'red'
     timeText = 'مقطوع'
-    timeTitle = 'ما في استلام MT5 — الزمن التشغيلي واقف'
+    timeTitle = `ما في استلام من ${BROKER_PLATFORM_AR} — الزمن التشغيلي واقف`
   } else if (mt?.timestamp_source === 'received' || mt?.clock_valid === false) {
     timeTone = 'amber'
     timeText = 'استلام'
@@ -90,7 +91,7 @@ export default function FeedLeds() {
   return (
     <div className="feedleds" aria-label="استلام التغذية والزمن">
       {chip('سي‑تريدر', ct.tone, ct.text, 'آخر تكة تحليل — صامت/مقطوع يعني ما في SendingTime داخل')}
-      {chip('MT5', mt5.tone, mt5.text, 'آخر تكة تنفيذ من الجسر')}
+      {chip(BROKER_PLATFORM_AR, mt5.tone, mt5.text, 'آخر تكة تنفيذ من الجسر')}
       {chip('وقت', timeTone, timeText, timeTitle)}
       {chip('انحراف', divTone, divText, divTitle)}
     </div>

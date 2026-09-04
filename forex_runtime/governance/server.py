@@ -44,6 +44,37 @@ ROOT = Path(__file__).resolve().parent
 # One governance process is started per market. The market is selected by the
 # wrapper, while the browser sees the same UI and the same /gov API shape.
 MARKET = str(os.environ.get("QUANT_GOV_MARKET", "forex")).strip().lower()
+
+# ٢٠٢٦-٠٩-٠٣ (فحص جذور المسارات): كان الجذر يُحسب يدويًّا بـ`ROOT.parent/<runtime>`
+# بلا تحقّق، فتقرأ اللوحة مجلّدًا بلا `var` وتعلن `available=false` على قاعدة موجودة
+# بينما المحرّك يكتب في ملفّ آخر. المصدر الوحيد الآن `shared/runtime_paths.py`
+# (يُستورد بعد إضافة جذر المشروع إلى sys.path أدناه)، ويُلقي خطأً صريحًا بدل
+# الرجوع الصامت إلى `PROJECT_ROOT/var`.
+def _resolve_runtime_var(*parts: str) -> Path:
+    import sys as _sys
+    _cand = str(ROOT.parent)
+    if _cand not in _sys.path:
+        _sys.path.insert(0, _cand)
+    from shared.runtime_paths import runtime_var
+    return runtime_var(*parts, code_root=ROOT.parent, market=MARKET)
+
+
+def _resolve_runtime_root() -> Path:
+    import sys as _sys
+    _cand = str(ROOT.parent)
+    if _cand not in _sys.path:
+        _sys.path.insert(0, _cand)
+    from shared.runtime_paths import runtime_root
+    return runtime_root(code_root=ROOT.parent, market=MARKET)
+
+
+def _resolve_settings_db() -> Path:
+    import sys as _sys
+    _cand = str(ROOT.parent)
+    if _cand not in _sys.path:
+        _sys.path.insert(0, _cand)
+    from shared.runtime_paths import settings_db_path
+    return settings_db_path(code_root=ROOT.parent, market=MARKET)
 if MARKET not in {"forex", "crypto"}:
     raise RuntimeError("QUANT_GOV_MARKET must be forex or crypto")
 CORE = os.environ.get(
@@ -53,13 +84,15 @@ CORE = os.environ.get(
 PORT = int(os.environ.get("QUANT_GOV_PORT", "8091" if MARKET == "crypto" else "8090"))
 ATOMS_DIR = ROOT.parent / ("atoms_crypto" if MARKET == "crypto" else "atoms")
 DIST = ROOT / "ui" / "built"                          # واجهة React المبنيّة (تُقدَّم أوفلاين)
-RUNTIME_ROOT = ROOT.parent / ("crypto_runtime" if MARKET == "crypto" else "forex_runtime")
-DATA_ROOT = RUNTIME_ROOT / "var"
-MARKET_DB = DATA_ROOT / "store" / "market_data.db"  # تكّات مخزّنة → شموع
-COMMANDS_DB = DATA_ROOT / "governance" / "commands.db"  # جسر بوّابة الأوامر — قراءة فقط
-ANALYSIS_SETTINGS_DB = DATA_ROOT / "analysis_settings.db"
-TILT_RULES_DB = DATA_ROOT / "store" / "tilt_rules.db"
-DECISIONS_DB = DATA_ROOT / "store" / "decisions.db"
+RUNTIME_ROOT = _resolve_runtime_root()           # <runtime> — مقياس المالك
+DATA_ROOT = _resolve_runtime_var()               # <runtime>/var — لا حساب يدويّ
+MARKET_DB = _resolve_runtime_var("store", "market_data.db")   # تكّات مخزّنة → شموع
+COMMANDS_DB = _resolve_runtime_var("governance", "commands.db")  # جسر بوّابة الأوامر
+# بند ٤: مسار سجلّ المعايرة = عقد ParameterRegistry نفسه (بما فيه
+# QUANT_ANALYSIS_SETTINGS_DB) — لا اشتقاق يدويّ ولا تكرار لمنطق الجذر هنا.
+ANALYSIS_SETTINGS_DB = _resolve_settings_db()
+TILT_RULES_DB = _resolve_runtime_var("store", "tilt_rules.db")
+DECISIONS_DB = _resolve_runtime_var("store", "decisions.db")
 # إصلاح ف-1 (ورقة ٤٠ · ديفرق ورقة ٣٩ بند ٤): للفوركس، صفحتا الأخبار والصفقات
 # تقرآن nq_brain.db حيث يكتب الـEA فعليًّا (مجلّد MetaTrader المشترك) — لا
 # bridge.db المعزولة الفارغة غير الموجودة أصلًا (كانت تجعل /gov/news يكذب:
@@ -67,7 +100,7 @@ DECISIONS_DB = DATA_ROOT / "store" / "decisions.db"
 # للكريبتو تبقى bridge.db معزولة تحت crypto_runtime/var، وهو جذرها الوحيد
 # بختم NQ 2026-09-01.
 if MARKET == "crypto":
-    TRADE_DB = DATA_ROOT / "bridge.db"
+    TRADE_DB = _resolve_runtime_var("bridge.db")
 else:
     _news_raw = os.environ.get("NQ_NEWS_DB") or str(
         Path(os.environ.get("APPDATA", "")) / "MetaQuotes" / "Terminal"
@@ -78,8 +111,8 @@ else:
     if os.name != "nt" and (
         not TRADE_DB.is_absolute() or _news_raw.startswith("C:") or "AppData" in TRADE_DB.name
     ):
-        TRADE_DB = DATA_ROOT / "nq_brain.db"
-LOGS_DIR = DATA_ROOT / "logs"
+        TRADE_DB = _resolve_runtime_var("nq_brain.db")
+LOGS_DIR = _resolve_runtime_var("logs")
 
 # جذر المشروع على المسار: الخادم يُشغَّل ملفًّا داخل governance فلا يرى حزم
 # الجذر (shared/…) بدون هذا. كان يُزرع داخل الدوال عند الحاجة؛ صار هنا لأنّ
@@ -139,7 +172,7 @@ def calendar_rows(currency: str, min_impact: str) -> list:
     return out
 
 
-NEWS_AR_CACHE = DATA_ROOT / "governance" / "news_ar.json"
+NEWS_AR_CACHE = _resolve_runtime_var("governance", "news_ar.json")
 _news_ar: dict | None = None
 _NEWS_AR_BUDGET = 5          # كم عنوانًا جديدًا يُترجَم في الطلب الواحد
 
@@ -366,7 +399,7 @@ GOV_API_KEY = os.environ.get("QUANT_GOV_API_KEY", "").strip()
 # ── النسخة الاحتياطية الموحّدة (ورقة ٠٩ مكوّن ٧): لقطة النظام كله بزر — نقطة رجوع ──
 # تلقط: الذرات + النواة + الإعدادات + الحوكمة + الورق + السكربتات. تستثني بيانات السوق
 # الضخمة (var ~445MB — تُعاد من مصادرها) و venv/node_modules (تُعاد بالتثبيت).
-BACKUPS_DIR = DATA_ROOT / "backups"
+BACKUPS_DIR = _resolve_runtime_var("backups")
 _SNAPSHOT_KEEP = 10  # سياسة احتفاظ اللقطات اليدوية: آخر ١٠ (نسخ الذرة 800 لها سياستها keep_last_n=7)
 _BACKUP_LOCK = threading.Lock()
 
@@ -685,7 +718,7 @@ def run_tool(name: str) -> tuple[int, dict]:
 
 
 # ── خزنة الأسرار من اللوحة (أمر المالك): «مو من أكواد — لازم من قسم أمان» ──
-REMOTE_FLAG = DATA_ROOT / "governance" / "remote_on.txt"
+REMOTE_FLAG = _resolve_runtime_var("governance", "remote_on.txt")
 
 
 def vault_request(body: dict, client_ip: str) -> tuple[int, dict]:
@@ -815,9 +848,20 @@ def alerts_state() -> dict:
     فلا يُكسَّر شيء إن عدّل المالك الإعداد — ونعيد ما هو هناك حرفيًّا.
     غياب الملف حالة طبيعية (الذرّة ما بدأت أو ما سجلّ إخفاقًا بعد).
     """
-    project_root = ROOT.parent
-    rel = "var/alerts/system_alerts.json"
-    manifest = next((project_root / "atoms").glob("831_*/manifest.yaml"), None)
+    # مرسى الحالة، لا جذر المشروع: من جذر الـmirror أبو governance = الجذر، فصار
+    # المسار يُحال إلى <root>/var/alerts ويُنبت شجرة var/ في المستودع.
+    try:
+        from runtime_paths import core_state_root as _csr
+        project_root = _csr()
+    except Exception:  # noqa: BLE001 — بلا جسور: نقرأ من الـmirror نفسه
+        project_root = ROOT
+    rel = "alerts/system_alerts.json"
+    if not (project_root / rel).is_file() and (project_root / "var" / rel).is_file():
+        rel = f"var/{rel}"
+    # المانيفست في شجرة الذرّات لا في مرسى الحالة: أبو governance هو جذر الشجرة
+    tree_root = Path(__file__).resolve().parent.parent
+    manifest = next((tree_root / "atoms").glob("831_*/manifest.yaml"),
+                    next((tree_root / "atoms_crypto").glob("831_*/manifest.yaml"), None))
     if manifest is not None:
         try:
             doc = yaml.safe_load(manifest.read_text(encoding="utf-8"))
@@ -858,7 +902,7 @@ def telegram_status() -> dict:
     # الحياة من نبض تكتبه المنصّة كل دورة، لا من محاولة اتصال بمنفذ القفل:
     # المنفذ ممسوك ولا يُردّ عليه أبدًا، فطابوره يمتلئ ويبدو الحيّ ميّتًا.
     try:
-        b = json.loads((DATA_ROOT / "governance" / "telegram_beat.json")
+        b = json.loads(_resolve_runtime_var("governance", "telegram_beat.json")
                        .read_text(encoding="utf-8"))
         age = time.time() - float(b.get("at") or 0)
         out["beat_age"] = round(age, 1)
@@ -866,7 +910,7 @@ def telegram_status() -> dict:
     except Exception:  # noqa: BLE001
         pass
     try:
-        conf = json.loads((DATA_ROOT / "governance" / "telegram.json")
+        conf = json.loads(_resolve_runtime_var("governance", "telegram.json")
                           .read_text(encoding="utf-8"))
         out["paired"] = bool(int(conf.get("owner_chat_id") or 0))
     except Exception:  # noqa: BLE001
@@ -1052,9 +1096,6 @@ def exec_chart(symbol: str, tf: int, limit: int) -> dict:
         "warmup_bars": _EA_WARMUP_BARS, "source": "none",
         "ea_db": bool(MARKET == "forex" and TRADE_DB.is_file()),
         "candles": [], "symbols": [], "count": 0, "last_tick": None,
-        # دقّة العرض من مواصفة الوسيط نفسه، لا ثابت مكتوب هنا. `None` تعني
-        # «مجهولة» فتترك الواجهةُ افتراضَ مكتبة الشارت بلا اختراع رقم.
-        "digits": None, "tick_size": None,
     }
     if MARKET != "forex" or not TRADE_DB.is_file():
         return out
@@ -1081,26 +1122,6 @@ def exec_chart(symbol: str, tf: int, limit: int) -> dict:
         if not symbol:
             con.close()
             return out
-
-        # مواصفة الرمز كما يعلنها الوسيط (EURUSD=5 · DXY_U6=3 · الباقي=2).
-        # الجدول مقروء أصلاً أعلاه للأسماء؛ هنا يُقرأ حقلاه الباقيان بدل رميهما.
-        if "symbol_specs_v2" in tables:
-            spec = con.execute(
-                "SELECT digits, tick_size FROM symbol_specs_v2 WHERE symbol=? LIMIT 1",
-                (symbol,)).fetchone()
-            if spec is not None:
-                try:
-                    spec_digits = int(spec["digits"] or 0)
-                except (TypeError, ValueError):
-                    spec_digits = 0
-                try:
-                    spec_tick = float(spec["tick_size"] or 0)
-                except (TypeError, ValueError):
-                    spec_tick = 0.0
-                if spec_digits > 0:
-                    out["digits"] = spec_digits
-                if spec_tick > 0:
-                    out["tick_size"] = spec_tick
 
         candles: list = []
         source = "none"
@@ -1179,12 +1200,13 @@ def _iter_atom_manifests() -> list:
 # أمر المالك 2026-08-28: صفحة MX — شارت + شراء/بيع + رافعة + حجم.
 # المفاتيح بـ var/mexc_api.json (خارج الشحن دائمًا) ولا تُعاد للوحة أبدًا.
 # الافتراضي تدريب (dry-run)؛ الحقيقي يتطلب تفعيلًا صريحًا مزدوجًا.
-MEXC_KEYS_PATH = DATA_ROOT / "mexc_api.json"
+MEXC_KEYS_PATH = _resolve_runtime_var("mexc_api.json")
 MEXC_BASE = "https://contract.mexc.com"
 
 # نتائج صفقات كريبتو يدوياً — مصدر الحدّ اليومي في 2275. لا تُنشر نتيجة
 # قبل تأكيدين، وتُسجّل بمعرّف صفقة فريد كي لا يضاعف الضغط المتكرر الخسارة.
-MANUAL_TRADE_RESULTS_DB = DATA_ROOT / "governance" / "manual_trade_results.db"
+MANUAL_TRADE_RESULTS_DB = _resolve_runtime_var(
+    "governance", "manual_trade_results.db")
 _MANUAL_TRADE_CONFIRM_TTL_S = 60.0
 _MANUAL_TRADE_LOCK = threading.Lock()
 _PENDING_MANUAL_TRADE_RESULTS: dict[str, tuple[str, float]] = {}
@@ -2146,7 +2168,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if p == "/gov/universe/overrides":
-            path = DATA_ROOT / "universe_overrides.json"
+            path = _resolve_runtime_var("universe_overrides.json")
             try:
                 payload = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
             except (OSError, ValueError):
@@ -2319,7 +2341,7 @@ class Handler(BaseHTTPRequestHandler):
                                      "dry_run": not bool(k.get("live_enabled"))})
                 elif sub == "universe":
                     try:
-                        mem = json.loads((DATA_ROOT / "universe_membership.json")
+                        mem = json.loads(_resolve_runtime_var("universe_membership.json")
                                          .read_text(encoding="utf-8"))
                     except (OSError, ValueError):
                         mem = {}

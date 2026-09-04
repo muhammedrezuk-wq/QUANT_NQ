@@ -201,10 +201,29 @@ export function DialRow({ dial }: { dial: Dial }) {
       : dial.display === 'percent' ? Math.round(n * 100) / 10000
         : Math.round(n * 100) / 100
     setBusy(true); setNote(null)
-    const r = await confirmedCommand('decision_setting', { name: dial.name, value: stored })
+    // بند ٥ (٢٠٢٦-٠٩-٠٣): «حفظ» يكتب القيمة في سجلّ المُعامِلات ويبقيها
+    // UNAPPROVED — لا تُطبَّق. الاعتماد زرٌّ منفصل يمرّر confirm:true.
+    const r = await confirmedCommand('decision_setting', { name: dial.name, value: stored, confirm: false })
     setBusy(false)
     setNote(r.ok
-      ? { ok: true, text: r.message ?? 'أُرسل — الاعتماد يظهر هنا لحظة ما تطبّقه الذرّة' }
+      ? { ok: true, text: 'حُفظت القيمة كمسودة (غير معتمدة) — «اعتماد» بالزرّ المجاور يجعلها سارية' }
+      : { ok: false, text: r.message ?? 'تعذّر الإرسال' })
+  }
+
+  const approve = async () => {
+    const n = Number(draft)
+    if (draft.trim() === '' || !Number.isFinite(n)) { setNote({ ok: false, text: 'أدخل رقمًا صالحًا' }); return }
+    const storedA = integer ? Math.round(n)
+      : dial.display === 'percent' ? Math.round(n * 100) / 10000
+        : Math.round(n * 100) / 100
+    if (storedA < dial.bounds[0] || storedA > dial.bounds[1]) {
+      setNote({ ok: false, text: `القيمة خارج الحدود — من ${fmtBound(lo)} إلى ${fmtBound(hi)}` }); return
+    }
+    setBusy(true); setNote(null)
+    const r = await confirmedCommand('decision_setting', { name: dial.name, value: storedA, confirm: true })
+    setBusy(false)
+    setNote(r.ok
+      ? { ok: true, text: r.message ?? 'اعتماد المالك مُرسَل — تُطبّقه الذرّة وتصل هنا لحظة نشْرها' }
       : { ok: false, text: r.message ?? 'تعذّر الإرسال' })
   }
 
@@ -230,6 +249,11 @@ export function DialRow({ dial }: { dial: Dial }) {
         onChange={(e) => setDraft(e.target.value)} />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
         <button className="btn" disabled={busy} onClick={save}>{busy ? 'جارٍ الإرسال…' : 'حفظ'}</button>
+        {/* بند ٥: الحفظ كتابة، والاعتماد قرار — زرّان منفصلان بخطوتين لكلٍّ منهما */}
+        <button className="btn" disabled={busy} onClick={approve}
+          title="اعتماد المالك وحده ما يجعل القيمة سارية — الحفظ وحده مسودة">
+          {approved && dial.status === 'APPROVED' ? 'اعتماد من جديد' : 'اعتماد ✓'}
+        </button>
         <span className="ss num" style={{ marginTop: 0 }}>أدنى {fmtBound(lo)} · أقصى {fmtBound(hi)}</span>
       </div>
       {note ? <div style={{ fontSize: 12.5, marginTop: 5, color: note.ok ? 'var(--green)' : 'var(--amber)' }}>{note.text}</div> : null}
@@ -430,6 +454,8 @@ function SpeedPerAssetCard() {
     const r = await confirmedCommand('decision_setting', {
       name: 'ANALYSIS_SPEED', value: Math.round(n * 100) / 100,
       account_id: account.trim(), symbol: symbol.trim().toUpperCase(),
+      // بند ٥: بلا confirm تبقى مسودة؛ الحقل أدناه يجعلها اعتماد المالك الساري.
+      confirm: true,
     })
     setBusy(false)
     setNote(r.ok ? { ok: true, text: 'انحفظت — بتوصل للنظام بثوانٍ' } : { ok: false, text: r.error ?? 'تعذّر الحفظ' })
