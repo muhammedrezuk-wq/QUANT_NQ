@@ -303,6 +303,11 @@ class Atom(AtomBase):
             spread = fresh[0] if fresh else None
             if too_wide(spread, self._max_spread_points):
                 self._spread_blocked += 1
+                self._context.logger.warning(
+                    "552 SPREAD_TOO_WIDE scope=%s spread=%r limit=%s record=%r "
+                    "ttl=%s spread_keys=%s spec_keys=%s",
+                    scoped, spread, self._max_spread_points, record,
+                    self._spread_ttl_s, list(self._spread)[:5], list(self._specs)[:5])
                 await self._refuse(payload, "SPREAD_TOO_WIDE", STAGE_FINAL,
                                    value=spread, threshold=self._max_spread_points,
                                    measured_at=fresh[2] if fresh else None); return

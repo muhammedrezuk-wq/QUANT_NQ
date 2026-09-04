@@ -54,6 +54,13 @@ async def on_specs(atom, payload: dict[str, Any]) -> None:
         symbol = str(row.get("symbol") or "")
         tick_value = _number(row.get("tick_value")); tick_size = _number(row.get("tick_size"))
         scoped = row_key(payload, row, atom._broker_by_account)
+        if atom._context is not None:
+            atom._context.logger.warning(
+                "576 specs row symbol=%s tick_value=%r tick_size=%r scoped=%r "
+                "payload_acct=%r row_acct=%r brokers=%r",
+                symbol, tick_value, tick_size, scoped,
+                payload.get("account_id"), row.get("account_id"),
+                dict(atom._broker_by_account))
         if scoped is not None and tick_value is not None and tick_size and tick_size > 0:
             vpu = tick_value / tick_size
             if vpu > 0:

@@ -121,7 +121,7 @@ class Atom(AtomBase):
                 self._seeded_from = self._last_id
             except sqlite3.Error as exc:
                 self._last_error = str(exc)
-                self._context.logger.warning("611 seed failed: %s", exc)
+                self._context.logger.warning("611 seed failed: %s | db=%s", exc, self._db_path)
         self._running = True
         self._task = asyncio.create_task(self._loop())
 
@@ -253,7 +253,7 @@ class Atom(AtomBase):
         except sqlite3.Error as exc:
             self.failure_count += 1
             self._last_error = str(exc)
-            self._context.logger.warning("611 read failed: %s", exc)
+            self._context.logger.warning("611 read failed: %s | db=%s", exc, self._db_path)
             return
         self._last_error = ""
         if not rows and not revisions:

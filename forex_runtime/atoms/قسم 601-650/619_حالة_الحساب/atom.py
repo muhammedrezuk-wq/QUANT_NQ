@@ -160,7 +160,7 @@ class Atom(AtomBase):
         if self._context is None: return
         try: raw = await asyncio.to_thread(self._read_row)
         except sqlite3.Error as exc:
-            self.failure_count += 1; message=str(exc); self._last_error=(REASON_NO_TABLE if "no such table" in message.lower() else REASON_NO_FILE if "unable to open" in message.lower() else message); self._context.logger.warning("619 read failed: %s",message); return
+            self.failure_count += 1; message=str(exc); self._last_error=(REASON_NO_TABLE if "no such table" in message.lower() else REASON_NO_FILE if "unable to open" in message.lower() else message); self._context.logger.warning("619 read failed: %s | db=%s",message, self._db_path); return
         self._last_error=""
         rows = raw if isinstance(raw,list) else ([raw] if isinstance(raw,dict) else [])
         for row in rows:

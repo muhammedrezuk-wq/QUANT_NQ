@@ -168,6 +168,8 @@ class Atom(AtomBase):
                 return
             except Exception as exc:  # noqa: BLE001
                 self._last_error = "%s: %s" % (type(exc).__name__, exc)
+                if self._context is not None:
+                    self._context.logger.warning("622 loop error: %s", self._last_error)
                 await self._teardown()
                 await self._announce(STATE_DOWN, {"error": self._last_error})
                 await asyncio.sleep(self._reconnect_backoff_s)
@@ -193,6 +195,11 @@ class Atom(AtomBase):
         stream.send(self._session.logon(password, now))
         self._last_sent = now
         self._connects += 1
+        if self._context is not None:
+            self._context.logger.warning(
+                "622 logon sent host=%s:%s tls=%s sender=%s user=%s connects=%s",
+                self._host, self._port, self._use_tls, self._session.sender_comp_id,
+                self._login, self._connects)
         self._books.clear()
         self._last_top.clear()
         self._tracker.rebase()
@@ -226,7 +233,16 @@ class Atom(AtomBase):
                 "skipped_bytes": skipped,
                 "jumps_total": self._jumps,
             })
-        self._buffer += stream.drain()
+        drained = stream.drain()
+        self._buffer += drained
+        self._trace_pumps = getattr(self, "_trace_pumps", 0) + 1
+        if self._trace_pumps <= 40 and self._context is not None:
+            st = stream.stats()
+            self._context.logger.warning(
+                "622 pump#%s drained=%s buf=%s in=%s out=%s connected=%s err=%r",
+                self._trace_pumps, len(drained), len(self._buffer),
+                st.get("bytes_in"), st.get("bytes_out"), st.get("connected"),
+                st.get("error"))
         if len(self._buffer) > self._max_backlog > 0:
             # Owner's feed law: the live line carries no backlog. Above the
             # limit, jump to the tail and declare the gap -- never queue history

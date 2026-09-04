@@ -338,11 +338,18 @@ class Atom(AtomBase):
         if budget is None:
             budget = self._budget.get(key)
         if budget is None or budget <= 0:
+            self._context.logger.warning(
+                "576 pending key=%s reason=NO_BUDGET budget=%r", key, budget)
             if announce_missing:
                 await self._emit_state(account_id, broker, symbol, ST_MISSING, {"budget": budget})
             return
         sized = self._size(key, budget)
         if sized is None:
+            self._context.logger.warning(
+                "576 pending key=%s reason=NO_SIZE price=%r vpu=%r stop_frac=%r "
+                "known_price_keys=%s", key, self._price.get(key), self._vpu.get(key),
+                self._stopfrac.get(key, self._fallback_stop_frac),
+                list(self._price)[:6])
             if announce_missing:
                 await self._emit_state(account_id, broker, symbol, ST_MISSING, {
                     "price": self._price.get(key), "vpu": self._vpu.get(key),

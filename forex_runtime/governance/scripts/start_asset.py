@@ -47,9 +47,16 @@ def main() -> int:
         print(f"❌ لا أستطيع قراءة جسر MT5: {exc}")
         return 2
     try:
+        # ٢٠٢٦-٠٩-٠٥: الإكسبرت يكتب الهوية في account_v2؛ جدول account القديم
+        # بقي فارغًا (مقيس: 0 صف مقابل 1) فكانت الأداة تردّ «لا توجد هوية حساب»
+        # وتوقف كل تفعيل أصل قبل أن يبدأ. نقرأ الحيّ أولًا ونُبقي القديم احتياطًا.
         account = con.execute(
             "SELECT account_id, broker, account_server, connected, trade_allowed, expert_allowed "
-            "FROM account WHERE id=1").fetchone()
+            "FROM account_v2 ORDER BY updated_at DESC LIMIT 1").fetchone()
+        if account is None or not account["account_id"]:
+            account = con.execute(
+                "SELECT account_id, broker, account_server, connected, trade_allowed, expert_allowed "
+                "FROM account WHERE id=1").fetchone()
         if account is None or not account["account_id"]:
             print("❌ لا توجد هوية حساب في الجسر.")
             return 3

@@ -210,7 +210,7 @@ class Atom(AtomBase):
         try:
             rows = await asyncio.to_thread(self._read_specs)
         except sqlite3.Error as exc:
-            self._context.logger.warning("618 spec read failed: %s", exc)
+            self._context.logger.warning("618 spec read failed: %s | db=%s", exc, self._db_path)
             return
         usable = []
         for row in rows:
@@ -255,7 +255,7 @@ class Atom(AtomBase):
             message = str(exc).lower()
             self._last_error = (REASON_NO_TABLE if "no such table" in message
                                 else REASON_NO_FILE if "unable to open" in message else str(exc))
-            self._context.logger.warning("618 read failed: %s", exc)
+            self._context.logger.warning("618 read failed: %s | db=%s", exc, self._db_path)
             return
         self._last_error = ""
         if not rows:
@@ -311,7 +311,7 @@ class Atom(AtomBase):
             try:
                 await asyncio.to_thread(self._purge, highest)
             except sqlite3.Error as exc:
-                self._context.logger.warning("618 purge failed: %s", exc)
+                self._context.logger.warning("618 purge failed: %s | db=%s", exc, self._db_path)
 
     async def _on_fast_pulse(self, payload: dict[str, Any]) -> None:
         # v4.3.0 (nq seal 2026-08-25): kept for compatibility -- if a SYS_10MS

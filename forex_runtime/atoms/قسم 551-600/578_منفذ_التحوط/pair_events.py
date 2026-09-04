@@ -119,6 +119,10 @@ class PairEventMixin:
         leg["status"] = STATUS_FAILED
         leg["last_reason"] = str(reason or "FAILED")
         attempt = int(leg.get("attempt") or 1)
+        if self._context is not None:
+            self._context.logger.warning(
+                "578 leg failed pair=%s role=%s attempt=%s/%s reason=%s",
+                pair_id, role, attempt, self._max_attempts, leg["last_reason"])
         if attempt < self._max_attempts:
             next_attempt = attempt + 1
             new_id = "%s-%s-a%d" % (pair_id, role.lower(), next_attempt)
