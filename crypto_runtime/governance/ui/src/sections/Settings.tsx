@@ -136,6 +136,17 @@ export function AtomConfigForm({ atomId, sandbox = false }: { atomId: number; sa
 }
 
 // ——— عيارات القرار (سجلّ المُعامِلات المحكوم — القيمة المعتمدة تعلو المانيفست) ———
+/** ٢٠٢٦-٠٩-٠٤ (ختم NQ): يُبقي العربيّة وعلامات الترقيم و**الأرقام اللاتينيّة**
+ *  (دستور المالك يطلبها: `60.0` لا `٦٠٫٠`)، ويحذف الرموز الإنكليزيّة الخام —
+ *  مفاتيح الإعداد وأسماء الأحداث ورموز الإصدارات. إن لم يبقَ شرحٌ عربيّ يُقال
+ *  «بلا شرح» صراحةً؛ الفراغ الصامت كذبةٌ صغيرة، والخام مخالفة للدستور. */
+const arabicOnly = (text: unknown): string =>
+  String(text ?? '')
+    .replace(/[A-Za-z][A-Za-z0-9_.]*/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s—·:،-]+|[\s—·:،-]+$/g, '')
+    .trim() || 'بلا شرح'
+
 // Dial/DialRow/useDecisionDials مُصدَّرة عمدًا (بند ١٨ بورقة ٩٩): بطاقات البوابات
 // بصفحة «التنفيذ» تعيد استعمال نفس المكوّن — لا نسخة ثانية منه.
 
@@ -231,7 +242,9 @@ export function DialRow({ dial }: { dial: Dial }) {
   return (
     <div className="scard">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <div className="st" style={{ fontWeight: 700 }}>{DIAL_AR[dial.name] ?? dial.name}</div>
+        {/* بحثٌ موحَّد: `DIAL_AR` ثمّ `PARAM_AR` — عيارٌ غائب عن الأولى كان يسقط
+          على اسمه الخام (`DECISION_LIVE_STALE_AFTER_S` · `NEWS_*`). */}
+      <div className="st" style={{ fontWeight: 700 }} title={dial.name}>{paramAr(dial.name)}</div>
         <span className={`pill ${approved ? 'green' : 'grey'}`}>
           {approved ? `معتمد ✓ v${dial.version}` : 'غير معتمد — قيمة المانيفست'}
         </span>
@@ -257,8 +270,13 @@ export function DialRow({ dial }: { dial: Dial }) {
         <span className="ss num" style={{ marginTop: 0 }}>أدنى {fmtBound(lo)} · أقصى {fmtBound(hi)}</span>
       </div>
       {note ? <div style={{ fontSize: 12.5, marginTop: 5, color: note.ok ? 'var(--green)' : 'var(--amber)' }}>{note.text}</div> : null}
-      <div className="ss dim" title={dial.where}
-        style={{ marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{dial.where}</div>
+      {/* ٢٠٢٦-٠٩-٠٤ (ختم NQ): كان `where` يُعرض خامًا، وهو يبدأ باسم الذرّة
+          العربيّ ثم مفتاح الإعداد الإنكليزيّ ثم الشرح — فيظهر `analysis_speed`
+          و`fast_required_depth` وأمثالها على شاشة مالكٍ لا يقرأ الإنكليزيّة.
+          بحكمه: «ما بدي ولا شي انكليزي او خام». يُنزَع المفتاح من المعروض
+          ويبقى كاملًا في تلميح الفأرة — الشرح العربيّ وحده على الشاشة. */}
+      <div className="ss dim" title={`${dial.name} · ${dial.where}`}
+        style={{ marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{arabicOnly(dial.where)}</div>
     </div>
   )
 }
@@ -512,6 +530,13 @@ export interface GovParameter {
 }
 
 // التسميات العربية بترتيب العرض — والأرقام تبقى غربية (عرف اللوحة)
+// ٢٠٢٦-٠٩-٠٤ (ختم NQ): كانت هذه الخريطة تغطّي الستّة القابلة للاعتماد وحدها،
+// لأنّ البطاقة كانت تعرضها وحدها. ولمّا صارت تعرض الستّ والثلاثين كلّها ظهرت
+// ثلاثون بطاقة باسمها الخام الإنكليزيّ على شاشة مالكٍ **لا يقرأ الإنكليزيّة** —
+// خرقٌ لدستوره: «عربيّ ١٠٠٪ في كل ما يُعرض للمالك». بحكمه: «ما بدي ولا شي
+// انكليزي او خام». فالخريطة الآن تغطّي الستّ والثلاثين، وتسقط على `DIAL_AR`
+// لعيارات القرار المسمّاة هناك، والاسم الخام ينتقل إلى تلميح الفأرة فيبقى
+// للتتبّع بلا أن يُعرض. النقص يُكشف بفحص `check_arabic_ui` لا بالعين.
 const PARAM_AR: Record<string, string> = {
   MOVEMENT_FLOOR: 'أرضية الحركة',
   ABNORMALITY_GAIN: 'كسب الشذوذ',
@@ -519,6 +544,33 @@ const PARAM_AR: Record<string, string> = {
   CONFIDENCE_BLEND: 'مزيج الثقة',
   DEPTH_BLEND: 'مزيج العمق',
   STALE_AFTER_S: 'مهلة النضارة (ثوانٍ)',
+  // عتبات سلسلة القرار
+  DECISION_MIN_STRENGTH: 'أدنى قوّة للإشارة',
+  DECISION_ELIGIBILITY_MIN_CONFIDENCE: 'أدنى ثقة للأهليّة',
+  DECISION_MIN_CURRENT_DEPTH: 'أدنى عمق حاليّ',
+  DECISION_BUY_MIN_DIRECTION: 'أدنى اتّجاه للشراء',
+  DECISION_SELL_MIN_DIRECTION: 'أدنى اتّجاه للبيع',
+  DECISION_LIVE_STALE_AFTER_S: 'مهلة بيات التِكّة (ثوانٍ)',
+  // نوافذ الأخبار — بالدقائق
+  NEWS_HIGH_WINDOW_BEFORE_MIN: 'نافذة الخبر القويّ — قبله (دقائق)',
+  NEWS_HIGH_WINDOW_AFTER_MIN: 'نافذة الخبر القويّ — بعده (دقائق)',
+  NEWS_MEDIUM_WINDOW_MIN: 'نافذة الخبر المتوسّط (دقائق)',
+  NEWS_LIGHT_WINDOW_MIN: 'نافذة الخبر الخفيف (دقائق)',
+}
+
+/** الاسم المعروض: العربيّ أوّلًا، ثمّ اسم عيار القرار، ولا يُعرض خام أبدًا. */
+const paramAr = (name: string): string =>
+  PARAM_AR[name] ?? DIAL_AR[name] ?? name
+
+/** اسم الذرّة المسؤولة بالعربيّ من `declared_at` — رقمها واسمها، بلا مسار
+ *  ولا اسم حدث إنكليزيّ. وإن لم يوجد عربيّ يُقال «غير معلَن» لا يُعرض الخام. */
+const atomAr = (declared: unknown): string => {
+  const raw = String(declared ?? '')
+  const m = /(\d{3,4})_([؀-ۿ][؀-ۿ_\s]*)/.exec(raw)
+  if (m) return `${m[1]} · ${m[2].replace(/_/g, ' ').trim()}`
+  const ar = raw.match(/[؀-ۿ][؀-ۿ\s_]*/g)
+  const joined = ar ? ar.join(' ').replace(/_/g, ' ').trim() : ''
+  return joined || 'غير معلَن'
 }
 
 // دقّة عشريتين — إلا القيم الصغرى (أرضية الحركة 0.000001): تدويرها لعشريتين
@@ -584,7 +636,7 @@ export function ParameterRow({ param, audit, auditErr }: { param: GovParameter; 
   return (
     <div className="scard">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <div className="st" style={{ fontWeight: 700 }}>{PARAM_AR[param.name] ?? param.name}</div>
+        <div className="st" style={{ fontWeight: 700 }} title={param.name}>{paramAr(param.name)}</div>
         <span className={`pill ${approved ? 'green' : 'grey'}`}>
           {approved ? `معتمد ✓ v${param.version}` : 'غير معتمد — القيمة الأولية العادلة سارية'}
         </span>
@@ -603,7 +655,6 @@ export function ParameterRow({ param, audit, auditErr }: { param: GovParameter; 
         <button className="btn" disabled={busy || !param.approvable} onClick={save}>
           {busy ? 'جارٍ الإرسال…' : param.approvable ? 'اعتماد' : 'للقراءة فقط'}
         </button>
-        <span className="ss num" style={{ marginTop: 0 }}>{param.name}</span>
       </div>
       {param.approvable ? null : (
         <div className="ss dim" style={{ marginTop: 4 }}>
@@ -611,9 +662,14 @@ export function ParameterRow({ param, audit, auditErr }: { param: GovParameter; 
         </div>
       )}
       {note ? <div style={{ fontSize: 12.5, marginTop: 5, color: note.ok ? 'var(--green)' : 'var(--amber)' }}>{note.text}</div> : null}
-      <div className="ss dim" title={`يحكم: ${param.governs} · المصدر بالكود: ${param.declared_at}`}
+      {/* ٢٠٢٦-٠٩-٠٤ (ختم NQ): كان هذا السطر يعرض `governs` و`declared_at` خامَين —
+          أسماء أحداثٍ ومسارات إنكليزيّة على شاشة مالكٍ لا يقرأ الإنكليزيّة.
+          المعروض الآن اسم الذرّة العربيّ وحده؛ والخام كلّه في تلميح الفأرة،
+          فالتتبّع محفوظ ولا حرف أجنبيّ على الشاشة. */}
+      <div className="ss dim"
+        title={`${param.name} · يحكم: ${param.governs} · المصدر بالكود: ${param.declared_at}`}
         style={{ marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        يحكم: {param.governs} · المصدر بالكود: {param.declared_at}
+        الذرّة المسؤولة: {atomAr(param.declared_at)}
       </div>
       {/* سجل تغييرات — جدول parameters_audit موجود بالكود فعلًا؛ لا زرّ رجوع
           لأن لا آلية رجوع فعلية بالكود (901/parameter_registry لا يملكان استرجاعًا) —

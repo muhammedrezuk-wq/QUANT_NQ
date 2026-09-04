@@ -2,11 +2,35 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
+from shared.decision_dials import (EVENT_COMMAND as EVENT_DIALS_COMMAND,
+                                   apply_command, effective_value)
 from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 
-ATOM_VERSION = "2.1.0"
+ATOM_VERSION = "2.2.0"
+
+# ٢٠٢٦-٠٩-٠٤ (ختم NQ §٣٥): أربعة عيارات تُعلن في `DIALS` أنّ مالكها هذه الذرّة
+# (`"atom": "411"`)، وهذه الذرّة لم تكن تشترك بـ`decision.settings.command` ولا
+# تنادي `apply_command` قطّ. فكل أمر اعتماد لها يسقط بلا مستلِم، ويبقى صفّها في
+# السجلّ `source=UNSET` و`status=UNAPPROVED` **إلى الأبد** — لا يصلحه ضغط زرّ ولا
+# إعادة تشغيل. واثنان منها (`medium`/`light`) يعلنان مفتاحَي إعداد لم يكونا في
+# إعداد الذرّة أصلًا، فأُضيفا للمخطّط بقيمة صفر كما هي في السجلّ.
+#
+# والأثر لم يكن على الأخبار وحدها: `ParameterRegistry.unapproved()` لا يسأل عن
+# صاحب المُعامِل، فمُعامِلٌ واحد غير معتمد يُبقي **كل** بطاقة قسم `provisional`
+# بسبب `UNAPPROVED_PARAMETER`. مقيس ٢٠٢٦-٠٩-٠٤: ١٠٢ بطاقة، `weight_effect=0.0`
+# في كلٍّ منها وأعماقها فوق المطلوب، و`active_weight=0.0` مقابل
+# `available_weight=233.33`، فما أهّل ٤٥٥ مرّة واحدة في ٢٥٤٢ محاولة، وما خرج
+# أمرٌ واحد. أربعة عيارات يتيمة أقفلت سلسلة القرار كلّها.
+#
+# ⛔ ما لا يفعله هذا التعديل: لا يغيّر سلوك حظر التداول حول الأخبار. نافذتا
+#    `high` تعملان كما كانتا، و`medium`/`light` تُحفظان وتُعلنان ولا تحظران —
+#    قيمتهما في السجلّ صفر، وحكم المالك بالورقة ق٧ صريح: «لا اختراع مدد».
+_DIAL_HIGH_BEFORE = "NEWS_HIGH_WINDOW_BEFORE_MIN"
+_DIAL_HIGH_AFTER = "NEWS_HIGH_WINDOW_AFTER_MIN"
+_DIAL_MEDIUM = "NEWS_MEDIUM_WINDOW_MIN"
+_DIAL_LIGHT = "NEWS_LIGHT_WINDOW_MIN"
 EVENT_TICK = VALIDATED_TICK_EVENT
 EVENT_NEWS = "market_data.news_received"
 EVENT_ENRICHED = "market.news.enriched"
@@ -51,16 +75,50 @@ class Atom(AtomBase):
         self._seen = self._emitted = self._duplicates = 0
         self._no_time = 0
         self._no_tick_time = 0
+        self._medium_min = 0.0
+        self._light_min = 0.0
+        self._dials_applied = 0
 
     async def initialize(self, c):
         self._context = c
         self._rt.configure(c.config)
         self._window_s = int(c.config.get("recent_window_s", 3600))
-        self._before = float(c.config.get("high_window_before_min", 15)) * 60
-        self._after = float(c.config.get("high_window_after_min", 15)) * 60
+        # المعتمَد من السجلّ يعلو قيمة المانيفست؛ وغير المعتمَد تبقى المانيفست
+        # هي السارية — نفس عقد ١٦٦ حرفيًّا (`effective_value`).
+        self._before = effective_value(
+            _DIAL_HIGH_BEFORE, float(c.config.get("high_window_before_min", 15))) * 60
+        self._after = effective_value(
+            _DIAL_HIGH_AFTER, float(c.config.get("high_window_after_min", 15))) * 60
+        self._medium_min = effective_value(
+            _DIAL_MEDIUM, float(c.config.get("medium_window_min", 0.0)))
+        self._light_min = effective_value(
+            _DIAL_LIGHT, float(c.config.get("light_window_min", 0.0)))
         c.subscribe(EVENT_TICK, self._on_tick)
         c.subscribe(EVENT_NEWS, self._on_news)
         c.subscribe(EVENT_ENRICHED, self._on_news)
+        c.subscribe(EVENT_DIALS_COMMAND, self._on_dial_command)
+
+    async def _on_dial_command(self, payload: dict[str, Any]):
+        """يستلم أمر عيارٍ تملكه هذه الذرّة ويطبّقه — بلا هذا المستلِم يسقط الأمر
+        بصمت ويبقى العيار `UNAPPROVED` أبدًا (انظر التعليق أعلى الملفّ)."""
+        if not self._running or self._context is None:
+            return
+        applied = apply_command(payload, atom_id="411")
+        if applied is None:
+            return
+        name = applied["name"]
+        value = float(applied["value"])
+        if name == _DIAL_HIGH_BEFORE:
+            self._before = value * 60
+        elif name == _DIAL_HIGH_AFTER:
+            self._after = value * 60
+        elif name == _DIAL_MEDIUM:
+            self._medium_min = value
+        elif name == _DIAL_LIGHT:
+            self._light_min = value
+        else:
+            return
+        self._dials_applied += 1
 
     async def start(self):
         self._running = True

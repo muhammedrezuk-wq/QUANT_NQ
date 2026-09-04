@@ -133,10 +133,29 @@ class Atom(AtomBase):
         self._dials_applied += 1
         if name in (_DIAL_FAST_WEIGHT, _DIAL_SLOW_WEIGHT) and isinstance(payload, dict):
             counterpart = _DIAL_SLOW_WEIGHT if name == _DIAL_FAST_WEIGHT else _DIAL_FAST_WEIGHT
+            # ٢٠٢٦-٠٩-٠٤ (ختم NQ §٣٥): `confirm` يُمرَّر للمكمّل. بدونه كان
+            # `apply_command` يكتبه مسودّة `UNAPPROVED` (decision_dials.py:280 —
+            # «`true` وحده يعتمد»), فينشأ قفلٌ دائم على الزوج:
+            #
+            #     اعتماد SLOW=47  →  FAST=53 مسودّة غير معتمدة
+            #     اعتماد FAST=53  →  SLOW=47 مسودّة غير معتمدة
+            #
+            # فلا يجتمع الاثنان معتمدَين أبدًا، ويبقى واحدٌ منهما `UNAPPROVED`
+            # على الدوام، وتبقى **كل** بطاقة قسم `provisional` بسبب
+            # `UNAPPROVED_PARAMETER` وحده. مقيس ٢٠٢٦-٠٩-٠٤ بعد اعتماد المالك:
+            # ١٠٢ بطاقة قسم، كلّها `weight_effect=0.0` وأعماقها فوق المطلوب
+            # (‏82.3/64.8 · 89.6/60 · 91.8/60)، و`active_weight=0.0` مع
+            # `available_weight=233.33`؛ وصفّ `ANALYSIS_FAST_WEIGHT` في السجلّ
+            # `source=OWNER` مع `status=UNAPPROVED` — أثر الارتداد حرفيًّا.
+            #
+            # وهذا ليس تجاوزًا للبند ٥: المكمّل `100 − x` ليس قرارًا ثانيًا
+            # يُخترع، بل **نفس قرار المالك** بحسابٍ رياضيّ لا اختيار فيه. حين
+            # يحفظ المالك مسودّة (`confirm` غائب) يبقى المكمّل مسودّة كما كان.
             rebalanced = apply_command({
                 "name": counterpart, "value": 100.0 - value,
                 "command_id": str(payload.get("command_id") or "") + ":rebalance",
                 "operator": payload.get("operator"),
+                "confirm": payload.get("confirm"),
                 "approved_at": payload.get("approved_at",
                                            payload.get("command_requested_at")),
             }, atom_id="166")

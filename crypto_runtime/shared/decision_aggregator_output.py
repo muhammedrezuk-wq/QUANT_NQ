@@ -117,13 +117,32 @@ async def publish_live_decision(atom: Any, scope: tuple[str, str, str]) -> None:
 
     depth_unknown_fields: list[str] = []
     depth_aggregates: dict[str, float | None] = {}
+    # ٢٠٢٦-٠٩-٠٤ (ختم NQ): العمق يُوزن بالوزن المُعلَن `weight`، لا بـ`weight_effect`.
+    #
+    # `weight_effect` صفرٌ لكل قسم ليس READY (451/atom.py:358 — «Only READY cards
+    # contribute weight… its weight just isn't there»). وهذا **صحيح** للاتجاه
+    # والقوّة والثقة أعلاه: قسم غير جاهز لا يجوز أن يصوّت على القرار، ولذلك تُركت
+    # كما هي حرفيًّا.
+    #
+    # لكنّه على العمق دورةٌ مغلقة: القسم يُستبعَد من متوسط العمق **لأنّه ليس
+    # جاهزًا**، والعمق هو المقياس الذي يقول كم اقترب من الجاهزيّة. فتُستعمل
+    # الجاهزيّة لتزن مقياس الجاهزيّة نفسه، ولا يُرى الاقتراب أبدًا.
+    #
+    # مقيس ٢٠٢٦-٠٩-٠٤: `analysis.raw.completed` يحمل `current_depth=57.4965`
+    # بحالة NOT_READY، فيخرج من ٤٥١ `None` ويُعلَن في `depth_unknown_fields`،
+    # فيرى ٤٥٥ `FIELD_UNKNOWN:current_depth` ويعرض المالك «عمق مجهول». وحكمه:
+    # «هو اسمه عمق، ممكن يخزن تكات، لا يخرجه» — العمق مخزونٌ لا رصدٌ يبطل.
+    #
+    # الأثر: القرار لا يتغيّر — `active_weight` و`weighted_direction/strength/
+    # confidence` و`aggregate_state` لم تُمَسّ، وعتبة العمق في ٤٥٥ تبقى شرطًا.
+    # المتغيّر أنّ الرقم يُعرض ويُقارن بدل أن يُعلَن مجهولًا وهو مقيس.
     for depth_field in ("current_depth", "required_depth"):
         depth_total = depth_weight = 0.0
         for row in weighted_rows:
             depth_value = _measured(row.get(depth_field))
             if depth_value is None:
                 continue
-            effect = _number(row.get("weight_effect"))
+            effect = _number(row.get("weight"))
             depth_total += depth_value * effect
             depth_weight += effect
         if depth_weight > 0:

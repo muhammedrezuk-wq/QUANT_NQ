@@ -650,6 +650,12 @@ TOOLS: dict[str, tuple[list[str], int]] = {
     "project": (["governance/checks/check_project.py"], 180),
     "safety": (["governance/checks/check_execution_safety.py"], 90),
     "security": (["governance/scripts/check_security.py"], 90),
+    # ٢٠٢٦-٠٩-٠٤ (ختم NQ): حارس عربيّة اللوحة. أُضيف بعد أن كشف المالك بعينه
+    # ثلاثين بطاقة بأسمائها الإنكليزيّة الخام على شاشته — ولم يكشفها فحص.
+    # دستوره: «عربيّ ١٠٠٪ في كل ما يُعرض للمالك»، وحكمه: «ما بدي ولا شي
+    # انكليزي او خام». عينُ المالك ليست جهاز إنذار: عيارٌ يُضاف غدًا بلا اسم
+    # عربيّ كان سيمرّ صامتًا. مُثبَت أنّه يعضّ: حُذف اسمٌ واحد فأعطى FAIL ورمز 1.
+    "arabic_ui": (["governance/checks/check_arabic_ui.py"], 60),
     # أمر المالك 2026-08-13: «إذا الهم شغلة لازم من طبقة حوكمة نتحكم فيهم مو من
     # جذر مشروع». هذه الستّة كانت ملفّات .bat بالجذر فقط — صارت أزرارًا باللوحة.
     "bridge": (["governance/scripts/check_bridge.py"], 90),

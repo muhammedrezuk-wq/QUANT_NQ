@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../core/store'
 import { useMarket } from '../core/market'
 import { settingLabel } from '../core/settingLabels'
-import { confirmedCommand } from '../core/commands'
+import { confirmedCommand, confirmedCommandMany } from '../core/commands'
 import { SECTIONS } from '../core/sections'
 import {
   COLOR_VARS, loadColors, saveColor, resetColors, type ColorsMap,
@@ -316,14 +316,62 @@ export function DecisionDialsCard({ excludeNames = [], onlyNames, includeExtras 
 }) {
   const { dials, err } = useDecisionDials(onlyNames, excludeNames)
 
+  // ٢٠٢٦-٠٩-٠٤ (ختم NQ): توأم زرّ «اعتماد الكل» في بطاقة المُعامِلات، لأنّ
+  // العيارات مسارها `decision_setting` لا `parameter_approve`، فزرّ تلك البطاقة
+  // لا يمسّها. مقيس بعد أوّل كبسة: اعتُمد ٢٧ من ٣٦، وبقيت تسعة — كلّها عيارات —
+  // فبقيت **١٠٢ بطاقة قسم** كلّها `provisional=True` بسبب `UNAPPROVED_PARAMETER`
+  // وحده، و`weight_effect=0.0` في كلٍّ منها، فبقي `active_weight=0.0` مع أنّ
+  // المتاح 233.33، وأعماقها كلّها فوق المطلوب (‏82.3/64.8 · 89.6/60 · 91.8/60).
+  // تسعةٌ غير معتمدة تحجب مئةً واثنتين مقيسة.
+  //
+  // القيمة المرسَلة هي المخزَّنة كما هي (`d.value`) — لا رقم يُخترع ولا يُقرَّب،
+  // وكل عيار يمرّ بخطوتَي البوّابة نفسِهما؛ التأكيد وحده صار واحدًا.
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkMsg, setBulkMsg] = useState('')
+  const pendingDials = (dials ?? []).filter((d) => d.status !== 'APPROVED')
+  const approveAllDials = async () => {
+    if (!pendingDials.length) return
+    setBulkBusy(true); setBulkMsg('')
+    const r = await confirmedCommandMany(
+      pendingDials.map((d) => ({
+        action: 'decision_setting',
+        payload: { name: d.name, value: d.value, confirm: true },
+      })),
+      `اعتماد ${pendingDials.length} عيارًا بقيمها المعروضة الآن`,
+    )
+    setBulkBusy(false)
+    setBulkMsg(r.ok
+      ? `اعتُمد ${r.done} عيارًا — تظهر «معتمد ✓» لحظة تنفيذ بوّابة الأوامر`
+      : `نجح ${r.done} · تعذّر ${r.failed.length}${r.failed.length ? ' — ' + r.failed.slice(0, 3).map((f) => f.message).join(' · ') : ''}`)
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div className="scard">
-        <div className="st" style={{ fontWeight: 700 }}>عيارات القرار</div>
+        <div className="st" style={{ fontWeight: 700 }}>
+          عيارات القرار
+          {dials ? <span className="ss dim" style={{ fontWeight: 400 }}>
+            {'  · معتمدة: '}{dials.filter((d) => d.status === 'APPROVED').length}{' من '}{dials.length}
+          </span> : null}
+        </div>
         <div className="ss dim">
           عتبات سلسلة القرار المحكومة — كل رقم قابل للتغيير بدقّة 100.00، والتعديل يمرّ ببوّابة الأوامر بتأكيد.
           المعتمد يعلو قيمة المانيفست حيًّا بلا إعادة تشغيل؛ وغير المعتمد تبقى قيمة المانيفست هي السارية.
         </div>
+        {dials ? (
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button className="btn" disabled={bulkBusy || pendingDials.length === 0} onClick={approveAllDials}
+              title="كل عيار يمرّ ببوّابة الأوامر (٩٠١) بقيمته المعروضة — التأكيد وحده صار واحدًا">
+              {bulkBusy ? 'جارٍ الاعتماد…'
+                : pendingDials.length === 0 ? 'كلّها معتمدة ✓'
+                  : `اعتماد الكل (${pendingDials.length}) ✓`}
+            </button>
+            <span className="ss dim">
+              كبسة واحدة · تأكيد واحد · لا قيمة تتغيّر ولا حارس يُرفع
+            </span>
+          </div>
+        ) : null}
+        {bulkMsg ? <div style={{ marginTop: 6, fontSize: 13 }}>{bulkMsg}</div> : null}
         {err ? <div style={{ marginTop: 6, fontSize: 13, color: 'var(--amber)' }}>{err}</div> : null}
       </div>
       {dials == null
@@ -724,6 +772,31 @@ export function DeclaredParametersCard() {
   }, [live])
   const { rows: auditRows, err: auditErr } = useParametersAudit()
 
+  // ٢٠٢٦-٠٩-٠٤ (ختم NQ — «بدي افتح تداول من زر واحد كبسة 1 بس»):
+  // الاعتماد كان ٣٦ كبسة، كلٌّ بتأكيدين — فبقيت ٣٦/٣٦ غير معتمدة، وبقيت كل
+  // بطاقات العقد provisional، فبقي `active_weight = 0.0` مع أنّ المتاح 233.33،
+  // فما بلغ قسمٌ READY قطّ، ولا أهّل ٤٥٥ مرّة واحدة في ١٤٢٤ محاولة.
+  //
+  // الكبسة الواحدة هنا لا تلفّ على شيء: كل مُعامِل يمرّ بخطوتَي بوّابة الأوامر
+  // (٩٠١) نفسِهما عبر `confirmedCommandMany` — الفرق أنّ المالك يؤكّد الدفعة
+  // مرّة بدل ستٍّ وثلاثين. ولا تُعتمد إلّا القيمة المعروضة أصلًا: لا رقم جديد
+  // يُخترع هنا، ولا يُمَسّ حارس.
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkMsg, setBulkMsg] = useState('')
+  const pending = (params ?? []).filter((p) => p.approvable && p.status !== 'APPROVED')
+  const approveAll = async () => {
+    if (!pending.length) return
+    setBulkBusy(true); setBulkMsg('')
+    const r = await confirmedCommandMany(
+      pending.map((p) => ({ action: 'parameter_approve', payload: { name: p.name, value: p.value } })),
+      `اعتماد ${pending.length} مُعامِلًا بقيمها المعروضة الآن`,
+    )
+    setBulkBusy(false)
+    setBulkMsg(r.ok
+      ? `اعتُمد ${r.done} مُعامِلًا — تظهر «معتمد ✓» لحظة تنفيذ بوّابة الأوامر`
+      : `نجح ${r.done} · تعذّر ${r.failed.length}${r.failed.length ? ' — ' + r.failed.slice(0, 3).map((f) => f.message).join(' · ') : ''}`)
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div className="scard">
@@ -734,6 +807,20 @@ export function DeclaredParametersCard() {
             {' · معتمدة: '}{params.filter((p) => p.status === 'APPROVED').length}
           </span> : null}
         </div>
+        {params ? (
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button className="btn" disabled={bulkBusy || pending.length === 0} onClick={approveAll}
+              title="كل مُعامِل يمرّ ببوّابة الأوامر (٩٠١) كما هو — التأكيد وحده صار واحدًا بدل ستٍّ وثلاثين">
+              {bulkBusy ? 'جارٍ الاعتماد…'
+                : pending.length === 0 ? 'كلّها معتمدة ✓'
+                  : `اعتماد الكل (${pending.length}) ✓`}
+            </button>
+            <span className="ss dim">
+              كبسة واحدة · تأكيد واحد · لا قيمة تتغيّر ولا حارس يُرفع
+            </span>
+          </div>
+        ) : null}
+        {bulkMsg ? <div style={{ marginTop: 6, fontSize: 13 }}>{bulkMsg}</div> : null}
         <div className="ss dim">
           كل مُعامِل معلن بالسجلّ — لا المعتمَد وحده. القيمة الأولية العادلة سارية غير رسمية حتى
           يعتمدها المالك (حكم ق١)، وبقاء أي واحدة غير معتمدة يبقي كل بطاقات العقد provisional.
