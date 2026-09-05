@@ -89,7 +89,15 @@ class Atom(AtomBase):
         context.subscribe(EVENT_SIZE, self._on_size)
         # مصادر التتبّع البنيوي: القمم والقيعان من 201 والهيكل الداخلي
         # من 203 — خلفها يزحف الوقف بينما الصفقة تكمل.
-        for event in ("structure.swing.state", "structure.internal.state"):
+        # ٢٠٢٦-٠٩-٠٦ (مقيس): المصدران وحدهما نشرا سوينغين اثنين فقط
+        # (201 swings=2 · 203 events=3)، فلم يجد الوقف الزاحف قاعًا يزحف
+        # خلفه ولا مرّة. تُضاف كل الذرّات التي تقيس مستوى بنيويًّا —
+        # هي نفسها التي تغذّي خريطة 581 — فيصير للتتبّع ما يمسك به.
+        for event in ("structure.swing.state", "structure.internal.state",
+                      "structure.external.state", "structure.bos.state",
+                      "structure.choch.state", "structure.mss.state",
+                      "liquidity.sweep.state", "liquidity.fvg.state",
+                      "liquidity.buyside.state", "liquidity.sellside.state"):
             context.subscribe(event, self._on_structure)
 
     async def _on_structure(self, payload: dict[str, Any]) -> None:
@@ -102,12 +110,26 @@ class Atom(AtomBase):
         meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         signal = str(payload.get("signal") or "").lower()
         book = self._structure.setdefault(symbol, {})
+        # المرجع الذي يُصنَّف به المستوى: سعر إغلاق الدورة التي نشرته.
+        reference = (_to_float(meta.get("close")) or _to_float(meta.get("price"))
+                     or _to_float(payload.get("price")))
         low = _to_float(meta.get("swing_low"))
         high = _to_float(meta.get("swing_high"))
         if low is None and signal == "swing_low":
             low = _to_float(meta.get("price")) or _to_float(payload.get("price"))
         if high is None and signal == "swing_high":
             high = _to_float(meta.get("price")) or _to_float(payload.get("price"))
+        # مستويات الذرّات الأخرى: مستوى الاختراق وحدّا الفجوة وسعر البركة
+        # — تُصنَّف قاعًا أو قمّةً بموضعها من مرجع دورتها.
+        if reference and reference > 0:
+            for field in ("level", "gap_bottom", "gap_top", "price"):
+                value = _to_float(meta.get(field))
+                if value is None or value <= 0 or value == reference:
+                    continue
+                if value < reference and (low is None or value > low):
+                    low = value
+                elif value > reference and (high is None or value < high):
+                    high = value
         if low and low > 0:
             book["low"] = low
         if high and high > 0:

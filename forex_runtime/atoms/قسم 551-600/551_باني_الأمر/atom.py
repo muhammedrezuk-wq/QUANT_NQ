@@ -253,14 +253,24 @@ class Atom(AtomBase):
         if not size:
             return order            # لا مواصفة بعد؛ الحارس التالي يقرّر
         size = dict(size)
-        # حصّة هذه الخطوة من سقف المالك: خطوة تمثّل ٤٠٪ من الهدف تخاطر
-        # بأربعة دولارات لا بعشرة، فيبقى للتعزيز مجاله ضمن السقف نفسه.
-        step_fraction = _to_float(payload.get("step_fraction"))
-        if step_fraction is not None and 0.0 < step_fraction <= 1.0:
-            cap = size.get("max_trade_loss") or size.get("risk_amount")
-            if cap:
-                size["risk_amount"] = cap * step_fraction
-                size["max_trade_loss"] = cap * step_fraction
+        # حصّة هذه الخطوة من سقف المالك — عاملان لا واحد:
+        #   exposure = جودة الإشارة (حِزَم 581: 0.10 · 0.25 · 0.50)
+        #   step     = نسبة هذه الخطوة من الهدف الإجمالي
+        # فالسقف حدٌّ أقصى لا هدف: إعداد ضعيف يأخذ عُشره، وقويّ نصفه،
+        # ولا يُلامَس إلا نظريًّا. بلا عامل الجودة كانت كل صفقة تستهلك
+        # السقف كاملًا مهما كانت الإشارة — وهو ما رصده المالك ٢٠٢٦-٠٩-٠٦.
+        cap = size.get("max_trade_loss") or size.get("risk_amount")
+        if cap:
+            share = 1.0
+            exposure = _to_float(payload.get("exposure_fraction"))
+            if exposure is not None and 0.0 < exposure <= 1.0:
+                share *= exposure
+            step_fraction = _to_float(payload.get("step_fraction"))
+            if step_fraction is not None and 0.0 < step_fraction <= 1.0:
+                share *= step_fraction
+            if share < 1.0:
+                size["risk_amount"] = cap * share
+                size["max_trade_loss"] = cap * share
         if payload.get("costs_in_stop") is True:
             # التكاليف مُضمَّنة في مسافة الوقف المرسل (581 أزاحه للخارج
             # كي يبقى للتحليل مداه). إضافتها هنا ثانيةً تحسبها مرّتين.
