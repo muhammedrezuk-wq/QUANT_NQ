@@ -185,16 +185,10 @@ class Atom(AtomBase):
         context.subscribe(EVENT_DIALS_COMMAND, self._on_dial_command)
 
     def _refresh_dials(self) -> None:
-        # ٢٠٢٦-٠٩-٠٥ (تدقيق خارجي — مؤكَّد بالقياس): أمر المالك كان يُطبَّق
-        # على العيار المملوك ثم **يُدهَس** هنا عند أوّل تقييم، لأن هذه
-        # الحلقة تعيد قراءة كل عيار من السجلّ/الإعداد. فتُنشر حالة العيار
-        # 60 بينما يعمل المنطق على 50 — العتبة تبدو مضبوطة وهي ليست كذلك،
-        # وهو ما رصده اختبار test_dial_command_applies_live في 455/456/457.
-        # العيار الذي طبّق عليه المالك أمرًا لا يُعاد قراءته من الإعداد.
-        applied = getattr(self, "_dial_overrides", None)
+        # يقرأ الساري من السجلّ: المعتمد من المالك إن وُجد، وإلا المانيفست.
+        # لا استثناء لعيار «مملوك»: الأمر المعتمد يُكتب في السجلّ نفسه
+        # (`registry.approve` داخل `apply_command`)، فيعود من هنا صحيحًا.
         for name, (attr, key) in DIALS_READ.items():
-            if applied and name in applied:
-                continue
             setattr(self, attr,
                     effective_value(name, self._cfg[key], self._registry))
 
@@ -204,11 +198,15 @@ class Atom(AtomBase):
         applied = apply_command(payload, atom_id=ATOM_ID)
         if applied is None:
             return
-        setattr(self, DIALS_OWNED[applied["name"]], float(applied["value"]))
-        overrides = getattr(self, "_dial_overrides", None)
-        if overrides is None:
-            overrides = self._dial_overrides = set()
-        overrides.add(applied["name"])
+        # ⚖️ بند ٥ (٢٠٢٦-٠٩-٠٣): «حفظ» ≠ «اعتماد». كان `setattr` يقع هنا
+        # بلا فحص الاعتماد، فتُطبَّق **مسودة غير معتمدة** على منطق القرار
+        # فورًا، ثم يمحوها `_refresh_dials` عند أوّل تقييم (لأن
+        # `effective_value` يشترط STATUS_APPROVED). فالنتيجة رقم يظهر في
+        # حالة العيارات ولا يحكم، أو يحكم لحظةً ثم يزول — وهو ما رآه
+        # التدقيق الخارجي وسمّاه «العيارات لا تُطبَّق حيًّا».
+        # المعتمد وحده يحكم المنطق، والمسودة تبقى مسودة.
+        if applied.get("approved"):
+            setattr(self, DIALS_OWNED[applied["name"]], float(applied["value"]))
         self._dials_applied += 1
         await self._publish_dials_state()
 

@@ -213,9 +213,14 @@ async def test_missing_decision_id_declared_not_invented():
 async def test_dial_command_applies_live():
     print("\n--- test_dial_command_applies_live ---")
     atom, bus = await _new()
+    # ⚖️ بند ٥ (٢٠٢٦-٠٩-٠٣): «حفظ» ≠ «اعتماد» — و`confirm: True` هو الخطّ
+    # الفاصل. كُتب هذا الاختبار قبل البند، فكان يرسل أمرًا بلا اعتماد
+    # ويتوقّع أن يحكم المنطق — أي يطالب بأن تُطبَّق **مسودة**. تصحيحه هنا
+    # يجعله يختبر ما يجب فعلًا: الأمر **المعتمد** يسري حيًّا.
     await atom._on_dial_command({"name": "DECISION_MIN_STRENGTH",
                                  "value": 70.0, "command_id": "CMD-1",
-                                 "operator": "NQ", "approved_at": 123.0})
+                                 "operator": "NQ", "approved_at": 123.0,
+                                 "confirm": True})
     states = [p for n, p in bus.published if n == EVENT_DIALS_STATE]
     assert states and states[-1]["dials"]["DECISION_MIN_STRENGTH"] == 70.0
     # دورة §١٦ بعد رفع عتبة القوة إلى 70: القوة 61 تحجب → انتظار فعّال.

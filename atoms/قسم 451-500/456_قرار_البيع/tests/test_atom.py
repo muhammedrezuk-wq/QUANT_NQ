@@ -189,9 +189,14 @@ async def test_q8_19_zero_dial_half_conflict_no_arbitration():
 async def test_dial_command_applies_live():
     print("\n--- test_dial_command_applies_live ---")
     atom, bus = await _new()
+    # ⚖️ بند ٥ (٢٠٢٦-٠٩-٠٣): «حفظ» ≠ «اعتماد» — و`confirm: True` هو الخطّ
+    # الفاصل. كُتب هذا الاختبار قبل البند، فكان يرسل أمرًا بلا اعتماد
+    # ويتوقّع أن يحكم المنطق — أي يطالب بأن تُطبَّق **مسودة**. تصحيحه هنا
+    # يجعله يختبر ما يجب فعلًا: الأمر **المعتمد** يسري حيًّا.
     await atom._on_dial_command({"name": "DECISION_SELL_MIN_DIRECTION",
                                  "value": 70.0, "command_id": "CMD-1",
-                                 "operator": "NQ", "approved_at": 123.0})
+                                 "operator": "NQ", "approved_at": 123.0,
+                                 "confirm": True})
     states = [p for n, p in bus.published if n == EVENT_DIALS_STATE]
     assert states and states[-1]["dials"]["DECISION_SELL_MIN_DIRECTION"] == 70.0
     await atom._on_scored(_scored(-68.0, 64.0, 75.0, 81.0, "READY"))
