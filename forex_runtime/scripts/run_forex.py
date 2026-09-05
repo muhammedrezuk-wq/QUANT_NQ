@@ -25,7 +25,19 @@ os.environ.setdefault("QUANT_CORE_CONFIG", str(ROOT / "config" / "core_forex.yam
 # ٢٠٢٦-٠٩-٠٣ (مالك جذور المسارات): الـruntime هو الجذر القانوني لكلّ حالة حيّة
 # — data-root (var/)، سجلّ المعايرة، journal، snapshots — فلا يعود أيّ منها
 # يعيش تحت جذر المشروع بينما يكتب أخوه داخل الـruntime.
-os.environ.setdefault("QUANT_ATOMS_ROOT", str(ROOT / "forex_runtime" / "atoms"))
+# ٢٠٢٦-٠٩-٠٥ (حكم المالك: «لازم يكون في نسخة وحدة بس»): كانت الذرّات
+# تُحمَّل من forex_runtime/atoms بينما النواة وshared تُحمَّلان من الجذر
+# (sys.path[0] أعلاه) — فصار النظام يخلط شجرتين. والأخطر أن ثلاث وحدات
+# مشتركة حُمِّلت **مرّتين** في العملية نفسها، مقيسًا بـ__pycache__:
+#   shared/…/position_delta_recompute.pyc              21:11:56
+#   forex_runtime/shared/…/position_delta_recompute.pyc 21:12:10
+# نسختان من قانون واحد في ذاكرة واحدة: تعديلٌ في إحداهما يترك النصف
+# الآخر يعمل بالقديم بلا خطأ ولا تحذير.
+#
+# الذرّات صارت تُحمَّل من الجذر — مصدر واحد للكود. وعزل البيانات يبقى
+# كما هو: var/ والحالة الحيّة تحت الـruntime بلا تغيير (البند ٨ من
+# check_path_authority يخصّ جذور البيانات لا جذر الكود).
+os.environ.setdefault("QUANT_ATOMS_ROOT", str(ROOT / "atoms"))
 os.environ.setdefault("QUANT_RUNTIME_ROOT", str(ROOT / "forex_runtime"))
 os.environ.setdefault("QUANT_CORE_STATE_ROOT", str(ROOT / "forex_runtime" / "var"))
 os.environ.setdefault("QUANT_CORE_DOMAIN", "forex")
