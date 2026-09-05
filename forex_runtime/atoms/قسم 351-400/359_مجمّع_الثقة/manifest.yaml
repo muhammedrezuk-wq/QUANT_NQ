@@ -39,7 +39,7 @@ config_schema:
   - min_ready_coverage
   additionalProperties: false
 config:
-  min_confidence: 60.0
-  min_ready_coverage: 60.0
+  min_confidence: 1.0
+  min_ready_coverage: 1.0
 metadata:
   max_idle_s: 64

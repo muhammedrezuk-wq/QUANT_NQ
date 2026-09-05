@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import time
 from typing import Any
+
+COOLDOWN_S = 60.0
+REWARD_RISK = 2.0
+MAX_STOP_FRAC = 0.02
+MIN_STEP_FRAC = 0.20
 
 SEP = "\x1f"
 GATE_MARK = "_gate"
@@ -284,3 +290,116 @@ async def recompute(atom: Any, scope_key: str) -> None:
     atom._seen += 1
     atom._emitted += 1
     await atom._context.publish(EVENT_OUT, out)
+    await request_orders(atom, scope_key, out)
+
+
+EVENT_ORDER_REQUESTED = "execution.order.requested"
+ACTION_OPEN = "OPEN"
+
+
+async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None:
+    """يترجم الدلتا الموجبة إلى طلب أمر — الوصلة التي لم تُكتب قط.
+
+    يُنشر فقط عند فتح تعرّض جديد (delta > 0). التقليص والإغلاق يحتاجان
+    عقدًا بالتذكرة ويبقيان خارج هذه الوصلة.
+    """
+    if out.get("status") != "READY":
+        return
+    decision_id = out.get("decision_id")
+    if not decision_id:
+        return
+    seen = getattr(atom, "_requested_decisions", None)
+    if seen is None:
+        seen = atom._requested_decisions = {}
+    if seen.get(scope_key) == decision_id:
+        return
+
+    min_volume = float(getattr(atom, "_min_volume", 0.01) or 0.01)
+    account = str(out.get("account_id") or "")
+    symbol = str(out.get("symbol") or "")
+    price = real(out.get("reference_price"))
+    if not account or not symbol or price is None or price <= 0:
+        return
+    broker = ""
+    brokers = getattr(atom, "_brokers", None)
+    if isinstance(brokers, dict):
+        broker = str(brokers.get(account) or "")
+
+    # كبح: طلب واحد لكل نطاق كل COOLDOWN_S ثانية. بدونه يخرج طلب مع كل
+    # تِكّة، ويحجز كلٌّ منها ميزانية لدى 516 فتُستهلك من أول طلب.
+    now = time.time()
+    last = getattr(atom, "_requested_at", None)
+    if last is None:
+        last = atom._requested_at = {}
+    if now - float(last.get(scope_key) or 0.0) < COOLDOWN_S:
+        return
+
+    budget = real(out.get("risk_budget")) or 0.0
+    target_gross = real(out.get("target_gross")) or 0.0
+
+    # ٢٠٢٦-٠٩-٠٥ (حكم المالك: «ما عم يتداول، عم يفتح هيدج جديد»): ننشر
+    # الساق الاتجاهية وحدها. نشر الجهتين معًا كان ينتج زوجًا متعادلًا لأن
+    # سقف الخطوة يقصّ الساقين إلى نفس الرقم فيمحو الاتجاه: الهدف المقيس
+    # كان شراء 2.06 مقابل بيع 0.23 فخرجتا 0.05 و0.05. التحوّط شأن 576/578.
+    target_net = real(out.get("target_net")) or 0.0
+    if abs(target_net) < min_volume:
+        return
+    wanted_side = BUY if target_net > 0 else SELL
+
+    published = False
+    for side, field in ((BUY, "delta_buy"), (SELL, "delta_sell")):
+        if side != wanted_side:
+            continue
+        delta = real(out.get(field)) or 0.0
+        if delta < min_volume:
+            continue
+        # لا تنقيط: إضافة أصغر من MIN_STEP_FRAC من الهدف لا تستحق مركزًا
+        # جديدًا. بدونها يفتح النظام مركزًا بحجم السقف كل دورة حتى يمتلئ
+        # الحدّ — أربعة مراكز متطابقة قِيست، وهو ما سمّاه المالك «أعمى».
+        if target_gross > 0 and delta < target_gross * MIN_STEP_FRAC:
+            continue
+        volume = round(delta / min_volume) * min_volume
+        if volume < min_volume:
+            continue
+        # حصة هذا الطلب من الميزانية بنسبة حجمه إلى الهدف الإجمالي —
+        # لا الميزانية كاملة، وإلا رفض 516 كل ما بعد الأول.
+        share = budget
+        if budget > 0 and target_gross > 0:
+            share = round(budget * min(1.0, volume / target_gross), 2)
+        # الوقف والهدف: بلا هذين يرفض 584 كل أمر غير محايد
+        # (INCOMPLETE_ORDER)، ووجود الحجم لازم وإلا رفض 585 الهامش.
+        frac = real(out.get("stop_distance_frac")) or 0.0
+        if frac <= 0:
+            continue
+        # سقف أمان: قيست مسافة وقف 0.5 (50%) فوضعت وقف شراء عند نصف
+        # السعر (79,722 -> 39,722). المسافة العملية المقيسة في 576 هي
+        # 0.0055، فنقصّ أي قيمة شاذّة عند MAX_STOP_FRAC.
+        frac = min(frac, MAX_STOP_FRAC)
+        span = price * frac
+        if side == BUY:
+            stop_loss = round(price - span, 8)
+            take_profit = round(price + span * REWARD_RISK, 8)
+        else:
+            stop_loss = round(price + span, 8)
+            take_profit = round(price - span * REWARD_RISK, 8)
+        if stop_loss <= 0 or take_profit <= 0:
+            continue
+        body = {
+            "request_id": "dir-%s-%s-%s" % (decision_id, side, atom._version(scope_key)),
+            "account_id": account, "broker": broker,
+            "action": ACTION_OPEN, "symbol": symbol, "side": side.upper(),
+            "volume": round(volume, 8), "reference_price": round(price, 8),
+            "stop_loss": stop_loss, "take_profit": take_profit,
+            "origin": "directional", "attempt": 1,
+            "risk_budget": share,
+            "parent_decision_id": decision_id,
+            "gate_request_id": out.get("gate_request_id"),
+        }
+        await atom._context.publish(EVENT_ORDER_REQUESTED, body)
+        atom._context.logger.warning(
+            "581 order requested side=%s volume=%s price=%s decision=%s",
+            side, body["volume"], body["reference_price"], decision_id)
+        published = True
+    if published:
+        seen[scope_key] = decision_id
+        last[scope_key] = now

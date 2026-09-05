@@ -278,7 +278,17 @@ class Atom(PairEventMixin, AtomBase):
             return
         loaded = unseal(state)
         self._restore_grade = loaded["grade"]
-        self._pairs.update(loaded["pairs"])
+        # ٢٠٢٦-٠٩-٠٥ (مقيس): زوج بحالة EXHAUSTED منتهٍ — لا ساق له تُنفَّذ
+        # ولا تُغلق. استعادته عند كل إقلاع كانت تعيد إرسال أمر `pause`
+        # للأصل (pair_events سطر 147) فيبقى PORTFOLIO_FROZEN ويُحجب كل
+        # قرار اتجاهي إلى الأبد، حتى بعد أمر RESUME صريح من البوابة.
+        revived = {pid: pair for pid, pair in (loaded["pairs"] or {}).items()
+                   if str((pair or {}).get("status") or "").upper() != "EXHAUSTED"}
+        dropped = len(loaded["pairs"] or {}) - len(revived)
+        if dropped and self._context is not None:
+            self._context.logger.warning(
+                "578 restore: أُسقطت %d زوج منتهٍ (EXHAUSTED) ولم تُستعد", dropped)
+        self._pairs.update(revived)
         if loaded["counter"] is not None:
             self._counter = loaded["counter"]
         self._request_map.clear()

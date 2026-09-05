@@ -74,6 +74,19 @@ def _resolve_db(configured: str) -> str:
     return os.environ.get("NQ_BRIDGE_DB", "").strip() or configured
 
 
+MAX_SL_FRAC = 0.05
+
+
+def _to_number(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result == result else None
+
+
 def _connect(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=_CONNECT_TIMEOUT_S)
     conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
@@ -233,6 +246,23 @@ class Atom(AtomBase):
             except asyncio.CancelledError: pass
             self._beat_task = None
 
+    def _entry_price(self, ticket):
+        """سعر دخول المركز من الجسر — مرساة فحص مسافة الوقف."""
+        if ticket in (None, "", 0):
+            return None
+        try:
+            conn = sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True,
+                                   timeout=_CONNECT_TIMEOUT_S)
+            try:
+                row = conn.execute(
+                    "SELECT entry_price FROM positions_v2 WHERE ticket=?",
+                    (ticket,)).fetchone()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return None
+        return _to_number(row[0]) if row else None
+
     async def shutdown(self) -> None:
         await self.stop()
 
@@ -293,6 +323,20 @@ class Atom(AtomBase):
         if action not in ("CLOSE", "MODIFY_SL", "MODIFY_TP", "PENDING_DELETE") and not valid_volume:
             await self._record_failure(f"missing volume request_id={payload.get('request_id')!r}", payload)
             return
+        # ٢٠٢٦-٠٩-٠٥ (مقيس): أمر إدارة وضع وقفًا عند 39,677 على مركز دخوله
+        # 79,677 — مسافة 40,000 (نصف السعر) أي مركز بلا حماية. الحارس هنا
+        # آخر بوابة قبل الجسر: أي وقف يبعد أكثر من MAX_SL_FRAC عن السعر
+        # المرجعي أو سعر الدخول يُرفض بدل أن يُكتب.
+        sl_value = _to_number(payload.get("stop_loss"))
+        if sl_value is not None and sl_value > 0:
+            anchor = _to_number(payload.get("reference_price")) or self._entry_price(
+                payload.get("ticket"))
+            if anchor and abs(anchor - sl_value) / anchor > MAX_SL_FRAC:
+                await self._record_failure(
+                    "STOP_LOSS_TOO_FAR: sl=%s anchor=%s dist=%.1f%%"
+                    % (sl_value, anchor, abs(anchor - sl_value) / anchor * 100.0),
+                    payload)
+                return
         if not any(payload.get(field) for field in IDENTITY_FIELDS):
             # T1 alert, tonight's style: the command still goes out (nothing is
             # blocked here -- 552 owns that verdict), but the gap is counted.

@@ -13,7 +13,9 @@ KIND_DIRECTIONAL = "directional"
 DIR_BUY = "buy"
 DIR_SELL = "sell"
 REASON_NO_CALIBRATION = "NO_CALIBRATION"
-STATE_AGG_SECTIONS = ("150", "200", "250", "300", "350", "400")
+# ٢٠٢٦-٠٩-٠٥ (أمر المالك: «قسم مو شغّال حطّو صفر وزن، عزلو»):
+# 350 مدير الاحتمالات معزول — كان يبقي aggregate_state دون READY.
+STATE_AGG_SECTIONS = ("150", "200", "250", "300", "400")
 STATE_STALE = "STALE"
 STATE_ANALYZING = "ANALYZING"
 STATE_NOT_READY = "NOT_READY"
@@ -161,6 +163,13 @@ async def publish_live_decision(atom: Any, scope: tuple[str, str, str]) -> None:
             section_states[section_id] = state
     agg_states = [section_states[sid] for sid in STATE_AGG_SECTIONS if sid in section_states]
     state_missing_sections = [sid for sid in STATE_AGG_SECTIONS if sid not in section_states]
+    _n = getattr(atom, "_agg_trace_n", 0) + 1
+    atom._agg_trace_n = _n
+    if _n <= 10:
+        atom._context.logger.warning(
+            "451 agg sections=%s | needed=%s | missing=%s | room=%s",
+            section_states, list(STATE_AGG_SECTIONS), state_missing_sections,
+            {k: v.get("state") for k, v in atom._room.get(scope, {}).items()})
     if not agg_states:
         aggregate_state = STATE_NOT_READY
     elif any(state == STATE_STALE for state in agg_states):

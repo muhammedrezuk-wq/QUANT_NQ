@@ -47,7 +47,7 @@ config_schema:
 config:
   expected_families:
   - '150'
-  - '350'
+  # - '350'   # معزولة بأمر المالك ٢٠٢٦-٠٩-٠٥: القسم لا يعمل، فلا يُنتظر
   - '400'
   family_freshness_s: {}
 metadata:

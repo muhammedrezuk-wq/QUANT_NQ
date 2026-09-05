@@ -90,13 +90,36 @@ def actual_records(payload):
             source_scope=SRC_SEP.join((source,a,b));grouped.setdefault(source_scope,[]).append(normalize(raw,a,b,s,source_scope))
     if not grouped and top_a!=DEFAULT_ACCOUNT and top_b!=DEFAULT_BROKER:grouped[SRC_SEP.join((source,top_a,top_b))]=[]
     return grouped,stamp(payload)
+OWN_MAGIC = 20260801
+OWN_COMMENT = "NQ"
+
+
+def own_position(row):
+    """مركز فتحه هذا النظام (ماجيكه أو تعليقه)، لا مركز غريب عند الوسيط.
+
+    ٢٠٢٦-٠٩-٠٥ (مقيس): كل مركز فعلي لا يظهر في `desired` كان يُصنَّف
+    EXTRA_AT_BROKER فتصير حالة المطابقة ATTENTION، فيرفض 552 كل أمر جديد
+    بـRECONCILIATION_NOT_MATCHED. الزوج المحايد الذي يفتحه 576 يقع في هذا
+    الباب بالضبط، فيقفل البوابة أمام كل قرار اتجاهي. مركز يحمل هويّتنا
+    يُتبنّى؛ ومركز غريب فعلًا يبقى إنذارًا كما كان.
+    """
+    if not isinstance(row, dict):
+        return False
+    try:
+        if int(row.get("magic") or 0) == OWN_MAGIC:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(row.get("comment") or "").strip().upper() == OWN_COMMENT
+
+
 def compare(key,desired,actual,actual_seen,vol_tol,price_tol,ack_count):
     a,b,s=parts(key)
     if desired is None:return {"account_id":a,"broker":b,"asset_canonical":s,"symbol":s,"status":"NO_DESIRED_STATE","items":[],"classification_counts":{},"escalate":bool(actual),"auto_adopted":False,"actual_snapshot":actual_seen}
     dm={x["_identity"]:x for x in desired.get("legs",[])};am={x["_identity"]:x for x in actual};items=[];counts={}
     for ident in sorted(set(dm)|set(am)):
         d=dm.get(ident);x=am.get(ident);dif=[]
-        if d is None:kind="EXTRA_AT_BROKER"
+        if d is None:kind="ADOPTED_OWN" if own_position(x) else "EXTRA_AT_BROKER"
         # A desired leg with no broker ticket is intent that has not executed
         # yet -- 551 writes desired state at BUILD time, so before the fill the
         # broker cannot show it. Only a TICKETED leg missing at the broker is
@@ -111,6 +134,6 @@ def compare(key,desired,actual,actual_seen,vol_tol,price_tol,ack_count):
     if not actual_seen:status="WAITING_FOR_ACTUAL";warnings=["NO_ACTUAL_SNAPSHOT"]
     elif not items:status="MATCH";warnings=[]
     else:
-        status="MATCH" if all(x["classification"] in ("MATCH","PENDING_OPEN") for x in items) else "ATTENTION"
+        status="MATCH" if all(x["classification"] in ("MATCH","PENDING_OPEN","ADOPTED_OWN") for x in items) else "ATTENTION"
         warnings=(["PENDING_OPEN_LEGS"] if counts.get("PENDING_OPEN") else []) if status=="MATCH" else ["RECONCILIATION_REQUIRED"]
     return {"account_id":a,"broker":b,"asset_canonical":s,"symbol":s,"status":status,"items":items,"classification_counts":counts,"desired_version":desired.get("version",0),"desired_stamp":desired.get("stamp"),"actual_snapshot":actual_seen,"warnings":warnings,"escalate":status=="ATTENTION","auto_adopted":False,"protocol":{"desired_persisted":True,"ack_count":ack_count}}

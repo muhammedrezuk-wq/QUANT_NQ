@@ -142,6 +142,8 @@ class Atom(AtomBase):
         context.subscribe(EVENT_CANDLE, self._on_candle)
         context.subscribe(EVENT_POSITIONS, self._on_positions)
         context.subscribe(EVENT_SETTINGS_COMMAND, self._on_setting)
+        # ٢٠٢٦-٠٩-٠٥: هوية الوسيط لازمة لطلب الأمر (552 يرفض بلا وسيط).
+        context.subscribe("platform.account.state", self._on_account_identity)
 
     async def start(self): self._running = True
     async def stop(self): self._running = False
@@ -275,6 +277,17 @@ class Atom(AtomBase):
         symbol = str(payload.get("symbol") or "")
         price = real(payload.get("close"))
         if account and symbol and price and price > 0: self._price[key(account, symbol)] = price
+
+    async def _on_account_identity(self, payload):
+        """يلتقط اسم الوسيط لكل حساب — يلزم طلب الأمر (552 يرفض بلا وسيط)."""
+        if not isinstance(payload, dict):
+            return
+        account = str(payload.get("account_id") or "").strip()
+        broker = str(payload.get("broker") or "").strip()
+        if account and broker:
+            if not hasattr(self, "_brokers"):
+                self._brokers = {}
+            self._brokers[account] = broker
 
     async def _on_positions(self, payload):
         if not self._running or not isinstance(payload, dict): return

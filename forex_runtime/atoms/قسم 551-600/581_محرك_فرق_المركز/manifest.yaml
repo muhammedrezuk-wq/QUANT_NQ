@@ -10,8 +10,11 @@ dependencies: []
 publishes:
   - "perpetual.target.state"
   - "decision.settings.state"
+  # ٢٠٢٦-٠٩-٠٥: الوصلة التي لم تُكتب — ترجمة الدلتا إلى طلب أمر.
+  - "execution.order.requested"
 
 subscribes:
+  - "platform.account.state"
   - "decision.gate.passed"
   - "decision.gate.blocked"
   - "decision.gate.recorded"
@@ -90,7 +93,7 @@ config:
   s_enter: 0.20
   s_exit: 0.15
   max_target_volume: 20
-  max_step_volume: 1
+  max_step_volume: 0.5
   min_volume: 0.01
   hedge_cost_per_volume: 0.0
 metadata:

@@ -231,6 +231,29 @@ def _rebased_config(raw_cfg: dict) -> dict:
         return raw_cfg
 
 
+def _sibling(name: str):
+    """يستورد وحدة شقيقة من مجلد الذرّة نفسه.
+
+    ٢٠٢٦-٠٩-٠٥ (مقيس): `import gate_runner` داخل المعالج كان يرمي
+    ModuleNotFoundError مع **كل** قرار يعبر البوابة، لأن مجلد الذرّة لا
+    يبقى في sys.path وقت الاستدعاء المتأخّر — فكانت 580 تسقط صامتة عند
+    كل قرار ويمتلئ السجلّ. التحميل من مسار الملف لا يعتمد على sys.path.
+    """
+    import importlib.util
+    import sys
+    cached = sys.modules.get(name)
+    if cached is not None:
+        return cached
+    path = Path(__file__).resolve().parent / (name + ".py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(name)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class Atom(AtomBase):
     def __init__(self) -> None:
         self._context: AtomContext | None = None
@@ -331,7 +354,7 @@ class Atom(AtomBase):
         return rules_store._journal(self, *args, **kwargs)
 
     async def _on_rule_command(self, payload: dict[str, Any]) -> None:
-        import command_handlers
+        command_handlers = _sibling("command_handlers")
         await command_handlers._on_rule_command(self, payload)
 
     async def _publish_rules_state(self, restored: bool) -> None:
@@ -402,8 +425,7 @@ class Atom(AtomBase):
         return entry
 
     async def _on_gate_passed(self, payload: dict[str, Any]) -> None:
-        import gate_runner
-        await gate_runner._on_gate_passed(self, payload)
+        await _sibling("gate_runner")._on_gate_passed(self, payload)
 
     async def _emit(self, event: str, body: dict[str, Any]) -> None:
         if self._context is not None:

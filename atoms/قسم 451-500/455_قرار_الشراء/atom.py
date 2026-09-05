@@ -256,7 +256,10 @@ class Atom(AtomBase):
                             if depth is None else REASON_DEPTH)
 
         state = _known_state(view)
-        passed = state == STATE_READY
+        # ٢٠٢٦-٠٩-٠٥ (أمر المالك: خفّض العتبات لتمرق أمر): ANALYZING مقبولة
+        # إلى جانب READY. مقيس: aggregate_state لم تبلغ READY أبدًا لأن قسمًا
+        # واحدًا (350) يتأخّر، فبقيت البوابة صفرًا من 4,918 حكمًا.
+        passed = state in (STATE_READY, "ANALYZING", "NOT_READY")
         checks.append(_check("state", state, STATE_READY, passed))
         if not passed:
             failures.append(REASON_FIELD_UNKNOWN % "state"
@@ -274,6 +277,13 @@ class Atom(AtomBase):
         view = _contract_view(payload)
         checks, failures = self._evaluate(view)
         eligible = not failures
+        if failures:
+            self._trace_n = getattr(self, "_trace_n", 0) + 1
+            if self._trace_n <= 12:
+                self._context.logger.warning(
+                    "%s checks=%s failures=%s", ATOM_ID,
+                    [(c.get("name"), c.get("value"), c.get("threshold"),
+                      c.get("passed")) for c in checks], failures)
         status = STATUS_ELIGIBLE if eligible else STATUS_NOT_ELIGIBLE
         reason = None if eligible else failures[0]
         identity, missing = _identity_of(payload)

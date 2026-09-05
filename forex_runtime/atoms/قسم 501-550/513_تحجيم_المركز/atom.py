@@ -19,6 +19,7 @@ EVENT_STOP = "risk.structure_stop.state"
 EVENT_OUT = "risk.position_size.state"
 EVENT_REJECTED = "risk.position_size.rejected"
 METHOD = "risk_percent_sizing"
+MAX_STRUCT_STOP_FRAC = 0.05
 MAX_RISK_PER_TRADE_PCT = 5.0
 _BUDGET_TOLERANCE = 1.01
 _PERCENT = 100.0
@@ -223,14 +224,25 @@ class Atom(AtomBase):
         reasons = [default_reason] if default_reason else []
         stops = self._stops.get(key)
         if stops:
+            # ٢٠٢٦-٠٩-٠٥ (مقيس): وقف هيكلي وارد بقيمة 39,708 على سعر
+            # 79,703 — نصف السعر — قُبل بلا سقف فوضع وقف شراء يخاطر بنصف
+            # قيمة المركز. أي مسافة أبعد من MAX_STRUCT_STOP_FRAC تُرفض
+            # ويُستعمل الوقف الافتراضي بدلها.
+            ceiling = close * MAX_STRUCT_STOP_FRAC
             candidate = stops.get("buy_stop")
             if candidate is not None and candidate < close:
-                buy_stop = candidate; buy_lot, reason = self._lot(equity, close - candidate, spec)
-                if reason: reasons.append("BUY_" + reason)
+                if close - candidate > ceiling:
+                    reasons.append("BUY_STRUCT_STOP_TOO_FAR")
+                else:
+                    buy_stop = candidate; buy_lot, reason = self._lot(equity, close - candidate, spec)
+                    if reason: reasons.append("BUY_" + reason)
             candidate = stops.get("sell_stop")
             if candidate is not None and candidate > close:
-                sell_stop = candidate; sell_lot, reason = self._lot(equity, candidate - close, spec)
-                if reason: reasons.append("SELL_" + reason)
+                if candidate - close > ceiling:
+                    reasons.append("SELL_STRUCT_STOP_TOO_FAR")
+                else:
+                    sell_stop = candidate; sell_lot, reason = self._lot(equity, candidate - close, spec)
+                    if reason: reasons.append("SELL_" + reason)
         status = "OK" if any(x is not None for x in (lot, buy_lot, sell_lot)) else "REJECTED"
         if status == "REJECTED":
             await self._reject(payload, reasons[0] if reasons else "NO_EXECUTABLE_VOLUME")

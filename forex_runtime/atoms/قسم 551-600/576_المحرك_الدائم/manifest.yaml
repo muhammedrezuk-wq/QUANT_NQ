@@ -27,8 +27,7 @@ subscribes:
   - "platform.positions.state"
   - "platform.account.state"
 
-startup_mode: auto
-
+startup_mode: manual
 health:
   interval_ms: 60000
   timeout_ms: 5000

@@ -247,6 +247,13 @@ class Atom(AtomBase):
         self._skip_reasons[reason] = self._skip_reasons.get(reason, 0) + 1
         if self._context is None:
             return
+        if self._skipped <= 25:
+            self._context.logger.warning(
+                "551 skip reason=%s symbol=%s account=%s side=%s approved=%r "
+                "origin=%s sizes_keys=%s", reason, payload.get("symbol"),
+                payload.get("account_id"), payload.get("side"),
+                payload.get("approved"), payload.get("origin"),
+                list(self._sizes)[:4])
         body = {
             "reason": reason,
             "symbol": payload.get("symbol"),
