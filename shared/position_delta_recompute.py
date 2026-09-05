@@ -520,6 +520,11 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # فلا منع.
         trend_row = (getattr(atom, "_trend", {}) or {}).get(sym)
         trend = trend_row[0] if trend_row else ""
+        # ٢٠٢٦-٠٩-٠٦ — سُحب هنا اشتقاقُ اتجاهٍ من موضع السعر بعتبتَي
+        # 0.67/0.33: رقمان لم يُقاسا (حكم المالك: «حاج تخمين، اشتغل
+        # صح»). الفلتر يبقى معلَّقًا على 207 وحده حتى يُقاس ما يميّز
+        # الصفقة الرابحة من الخاسرة فعلًا — والقياس يُجمَع الآن مع كل
+        # أمر (السطر أدناه) بدل أن يُخترع رقم ويُبنى عليه.
         if trend in ("uptrend", "downtrend"):
             against = (side == SELL) if trend == "uptrend" else (side == BUY)
             if against:
@@ -704,12 +709,23 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # الوقف يُطبع بمسافته لا بسعره وحده: حكم المالك «كيف وقف ٢٠ نقطة
         # ما عم يتغيّر على تحليل؟». وقف مُزاح (shifted) يعني أن التحليل لم
         # يقدّم مستوى أبعد من الحدّ — إن تكرّر فالمصدر ضيّق لا القاعدة.
+        # سجلّ ظروف كل أمر — أساس القياس الذي يميّز الرابح من الخاسر
+        # لاحقًا بالأرقام لا بالظنّ: القوّة والتعرّض وموضع السعر من مدى
+        # المستويات والاتجاه المعلن وعدد المستويات على الجهتين.
+        span_lo = below[0] if below else None
+        span_hi = above[-1] if above else None
+        pos_in_range = ((price - span_lo) / (span_hi - span_lo)
+                        if (span_lo is not None and span_hi is not None
+                            and span_hi > span_lo) else None)
         atom._context.logger.warning(
             "581 order requested side=%s volume=%s price=%s stop_dist=%.2f "
-            "target_dist=%.2f shifted=%s levels=%d/%d decision=%s",
+            "target_dist=%.2f shifted=%s levels=%d/%d strength=%.3f "
+            "exposure=%s pos_in_range=%s trend=%r decision=%s",
             side, body["volume"], body["reference_price"],
             abs(price - stop_loss), abs(take_profit - price), shifted,
-            len(below), len(above), decision_id)
+            len(below), len(above), strength, out.get("exposure_fraction"),
+            round(pos_in_range, 3) if pos_in_range is not None else None,
+            trend or None, decision_id)
         published = True
     if published:
         seen[scope_key] = decision_id

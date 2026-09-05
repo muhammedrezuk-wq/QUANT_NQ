@@ -37,6 +37,9 @@ EVENT_SIZE = "risk.position_size.state"
 # max_trade_loss)، فيتبع الرصيد والنسبة بدل رقم متحجّر.
 DEFAULT_MAX_TRADE_LOSS = 10.0
 LOSS_TOLERANCE = 1.02
+# مسافة التنفّس التي يجب أن تفصل الوقف الزاحف عن السعر الحالي، كنسبة من
+# المسافة الأصلية للوقف. وقفٌ يلتصق بالسعر يُغلق الصفقة بدل أن يحميها.
+TRAIL_BREATHING_FRAC = 0.25
 
 ACTION_MODIFY = "MODIFY_SL"
 ACT_MAINTAIN = "MAINTAIN_STOP"
@@ -166,6 +169,17 @@ class Atom(AtomBase):
             return
         in_profit = (current > entry) if side == "BUY" else (current < entry)
         if not in_profit:
+            return
+        # ٢٠٢٦-٠٩-٠٦ (مقيس على التذكرة 1911168352): المرساة كانت تُقبل
+        # لمجرّد وقوعها بين الدخول والسعر، فزحف الوقف إلى 79,783.69
+        # بينما السعر 79,782.55 — **1.14 نقطة** فقط. وقفٌ بهذا اللصوق
+        # ليس حمايةً بل إغلاقٌ فوريّ: ضُرب بعد ثوانٍ بـ−1.46 على صفقة
+        # وقفها الأصلي ٣٥ نقطة. المرساة تحتاج مسافة تنفّس من السعر — لا
+        # تقلّ عن رُبع المسافة الأصلية للوقف — وإلا تُركت الصفقة تتنفّس
+        # بوقفها الحالي حتى يصنع الهيكل مرساةً أبعد.
+        original = abs(entry - stop) if (stop and stop > 0) else 0.0
+        breathing = original * TRAIL_BREATHING_FRAC
+        if breathing > 0 and abs(current - anchor) < breathing:
             return
         # المرساة يجب أن تقع بين الدخول والسعر: خلف الربح المحقَّق، لا
         # أمامه (فتُضرب فورًا) ولا خلف الدخول (فلا تضيف حماية).

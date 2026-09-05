@@ -204,6 +204,26 @@ class Atom(AtomBase):
             self.last_write_success = False
             self.last_write_error = str(exc)
 
+    def _count_unsettled_opens(self) -> int:
+        """أوامر فتحٍ التقطها الإكسبرت ولم تُحسم بعد (لا DONE ولا FAILED).
+
+        أمرٌ عالق عند الوسيط لا يُنتج مركزًا يراه الكبح، فيرسل النظام
+        غيره ويتراكم الحجز على الهامش. العدّ من الجسر نفسه — مصدر
+        الحقيقة الوحيد لما وصل الإكسبرت.
+        """
+        try:
+            conn = sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True,
+                                   timeout=_CONNECT_TIMEOUT_S)
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM commands WHERE action='OPEN' "
+                    "AND status NOT IN ('DONE','FAILED')").fetchone()
+                return int(row[0]) if row else 0
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return 0
+
     def _read_bridge_accounts(self) -> set[str] | None:
         try:
             conn = sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True, timeout=_CONNECT_TIMEOUT_S)
@@ -327,6 +347,19 @@ class Atom(AtomBase):
         if not symbol or side not in ("BUY", "SELL"):
             await self._record_failure(f"bad symbol/side: symbol={symbol!r} side={side!r}", payload)
             return
+        # ٢٠٢٦-٠٩-٠٦ (مقيس على لقطة المالك): أمرا سوق عالقان عند الوسيط
+        # بحالة `started` والحجم 0.78/0 — أُرسلا 02:37:01 و02:37:05، أي
+        # بفارق **أربع ثوانٍ** رغم كبح الخمس والأربعين ثانية. الكبح لا
+        # يرى الأوامر العالقة: لا مركز يظهر، فيحسب أن شيئًا لم يحدث
+        # ويرسل غيره. وكلٌّ منها يحجز هامشًا (قِيس 248.93$ محجوزًا).
+        # لا يُفتح أمرٌ جديد ما دام أمرُ فتحٍ سابق لم يُحسم — لا DONE ولا
+        # FAILED — فتُمنع سلسلة الأوامر المتراكمة على وسيط بطيء.
+        if action == "OPEN":
+            pending = await asyncio.to_thread(self._count_unsettled_opens)
+            if pending:
+                await self._record_failure(
+                    "OPEN_PENDING_AT_BROKER count=%d" % pending, payload)
+                return
         try: valid_volume = float(payload.get("volume")) > 0
         except (TypeError, ValueError): valid_volume = False
         if action not in ("CLOSE", "MODIFY_SL", "MODIFY_TP", "PENDING_DELETE") and not valid_volume:
