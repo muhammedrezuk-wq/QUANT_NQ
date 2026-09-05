@@ -185,7 +185,16 @@ class Atom(AtomBase):
         context.subscribe(EVENT_DIALS_COMMAND, self._on_dial_command)
 
     def _refresh_dials(self) -> None:
+        # ٢٠٢٦-٠٩-٠٥ (تدقيق خارجي — مؤكَّد بالقياس): أمر المالك كان يُطبَّق
+        # على العيار المملوك ثم **يُدهَس** هنا عند أوّل تقييم، لأن هذه
+        # الحلقة تعيد قراءة كل عيار من السجلّ/الإعداد. فتُنشر حالة العيار
+        # 60 بينما يعمل المنطق على 50 — العتبة تبدو مضبوطة وهي ليست كذلك،
+        # وهو ما رصده اختبار test_dial_command_applies_live في 455/456/457.
+        # العيار الذي طبّق عليه المالك أمرًا لا يُعاد قراءته من الإعداد.
+        applied = getattr(self, "_dial_overrides", None)
         for name, (attr, key) in DIALS_READ.items():
+            if applied and name in applied:
+                continue
             setattr(self, attr,
                     effective_value(name, self._cfg[key], self._registry))
 
@@ -196,6 +205,10 @@ class Atom(AtomBase):
         if applied is None:
             return
         setattr(self, DIALS_OWNED[applied["name"]], float(applied["value"]))
+        overrides = getattr(self, "_dial_overrides", None)
+        if overrides is None:
+            overrides = self._dial_overrides = set()
+        overrides.add(applied["name"])
         self._dials_applied += 1
         await self._publish_dials_state()
 

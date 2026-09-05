@@ -205,6 +205,12 @@ class Atom(AtomBase):
         net = buy_total - sell_total
         score = (abs(net) / spoken_mass * _FULL_SCORE) if spoken_mass > 0 else 0.0
         participation = (spoken_weight / present_weight) if present_weight > 0 else 0.0
+        # القسمة على present_weight مقصودة بحكم المالك ٢٠٢٦-٠٨-١٣ («متكلّم
+        # واحد بين حاضرين كثر ≠ إجماع») ويحرسها اختبار
+        # test_lone_voice_is_not_consensus. حاولت ٢٠٢٦-٠٩-٠٥ قسمتها على
+        # spoken_weight لرفع القوة فوق عتبة 581، فكشف الاختبار أنني أنقض
+        # حكمًا مختومًا — والصامت هنا يحمل وزنه عمدًا. العتبة تُعالَج عند
+        # مستهلكها في 581، لا بتغيير معنى القوة هنا.
         strength = (abs(net) / present_weight) if present_weight > 0 else 0.0
         direction = DIR_BUY if net > 0 else DIR_SELL if net < 0 else DIR_NEUTRAL
         identity, identity_missing = _identity_of(payload)
@@ -240,6 +246,20 @@ class Atom(AtomBase):
                            c.get("weight"), c.get("share"), c.get("confidence"),
                            c.get("quality_factor"), c.get("contribution"))
                         for c in contributions[:8]))
+                # ولماذا صمت الباقون: القوة = |net| ÷ وزن الحاضرين، فكل
+                # صامت يخفضها وهو في المقام بحكم المالك ٢٠٢٦-٠٨-١٣. رفعها
+                # المشروع الوحيد هو أن يتكلّم المزيد — فأسباب الصمت
+                # تُجمَّع بأسمائها بدل أن تبقى رقمًا مجهولًا (spoken 2..6
+                # من rows=31، والقوة 0.12 مقابل عتبة 581 البالغة 0.20).
+                silent: dict[str, int] = {}
+                for item in rows:
+                    if not isinstance(item, dict) or item.get("eligible"):
+                        continue
+                    key = str(item.get("eligibility_reason") or "UNKNOWN")
+                    silent[key] = silent.get(key, 0) + 1
+                self._context.logger.warning(
+                    "453 silent %s: %s", payload.get("symbol"),
+                    ", ".join("%s=%d" % kv for kv in sorted(silent.items())))
         # NQ seal item 22 batch B (wiring the eight): direction_value re-encodes
         # the SAME published contract (the word is the signal, the score its
         # 0-100 magnitude) as one signed number: +score for buy, -score for

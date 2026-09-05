@@ -499,11 +499,18 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
 
         if stop_loss is None or take_profit is None:
             # لا مستوى تحليلي = لا صفقة. رقم هندسي بديل يكذب على القرار.
+            # الرسالة تميّز غياب الوقف عن غياب الهدف، وتذكر مصادر
+            # المستويات التي وصلت فعلًا — فيُعرف أيّ محلّل صامت.
+            want = max((risk_gap * MIN_RR), min_gap)
             atom._context.logger.warning(
-                "581 skip %s: NO_STRUCTURE_LEVEL below=%r above=%r "
-                "pools=%r swings=%r",
-                symbol, below[-1] if below else None,
-                above[0] if above else None, pools, swings)
+                "581 skip %s: NO_STRUCTURE_LEVEL missing=%s price=%.2f "
+                "stop=%r risk_gap=%.2f need_target_at=%.2f "
+                "below=%s above=%s sources=%r",
+                symbol, "STOP" if stop_loss is None else "TARGET", price,
+                stop_loss, risk_gap, want,
+                [round(x, 2) for x in below[-3:]],
+                [round(x, 2) for x in above[:3]],
+                getattr(atom, "_level_sources", {}))
             continue
 
         # الاتجاه لا يُفتح على مستويات مقلوبة (وقف فوق السعر لشراء مثلًا).
