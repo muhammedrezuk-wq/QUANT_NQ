@@ -247,8 +247,17 @@ class Atom(AtomBase):
             self._beat_task = None
 
     def _entry_price(self, ticket):
-        """سعر دخول المركز من الجسر — مرساة فحص مسافة الوقف."""
+        """سعر دخول المركز من الجسر — مرساة فحص مسافة الوقف.
+
+        ٢٠٢٦-٠٩-٠٥ (مقيس): التذكرة تصل نصًّا والعمود عدد صحيح، فكان
+        الاستعلام لا يجد صفًّا ويعيد None، فيمرّ الوقف بلا فحص — عبر
+        وقف 54,666 على دخول 79,652 (31%) رغم وجود الحارس.
+        """
         if ticket in (None, "", 0):
+            return None
+        try:
+            ticket_id = int(float(ticket))
+        except (TypeError, ValueError):
             return None
         try:
             conn = sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True,
@@ -256,10 +265,10 @@ class Atom(AtomBase):
             try:
                 row = conn.execute(
                     "SELECT entry_price FROM positions_v2 WHERE ticket=?",
-                    (ticket,)).fetchone()
+                    (ticket_id,)).fetchone()
             finally:
                 conn.close()
-        except sqlite3.Error:
+        except Exception:  # noqa: BLE001 — أي عطل قراءة = لا مرساة
             return None
         return _to_number(row[0]) if row else None
 
@@ -331,6 +340,11 @@ class Atom(AtomBase):
         if sl_value is not None and sl_value > 0:
             anchor = _to_number(payload.get("reference_price")) or self._entry_price(
                 payload.get("ticket"))
+            if anchor is None and action in ("MODIFY_SL", "MODIFY_TP"):
+                # لا مرساة = لا فحص ممكن. أمر تعديل وقف بلا مرجع يُرفض
+                # (fail-closed) بدل أن يمرّ وقف قد يكون عند نصف السعر.
+                await self._record_failure("STOP_LOSS_NO_ANCHOR", payload)
+                return
             if anchor and abs(anchor - sl_value) / anchor > MAX_SL_FRAC:
                 await self._record_failure(
                     "STOP_LOSS_TOO_FAR: sl=%s anchor=%s dist=%.1f%%"

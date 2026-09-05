@@ -327,6 +327,10 @@ class Atom(AtomBase):
                 return
         if self._opens_new_exposure(body) and clock.quality() != clock.SYNCED:
             self._clock_blocked += 1
+            if self._clock_blocked <= 5:
+                self._context.logger.warning(
+                    "552 CLOCK_NOT_SYNCED quality=%r module=%r id=%s",
+                    clock.quality(), getattr(clock, "__file__", "?"), id(clock))
             await self._refuse(body, "CLOCK_NOT_SYNCED")
             return
         if self._opens_new_exposure(body):

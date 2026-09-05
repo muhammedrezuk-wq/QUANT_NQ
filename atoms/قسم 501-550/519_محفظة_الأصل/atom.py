@@ -182,6 +182,11 @@ class Atom(AtomBase):
         self._rehydrated = True
         scope = self.key(payload)
         command = str(payload.get("command") or "").lower()
+        if self._context is not None:
+            self._context.logger.warning(
+                "519 command=%r scope=%r known_states=%r paused=%r brokers=%r",
+                command, scope, dict(self._states), sorted(self._paused),
+                dict(self._brokers))
         if not scope:
             self._invalid += 1
             return
@@ -212,7 +217,14 @@ class Atom(AtomBase):
         if scope in self._paused or account in self._halted_accounts:
             return FROZEN, FREEZE
         if current == FROZEN:
-            return FROZEN, FREEZE
+            # ٢٠٢٦-٠٩-٠٥ (مقيس): FROZEN كانت حالة نهائية لا يُخرج منها إلا
+            # بأمر صريح، وتُستعاد مع كل إقلاع — فبقي الأصل مجمّدًا بعد زوال
+            # سبب التجميد، وضاعت أربعة أوامر RESUME (نُفِّذت DONE) بلا أثر.
+            # التجميد بأمر المالك (scope in _paused) أو بحساب متجاوز
+            # (breached) يبقى؛ وما عدا ذلك يعود إلى طبيعته.
+            if breached or warning:
+                return FROZEN, FREEZE
+            return NORMAL, NONE
         if current == HEDGING:
             return HEDGING, HOLD
         if breached:
