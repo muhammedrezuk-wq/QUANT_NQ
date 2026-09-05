@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 from typing import Any
@@ -24,16 +24,17 @@ MAX_RISK_PER_TRADE_PCT = 5.0
 # حكم المالك ٢٠٢٦-٠٩-٠٥: «أكثر من ١٪ على صفقة ما بصير يخسر». سقف صلب
 # فوق العيار المضبوط، لا يُتجاوز من لوحة ولا من ملف إعداد.
 HARD_RISK_CAP_PCT = 1.0
-# وحكمه الأصرح في اليوم نفسه: «ما في صفقة تضرب ستوب أكثر من ١٠ دولار،
-# مع هامش بسيط ٢٪». سقف بعملة الحساب يحكم فوق النسبة المئوية: على رصيد
-# 10,513.24 كانت ١٪ تساوي 105.13 — عشرة أضعاف ما يقبله المالك. الخسارة
-# المقصودة هي الكلّية: مسافة الوقف + السبريد + الانزلاق + العمولة.
-MAX_TRADE_LOSS_ACCOUNT_CCY = 10.0
+# ٢٠٢٦-٠٩-٠٦ — تصحيح المالك لنفسه: «مو قصدي ١٠ دولار، قصدي ١٪ من رصيد
+# الـ10000. كنت أنا غلطان بهذا الموضوع، فعدّلها من عندك».
+# فالسقف نسبة من حقوق الملكية لا رقمًا بعملة الحساب: على رصيد 10,513.24
+# يساوي 105.13 — لا 10. الحدّ الدولاري الصلب أُزيل، والنسبة وحدها تحكم
+# (بسقف HARD_RISK_CAP_PCT فوقها). الخسارة المقصودة هي الكلّية: مسافة
+# الوقف + السبريد + الانزلاق + العمولة.
 RISK_TOLERANCE = 1.02
 # احتياطي الانزلاق كمضاعف للسبريد — مقيس على ٢٤ صفقة منفَّذة على هذا
 # الحساب: الانزلاق ضدّنا دائمًا (وسيط 2.7 · متوسط 4.7 · أقصى 16.90)
 # مقابل سبريد 5.00، فمضاعف 2 يغطّي 20 منها.
-SLIPPAGE_SPREAD_MULT = 2.0
+SLIPPAGE_SPREAD_MULT = 1.0
 _BUDGET_TOLERANCE = 1.01
 _PERCENT = 100.0
 _DP = 6
@@ -186,7 +187,7 @@ class Atom(AtomBase):
         العيار قد يُرفع من اللوحة أو من ملف؛ السقف هنا يحكم فوقه.
         """
         pct = min(self._risk_pct, HARD_RISK_CAP_PCT)
-        return min(equity * pct / _PERCENT, MAX_TRADE_LOSS_ACCOUNT_CCY)
+        return equity * pct / _PERCENT
 
     def _lot(self, equity: float, distance: float, spec: dict[str, Any],
              spread: float = 0.0) -> tuple[float | None, str]:
@@ -308,7 +309,7 @@ class Atom(AtomBase):
                          "spread": round(spread, _DP),
                          "slippage_reserve": round(spread * SLIPPAGE_SPREAD_MULT, _DP),
                          "commission_per_lot": self._commission_per_lot,
-                         "max_trade_loss": MAX_TRADE_LOSS_ACCOUNT_CCY,
+                         "max_trade_loss": round(risk_amount, 2),
                          "volume_step": spec.get("volume_step") or self._lot_step,
                          "volume_min": max(self._min_lot, spec.get("volume_min") or 0.0),
                          "volume_max": min(self._max_lot, spec.get("volume_max") or self._max_lot)}})

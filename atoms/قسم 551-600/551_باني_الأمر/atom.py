@@ -253,12 +253,26 @@ class Atom(AtomBase):
         if not size:
             return order            # لا مواصفة بعد؛ الحارس التالي يقرّر
         size = dict(size)
-        req_spread = _to_float(payload.get("spread"))
-        if req_spread is not None and req_spread > 0.0:
-            size["spread"] = req_spread
-            req_slip = _to_float(payload.get("slippage_reserve"))
-            if req_slip is not None:
-                size["slippage_reserve"] = req_slip
+        # حصّة هذه الخطوة من سقف المالك: خطوة تمثّل ٤٠٪ من الهدف تخاطر
+        # بأربعة دولارات لا بعشرة، فيبقى للتعزيز مجاله ضمن السقف نفسه.
+        step_fraction = _to_float(payload.get("step_fraction"))
+        if step_fraction is not None and 0.0 < step_fraction <= 1.0:
+            cap = size.get("max_trade_loss") or size.get("risk_amount")
+            if cap:
+                size["risk_amount"] = cap * step_fraction
+                size["max_trade_loss"] = cap * step_fraction
+        if payload.get("costs_in_stop") is True:
+            # التكاليف مُضمَّنة في مسافة الوقف المرسل (581 أزاحه للخارج
+            # كي يبقى للتحليل مداه). إضافتها هنا ثانيةً تحسبها مرّتين.
+            size["spread"] = 0.0
+            size["slippage_reserve"] = 0.0
+        else:
+            req_spread = _to_float(payload.get("spread"))
+            if req_spread is not None and req_spread > 0.0:
+                size["spread"] = req_spread
+                req_slip = _to_float(payload.get("slippage_reserve"))
+                if req_slip is not None:
+                    size["slippage_reserve"] = req_slip
         sized = self._lot_for_stop(size, distance)
         if sized is None:
             self._context.logger.warning(

@@ -75,6 +75,8 @@ class Atom(AtomBase):
         self._vpp: dict[str, float] = {}
         self._capped: set[int] = set()
         self._risk_capped = 0
+        self._structure: dict[str, dict[str, float]] = {}
+        self._trailed = 0
         self._sent = 0
         self._updates = 0
         self._seen_plan = False
@@ -85,6 +87,80 @@ class Atom(AtomBase):
         context.subscribe(EVENT_POSITIONS, self._on_positions)
         context.subscribe(EVENT_PLAN, self._on_plan)
         context.subscribe(EVENT_SIZE, self._on_size)
+        # مصادر التتبّع البنيوي: القمم والقيعان من 201 والهيكل الداخلي
+        # من 203 — خلفها يزحف الوقف بينما الصفقة تكمل.
+        for event in ("structure.swing.state", "structure.internal.state"):
+            context.subscribe(event, self._on_structure)
+
+    async def _on_structure(self, payload: dict[str, Any]) -> None:
+        """يحفظ آخر قاع وآخر قمّة بنيويّين — مرساتا الوقف الزاحف."""
+        if not self._running or not isinstance(payload, dict):
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        if not symbol:
+            return
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        signal = str(payload.get("signal") or "").lower()
+        book = self._structure.setdefault(symbol, {})
+        low = _to_float(meta.get("swing_low"))
+        high = _to_float(meta.get("swing_high"))
+        if low is None and signal == "swing_low":
+            low = _to_float(meta.get("price")) or _to_float(payload.get("price"))
+        if high is None and signal == "swing_high":
+            high = _to_float(meta.get("price")) or _to_float(payload.get("price"))
+        if low and low > 0:
+            book["low"] = low
+        if high and high > 0:
+            book["high"] = high
+
+    async def _trail_structure(self, pos: dict[str, Any]) -> None:
+        """يزحف بالوقف خلف آخر مستوى بنيوي في اتجاه الربح.
+
+        حكم المالك ٢٠٢٦-٠٩-٠٦: «يدير صفقة على تحليل بين ستوب وهدف ليس
+        محدود — إذا اتجاه مدعوم يكمل مو يوقف». فالخروج لا يقرّره رقم
+        مُسبق بل انكسارُ الهيكل: ما دام السعر يصنع قيعانًا أعلى (لشراء)
+        يزحف الوقف خلف آخرها، وتبقى الصفقة مفتوحة تجمع ما يعطيه الاتجاه.
+        الوقف يُشدّ ولا يُوسَّع أبدًا، ولا يتحرّك إلا والصفقة رابحة —
+        فلا يُقرَّب وقفٌ على مركز خاسر فيُخنَق قبل أوانه.
+        """
+        ticket = _to_int(pos.get("ticket"))
+        symbol = str(pos.get("symbol") or "")
+        side = _norm_side(pos.get("side"))
+        entry = _to_float(pos.get("entry_price"))
+        current = _to_float(pos.get("current_price"))
+        stop = _to_float(pos.get("stop_loss"))
+        book = self._structure.get(symbol.upper()) or {}
+        if ticket is None or not side or not entry or not current:
+            return
+        anchor = book.get("low") if side == "BUY" else book.get("high")
+        if not anchor:
+            return
+        in_profit = (current > entry) if side == "BUY" else (current < entry)
+        if not in_profit:
+            return
+        # المرساة يجب أن تقع بين الدخول والسعر: خلف الربح المحقَّق، لا
+        # أمامه (فتُضرب فورًا) ولا خلف الدخول (فلا تضيف حماية).
+        if side == "BUY":
+            if not (entry <= anchor < current):
+                return
+            better = stop is None or stop <= 0.0 or anchor > stop + self._min_change
+        else:
+            if not (current < anchor <= entry):
+                return
+            better = stop is None or stop <= 0.0 or anchor < stop - self._min_change
+        if not better:
+            return
+        self._last_sl[ticket] = anchor
+        self._sent += 1
+        self._trailed += 1
+        self._context.logger.warning(
+            "577 trail %s ticket=%s: %s -> %s (entry=%s price=%s side=%s)",
+            symbol, ticket, stop, round(anchor, 6), entry, current, side)
+        await self._context.publish(EVENT_MANAGE, {
+            "account_id": str(pos.get("account_id") or ""),
+            "action": ACTION_MODIFY, "ticket": ticket, "symbol": symbol,
+            "side": side, "stop_loss": round(anchor, 6),
+            "magic": _to_int(pos.get("magic")), "origin": "structure_trail"})
 
     async def _on_size(self, payload: dict[str, Any]) -> None:
         """قيمة النقطة لكل لوت — من مواصفة الوسيط التي ينشرها 513."""
@@ -181,8 +257,12 @@ class Atom(AtomBase):
         self._capped &= live_tickets
         if self._context is not None:
             for pos in positions:
-                if isinstance(pos, dict):
-                    await self._cap_risk(pos)
+                if not isinstance(pos, dict):
+                    continue
+                # الأمان أوّلًا (سقف الخسارة)، ثم التتبّع البنيوي الذي
+                # يترك الصفقة تكمل ما دام الهيكل يحملها.
+                await self._cap_risk(pos)
+                await self._trail_structure(pos)
 
     async def _on_plan(self, payload: dict[str, Any]) -> None:
         if not self._running or self._context is None or not isinstance(payload, dict):

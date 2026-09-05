@@ -60,7 +60,7 @@ config_schema:
   additionalProperties: false
 
 config:
-  risk_per_trade_pct: 0.5
+  risk_per_trade_pct: 1.0
   default_stop_pct: 0.5
   min_lot: 0.01
   max_lot: 20.0
