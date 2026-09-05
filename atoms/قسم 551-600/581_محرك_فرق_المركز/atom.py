@@ -133,6 +133,8 @@ class Atom(AtomBase):
         self._swings = {}
         self._liquidity_pools = {}
         self._level_sources = {}
+        self._trend = {}
+        self._sweep = {}
         self._decisions = {}
         self._ledgers = {}
         self._portfolios = {}
@@ -193,6 +195,37 @@ class Atom(AtomBase):
                       "structure.mss.state", "liquidity.sweep.state",
                       "liquidity.fvg.state", "analysis.gap.state"):
             context.subscribe(event, self._on_analysis_level)
+        # فلتر الاتجاه: حالة الاتجاه من 207 وكنس السيولة من 254.
+        context.subscribe("structure.trend.state", self._on_trend)
+        context.subscribe("liquidity.sweep.state", self._on_sweep)
+
+    async def _on_trend(self, payload):
+        """حالة الاتجاه من 207: uptrend · downtrend · range · transition."""
+        if not isinstance(payload, dict):
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        signal = str(payload.get("signal") or "").strip().lower()
+        if symbol and signal:
+            self._trend[symbol] = (signal, time.time())
+
+    async def _on_sweep(self, payload):
+        """كنس السيولة من 254: قمّة أو قاع اختُرق كذبًا ثم ارتدّ.
+
+        الكنس هو ما يميّز طرفًا يُباع منه من طرفٍ يُخترق فيُشترى — وهو
+        الإذن الوحيد بصفقة عكس الاتجاه المعلن.
+        """
+        if not isinstance(payload, dict):
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        signal = str(payload.get("signal") or "").strip().lower()
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        direction = str(meta.get("direction") or payload.get("direction") or "").lower()
+        if not symbol or signal in ("", "none"):
+            return
+        side = ("buyside" if "buy" in (signal + direction)
+                else "sellside" if "sell" in (signal + direction) else "")
+        if side:
+            self._sweep[symbol] = (side, time.time())
 
     async def start(self): self._running = True
     async def stop(self): self._running = False
