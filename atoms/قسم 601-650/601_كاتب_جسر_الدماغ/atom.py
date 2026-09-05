@@ -46,6 +46,10 @@ _RESULT_STATUS_OK = ("DONE",)
 _RESULT_STATUS_FAILED = ("FAILED", "CANCELLED", "EXPIRED")
 _BUSY_TIMEOUT_MS = 3000
 _CONNECT_TIMEOUT_S = 5.0
+# نافذة تسوية الأمر الذي رُدَّ بمهلة: يبقى مجهول المصير خلالها فلا
+# يُرسَل بديل. خمس عشرة دقيقة مسنودة بالقياس — أطول احتجاز مرصود عند
+# الوسيط كان ١٨ دقيقة (02:27:58 أُرسل · 02:45:11 نُفِّذ).
+_TIMEOUT_SETTLE_S = 900.0
 _BEAT_FAILURES_BEFORE_FAULT = 3
 PROJECT_BUILD_ID = "QUANT_NQ_FULL_212"
 _SCHEMA = """CREATE TABLE IF NOT EXISTS commands (
@@ -205,11 +209,26 @@ class Atom(AtomBase):
             self.last_write_error = str(exc)
 
     def _count_unsettled_opens(self) -> int:
-        """أوامر فتحٍ التقطها الإكسبرت ولم تُحسم بعد (لا DONE ولا FAILED).
+        """أوامر فتحٍ مصيرها مجهول — لا يجوز إرسال بديل ما دام أحدها قائمًا.
 
-        أمرٌ عالق عند الوسيط لا يُنتج مركزًا يراه الكبح، فيرسل النظام
-        غيره ويتراكم الحجز على الهامش. العدّ من الجسر نفسه — مصدر
-        الحقيقة الوحيد لما وصل الإكسبرت.
+        صنفان:
+
+        ١) ما التقطه الإكسبرت ولم يُحسم (لا DONE ولا FAILED) — أمرٌ عالق
+           لا يُنتج مركزًا يراه الكبح، فيرسل النظام غيره ويتراكم الحجز.
+
+        ٢) **ما فشل بمهلة** — وهذا هو العطب الذي كلّف حساب المالك:
+           ٢٠٢٦-٠٩-٠٦، أربعة أوامر رُدّت بـRETCODE_10012 فسجّلها الجسر
+           FAILED واعتبرها محسومة، فأرسل بدائل. والمهلة ليست رفضًا: الخادم
+           **نفّذها كلها** ثم أفرغ الطابور دفعةً واحدة الساعة 02:45:11 —
+           خمس صفقات في الثانية نفسها، ثلاث بيع وشراء متقابلة ألغت
+           بعضها. التذاكر 1911177645 · 1911177749 · 1911178075 ·
+           1911178187 نُفِّذت ولم يعرفها الجسر قط، وكلّفت 14.42$ من
+           78.43$ خسارة اليوم.
+
+        فالأمر الذي رُدَّ بمهلة يبقى **مجهول المصير** حتى يظهر له حدث
+        تنفيذ في سجلّ الإكسبرت (فيكون قد نُفِّذ)، أو تمضي نافذة التسوية
+        بلا ظهور (فيكون لم يُنفَّذ). النافذة 15 دقيقة مسنودة بالقياس:
+        أطول احتجاز مرصود كان 18 دقيقة (02:27:58 → 02:45:11).
         """
         try:
             conn = sqlite3.connect(f"file:{self._db_path}?mode=ro", uri=True,
@@ -218,7 +237,16 @@ class Atom(AtomBase):
                 row = conn.execute(
                     "SELECT COUNT(*) FROM commands WHERE action='OPEN' "
                     "AND status NOT IN ('DONE','FAILED')").fetchone()
-                return int(row[0]) if row else 0
+                pending = int(row[0]) if row else 0
+                cutoff = time.time() - _TIMEOUT_SETTLE_S
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM commands c WHERE c.action='OPEN' "
+                    "AND c.status='FAILED' AND c.result LIKE 'RETCODE_100%' "
+                    "AND c.created_at > ? AND NOT EXISTS ("
+                    "  SELECT 1 FROM trade_events_v2 e "
+                    "  WHERE e.request_id = c.request_id AND e.ticket IS NOT NULL)",
+                    (cutoff,)).fetchone()
+                return pending + (int(row[0]) if row else 0)
             finally:
                 conn.close()
         except sqlite3.Error:
