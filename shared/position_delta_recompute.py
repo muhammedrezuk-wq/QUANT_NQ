@@ -453,14 +453,22 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # خريطة المستويات: كل ما سجّلته 251/252/253 و201 من قمم وقيعان،
         # لا آخر واحد فقط — بها يجد الهدف مدى يحقّق النسبة بدل الجار
         # الملاصق (13 نقطة) الذي كان يُسقط كل أمر بـRR_BELOW_MIN.
-        lows = list(pools.get("lows") or []) + list(swings.get("lows") or [])
-        lows += [pools.get("sellside"), swings.get("low")]
-        highs = list(pools.get("highs") or []) + list(swings.get("highs") or [])
-        highs += [pools.get("buyside"), swings.get("high")]
-        below = sorted({real(x) for x in lows
-                        if real(x) is not None and 0 < real(x) < price})
-        above = sorted({real(x) for x in highs
-                        if real(x) is not None and real(x) > price})
+        # ٢٠٢٦-٠٩-٠٥ (مقيس): المستوى كان يُصنَّف قمّةً أو قاعًا **وقت
+        # نشره**، ثم يُقرأ من خانته وحدها. فمستوى نُشر فوق السعر وهبط
+        # السعر دونه يبقى محبوسًا في «القمم» ولا يُرى كقاع — رغم أنه صار
+        # قاعًا فعلًا. النتيجة خريطة فقيرة: قِيس `below` بعنصرين اثنين
+        # (79,681.04 و79,696.97) بينما التحليل قدّم 27 مستوى خارجيًّا
+        # و27 داخليًّا. فيُطلب هدف على بعد 32.46 وأبعد متاح 19.5 ⇒
+        # NO_STRUCTURE_LEVEL على كل تِكّة، وتوقّف التداول.
+        # المستوى سعرٌ لا لافتة: يُجمع الكل ثم يُصنَّف بموضعه من السعر
+        # **الآن**، فيتضاعف المدى المتاح للوقف والهدف.
+        levels = (list(pools.get("lows") or []) + list(pools.get("highs") or [])
+                  + list(swings.get("lows") or []) + list(swings.get("highs") or [])
+                  + [pools.get("sellside"), pools.get("buyside"),
+                     swings.get("low"), swings.get("high")])
+        seen_levels = {real(x) for x in levels if real(x) is not None and real(x) > 0}
+        below = sorted(x for x in seen_levels if x < price)
+        above = sorted(x for x in seen_levels if x > price)
 
         # ٢٠٢٦-٠٩-٠٥ (مقيس): اختيار «الأقرب مطلقًا» كان يوقف التداول
         # كلّيًّا — LEVEL_INSIDE_BROKER_MIN gap=20.0 مع مستويات تفصلها 13

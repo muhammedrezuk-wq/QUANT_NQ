@@ -227,6 +227,62 @@ class Atom(AtomBase):
         })
         return order
 
+    def _resize_direct(self, order: dict[str, Any],
+                       payload: dict[str, Any]) -> dict[str, Any] | None:
+        """يُخضع أمر المسار المباشر لسقف خسارة المالك.
+
+        حكمه ٢٠٢٦-٠٩-٠٥: «ما في صفقة تضرب ستوب أكثر من ١٠ دولار» و«لازم
+        لوت ينحسب على ستوب ويطلع لوت مناسب، مو ثابت». الحجم يُحسب من
+        مسافة وقف **هذا الأمر** بعد ابتلاع السبريد والانزلاق والعمولة،
+        ولا يزيد أبدًا عمّا طلبه صاحب الأمر (سقف الخطوة يبقى حدًّا أعلى).
+        أمرٌ لا يمكن تصغيره تحت السقف لا يُرسَل.
+        """
+        price = _to_float(order.get("reference_price"))
+        stop = _to_float(order.get("stop_loss"))
+        volume = _to_float(order.get("volume"))
+        side = str(order.get("side") or "").upper()
+        if not price or not stop or not volume or side not in (SIDE_BUY, SIDE_SELL):
+            return order            # لا وقف = لا معادلة؛ 584 يحرس شرعيّته
+        distance = (price - stop) if side == SIDE_BUY else (stop - price)
+        if distance <= 0.0:
+            return order            # مقلوب — حارس 584 يرفضه بسببه الصريح
+        account = text(order.get("account_id"))
+        broker = text(order.get("broker")) or self._broker_by_account.get(account, "")
+        symbol = str(order.get("symbol") or "")
+        size = self._sizes.get((account, broker, symbol)) if (account and broker) else None
+        if not size:
+            return order            # لا مواصفة بعد؛ الحارس التالي يقرّر
+        size = dict(size)
+        req_spread = _to_float(payload.get("spread"))
+        if req_spread is not None and req_spread > 0.0:
+            size["spread"] = req_spread
+            req_slip = _to_float(payload.get("slippage_reserve"))
+            if req_slip is not None:
+                size["slippage_reserve"] = req_slip
+        sized = self._lot_for_stop(size, distance)
+        if sized is None:
+            self._context.logger.warning(
+                "551 direct %s %s: sizing unavailable — volume=%s dist=%.2f "
+                "risk_amount=%r tv=%r ts=%r", symbol, side, volume, distance,
+                size.get("risk_amount"), size.get("tick_value"), size.get("tick_size"))
+            return order
+        final = min(volume, sized)
+        v_min = size.get("volume_min") or 0.0
+        if final + 1e-12 < v_min:
+            self._skipped += 1
+            self._skip_reasons[REASON_LOSS_ABOVE_CAP] = \
+                self._skip_reasons.get(REASON_LOSS_ABOVE_CAP, 0) + 1
+            self._context.logger.warning(
+                "551 skip %s %s: LOSS_ABOVE_CAP — أصغر لوت مسموح %s يتجاوز "
+                "السقف على مسافة %.2f", symbol, side, v_min, distance)
+            return None
+        self._context.logger.warning(
+            "551 direct %s %s: volume %s -> %s (dist=%.2f spread=%s slip=%s cap=%s)",
+            symbol, side, volume, final, distance, size.get("spread"),
+            size.get("slippage_reserve"), size.get("max_trade_loss"))
+        order["volume"] = final
+        return order
+
     async def _on_validated(self, payload: dict[str, Any]) -> None:
         if not self._running or self._context is None or not isinstance(payload, dict):
             return
@@ -237,6 +293,18 @@ class Atom(AtomBase):
 
         direct = self._direct_order(payload)
         if direct is not None:
+            # ٢٠٢٦-٠٩-٠٥ (مقيس، وهو جذر ثبات الحجم عند 0.5): الطلب
+            # الاتجاهي يحمل volume وreference_price، فيلتقطه المسار
+            # المباشر ويخرج من هنا فورًا — وكل حساب الحجم وحارس السقف
+            # أدناه شيفرة ميتة لم تُنفَّذ ولا مرّة. لهذا لم يظهر سطر
+            # «551 built» ولا LOSS_ABOVE_CAP في السجلّ رغم ثماني صفقات.
+            # النتيجة: الحجم يعبر كما أرسله 581 (سقف الخطوة 0.5) مهما
+            # كان بُعد الوقف — قِيست مسافات 17.76 → 56.76 كلّها بـ0.5،
+            # وخسائر 10.23 · 11.34 · 15.26 فوق سقف المالك.
+            # الحجم يُعاد حسابه هنا على مسافة وقف الأمر نفسه.
+            direct = self._resize_direct(direct, payload)
+            if direct is None:
+                return
             await self._context.publish(EVENT_OUT, direct)
             await self._publish_desired(direct)
             self._built += 1
@@ -357,6 +425,18 @@ class Atom(AtomBase):
                             "session_epoch"):
             if payload.get(chain_field) is not None:
                 order[chain_field] = payload[chain_field]
+        # ٢٠٢٦-٠٩-٠٥ (مقيس على ٨ صفقات): الحجم خرج 0.5 في كلّها بينما
+        # مسافات الوقف تراوحت 17.76 → 56.76 — أي أن المعادلة لم تحكم.
+        # مكوّناتها تُطبع مع كل أمر كي يُعرف أيّ حدّ هو الذي قصّ الحجم:
+        # المحسوب من الوقف، أم سقف خطوة 581، أم لوت 513 الاحتياطي.
+        self._context.logger.warning(
+            "551 built %s %s: volume=%s sized=%s step_cap=%s dist=%.2f "
+            "spread=%s slip=%s cap=%s vpp=%s",
+            symbol, side, volume, sized, step_cap, risk_dist,
+            size.get("spread"), size.get("slippage_reserve"),
+            size.get("max_trade_loss"),
+            (size.get("tick_value") / size.get("tick_size"))
+            if size.get("tick_value") and size.get("tick_size") else None)
         await self._context.publish(EVENT_OUT, order)
         await self._publish_desired(order)
         self._built += 1
