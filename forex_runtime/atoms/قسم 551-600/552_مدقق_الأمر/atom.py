@@ -335,8 +335,16 @@ class Atom(AtomBase):
             return
         if self._opens_new_exposure(body):
             reconcile = self._reconcile_status(scoped)
-            if reconcile not in {"MATCH", "MATCH_EMPTY_ACCOUNT"}:
+            # ٢٠٢٦-٠٩-٠٥: حساب فارغ لا يُنتج لقطة فعلية، فتبقى الحالة
+            # WAITING_FOR_ACTUAL ويُرفض كل أمر — قفل ذاتي بعد إغلاق كل
+            # المراكز. لا شيء عند الوسيط يخالف المرغوب حين لا مركز أصلًا.
+            if reconcile not in {"MATCH", "MATCH_EMPTY_ACCOUNT", "WAITING_FOR_ACTUAL"}:
                 self._reconcile_blocked += 1
+                if self._reconcile_blocked <= 8:
+                    self._context.logger.warning(
+                        "552 RECONCILIATION_NOT_MATCHED status=%r scope=%r "
+                        "known=%r", reconcile, scoped,
+                        {str(k): v for k, v in list(self._reconcile.items())[:6]})
                 await self._refuse(body, "RECONCILIATION_NOT_MATCHED")
                 return
             reference = self._reference.get(symbol, "UNKNOWN")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
@@ -40,6 +41,8 @@ REASON_BAD_SYMBOL_OR_SIDE = "BAD_SYMBOL_OR_SIDE"
 REASON_NO_SIZE_YET = "NO_SIZE_YET"
 REASON_INCOMPLETE_SIZE_DATA = "INCOMPLETE_SIZE_DATA"
 REASON_INVALID_RISK_DISTANCE = "INVALID_RISK_DISTANCE"
+REASON_LOSS_ABOVE_CAP = "LOSS_ABOVE_CAP"
+_RISK_TOLERANCE = 1.02
 
 # NQ seal item 22, package T (T2): 513's real sizing-rejection reason no
 # longer disappears silently -- it rides here as an extra, honest field
@@ -47,6 +50,7 @@ REASON_INVALID_RISK_DISTANCE = "INVALID_RISK_DISTANCE"
 # itself published on risk.position_size.rejected.
 
 _PRICE_DP = 6
+_VOLUME_DP = 2
 
 _DIRECT_FIELDS = (
     "request_id", "account_id", "action", "symbol", "side", "volume",
@@ -133,7 +137,52 @@ class Atom(AtomBase):
             "buy_stop": _to_float(meta.get("buy_stop")),
             "sell_lot": _to_float(meta.get("sell_lot")),
             "sell_stop": _to_float(meta.get("sell_stop")),
+            # معاملات معادلة الحجم — تعبر من 513 كي يُعاد الحساب هنا على
+            # مسافة الوقف الفعلية بدل الاعتماد على لوت محسوب لوقف آخر.
+            "risk_amount": _to_float(meta.get("risk_amount")),
+            "tick_value": _to_float(meta.get("tick_value")),
+            "tick_size": _to_float(meta.get("tick_size")),
+            "volume_step": _to_float(meta.get("volume_step")),
+            "volume_min": _to_float(meta.get("volume_min")),
+            "volume_max": _to_float(meta.get("volume_max")),
+            "spread": _to_float(meta.get("spread")),
+            "slippage_reserve": _to_float(meta.get("slippage_reserve")),
+            "commission_per_lot": _to_float(meta.get("commission_per_lot")),
+            "max_trade_loss": _to_float(meta.get("max_trade_loss")),
         }
+
+    @staticmethod
+    def _lot_for_stop(size: dict[str, Any], distance: float) -> float | None:
+        """حجم اللوت من مسافة الوقف الفعلية، بعد ابتلاع تكاليف العبور.
+
+        حكم المالك ٢٠٢٦-٠٩-٠٥: «لما يحسب لوت لازم يضمن دخول وانزلاق
+        وسبريد وعمولة داخل الستوب» و«ما في صفقة تضرب ستوب أكثر من ١٠
+        دولار». الخسارة الكلية = اللوت × (المسافة + السبريد + احتياطي
+        الانزلاق) × قيمة النقطة + العمولة، وهي التي تُقيَّد بالميزانية —
+        لا مسافة الوقف وحدها. التقريب لأسفل دائمًا كي لا تُتجاوز.
+        """
+        risk_amount = size.get("risk_amount")
+        tick_value = size.get("tick_value")
+        tick_size = size.get("tick_size")
+        if not risk_amount or not tick_value or not tick_size or distance <= 0.0:
+            return None
+        cap = size.get("max_trade_loss")
+        if cap:
+            risk_amount = min(risk_amount, cap)
+        effective = distance + (size.get("spread") or 0.0) \
+            + (size.get("slippage_reserve") or 0.0)
+        denom = effective * tick_value / tick_size + (size.get("commission_per_lot") or 0.0)
+        if denom <= 0.0:
+            return None
+        step = size.get("volume_step") or 0.01
+        stepped = math.floor((risk_amount / denom) / step) * step
+        v_min = size.get("volume_min") or 0.0
+        v_max = size.get("volume_max")
+        if stepped + 1e-12 < v_min:
+            return None
+        if v_max:
+            stepped = min(stepped, v_max)
+        return round(stepped, _VOLUME_DP)
 
     async def _on_size_rejected(self, payload: dict[str, Any]) -> None:
         """T2: remember 513's real sizing-rejection reason per scope, so a
@@ -214,12 +263,83 @@ class Atom(AtomBase):
         if price is None or volume is None or stop is None or volume <= 0.0:
             await self._skip(REASON_INCOMPLETE_SIZE_DATA, payload)
             return
+        # ٢٠٢٦-٠٩-٠٥ (مقيس على الحساب): الطلب يصل بوقف وهدف محسوبين من
+        # مستويات بنيوية (مخاطرة 7.4 مقابل عائد 32.5 = نسبة 4.4)، وكان
+        # يُستبدلان هنا بوقف 513 البعيد (74,655 على سعر 79,655 = 6.3%)
+        # وهدف بنسبة ثابتة — فتنهار النسبة إلى 0.004 بعد حسابها. وقف
+        # الطلب البنيوي يُحترم متى جاء صالحًا؛ وقف التحجيم يبقى الاحتياط.
+        requested_stop = _to_float(payload.get("stop_loss"))
+        requested_target = _to_float(payload.get("take_profit"))
+        if requested_stop is not None and requested_stop > 0.0:
+            valid = (requested_stop < price) if side == SIDE_BUY else (requested_stop > price)
+            if valid:
+                stop = requested_stop
         risk_dist = (price - stop) if side == SIDE_BUY else (stop - price)
         if risk_dist <= 0.0:
             await self._skip(REASON_INVALID_RISK_DISTANCE, payload)
             return
         target = (price + self._reward_risk * risk_dist) if side == SIDE_BUY \
             else (price - self._reward_risk * risk_dist)
+        if requested_target is not None and requested_target > 0.0:
+            valid_t = (requested_target > price) if side == SIDE_BUY else (requested_target < price)
+            if valid_t:
+                target = requested_target
+        # حكم المالك ٢٠٢٦-٠٩-٠٥: «وقف الخسارة لازم ينحسب على معادلة حجم
+        # لوت». اللوت الوارد من 513 محسوب على وقف 513؛ متى تغيّر الوقف
+        # وجب أن يتغيّر معه اللوت، وإلا صارت المخاطرة الفعلية رقمًا آخر
+        # غير الميزانية. يُعاد الحساب هنا على المسافة النهائية، وسقف
+        # خطوة 581 (volume في الطلب) يبقى حدًّا أعلى لا يُتجاوز.
+        # تكاليف العبور المقيسة في الطلب تسبق ما نشره 513: 513 يستمع إلى
+        # market.tick.validated (بلا bid/ask) فيرسل السبريد صفرًا، بينما
+        # 581 يقيسه من تِكّة الوسيط نفسها.
+        req_spread = _to_float(payload.get("spread"))
+        req_slip = _to_float(payload.get("slippage_reserve"))
+        if req_spread is not None and req_spread > 0.0:
+            size = dict(size)
+            size["spread"] = req_spread
+            if req_slip is not None:
+                size["slippage_reserve"] = req_slip
+        sized = self._lot_for_stop(size, risk_dist)
+        if sized is not None:
+            volume = sized
+        elif self._context is not None:
+            # مقيس ٢٠٢٦-٠٩-٠٥ على التذكرة 1911030333: بُني لوت 0.5 على وقف
+            # 30 نقطة = 15$ — فوق سقف المالك — فاضطُرّ 577 إلى تضييق الوقف
+            # بعد الفتح فمات التحليل وضُرب الوقف (-9.90). اللوت يجب أن
+            # يُصغَّر قبل الإرسال؛ فشل حسابه يجب أن يُرى بأسمائه لا يمرّ.
+            self._context.logger.warning(
+                "551 sizing fallback %s: risk_amount=%r tick_value=%r "
+                "tick_size=%r max_loss=%r spread=%r volume=%r dist=%.2f",
+                symbol, size.get("risk_amount"), size.get("tick_value"),
+                size.get("tick_size"), size.get("max_trade_loss"),
+                size.get("spread"), volume, risk_dist)
+        step_cap = _to_float(payload.get("volume"))
+        if step_cap is not None and step_cap > 0.0:
+            volume = min(volume, step_cap)
+        volume = round(volume, _VOLUME_DP)
+        if volume <= 0.0:
+            await self._skip(REASON_INCOMPLETE_SIZE_DATA, payload)
+            return
+        # حارس نهائي على حكم المالك «ما في صفقة تضرب ستوب أكثر من ١٠
+        # دولار»: تُحسب الخسارة الكلّية بالحجم النهائي، وما يتجاوز السقف
+        # لا يُرسَل. بلا هذا الحارس مرّت التذكرة 1911030333 بلوت 0.5 على
+        # وقف 30 نقطة (15$)، فصحّحها 577 بتضييق الوقف بعد الفتح — أي
+        # بقتل التحليل بدل تصغير الحجم.
+        tick_value = size.get("tick_value")
+        tick_size = size.get("tick_size")
+        cap = size.get("max_trade_loss")
+        if cap and tick_value and tick_size:
+            effective = risk_dist + (size.get("spread") or 0.0) \
+                + (size.get("slippage_reserve") or 0.0)
+            loss = volume * effective * tick_value / tick_size \
+                + volume * (size.get("commission_per_lot") or 0.0)
+            if loss > cap * _RISK_TOLERANCE:
+                await self._skip(REASON_LOSS_ABOVE_CAP, payload)
+                if self._context is not None:
+                    self._context.logger.warning(
+                        "551 skip %s: LOSS_ABOVE_CAP loss=%.2f cap=%.2f "
+                        "volume=%s dist=%.2f", symbol, loss, cap, volume, risk_dist)
+                return
         order = {
             "request_id": str(payload.get("request_id", "")),
             "account_id": account, "broker": broker, "magic":self._magic,

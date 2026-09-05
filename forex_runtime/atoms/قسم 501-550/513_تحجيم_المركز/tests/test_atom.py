@@ -98,11 +98,19 @@ async def test_computed_lot():
 async def test_clamp_to_max():
     print("\n--- test_clamp_to_max ---")
     atom, bus = await _new()
-    await atom._on_truth_equity(_account(10000000.0))  # huge equity -> lot capped at max
+    await atom._on_truth_equity(_account(10000000.0))  # huge equity
     await atom._on_specs(_specs())
     await atom._on_tick(_tick(100.0))
+    # حكم المالك ٢٠٢٦-٠٩-٠٥: «ما في صفقة تضرب ستوب أكثر من ١٠ دولار».
+    # كان الاختبار يثبت القصّ عند max_lot برصيد ضخم؛ صار سقف الخسارة
+    # بعملة الحساب يحكم قبله: مسافة 0.5 × قيمة نقطة 100 = 50 للّوت
+    # الواحد، فعشرة دولارات تعطي 0.2. والقصّ عند max_lot يبقى ساريًا
+    # كسقف أعلى، ويُختبر بمسافة أضيق أدناه.
+    assert _outs(bus)[-1]["metadata"]["lot"] == 0.2
+    atom._stop_pct = 0.05  # 0.05% من 100 = 0.05 ⇒ لوت خام 2.0 ⇒ يُقصّ عند 1.0
+    await atom._on_tick(_tick(100.0))
     assert _outs(bus)[-1]["metadata"]["lot"] == 1.0
-    print("OK — قصّ عند max_lot=1.0")
+    print("OK — سقف الخسارة 10$ ثم قصّ max_lot=1.0")
 
 
 async def test_no_equity_no_size():

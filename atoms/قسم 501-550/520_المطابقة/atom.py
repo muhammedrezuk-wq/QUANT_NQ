@@ -176,6 +176,49 @@ class Atom(AtomBase):
             changed.add(k)
         if changed:await self._persist()
         for k in changed:await self._publish(k)
+    def _drop_closed_legs(self,owner):
+        """يُسقط الأرجل المرغوبة التي اختفت تذاكرها من لقطة الوسيط.
+
+        ٢٠٢٦-٠٩-٠٥ (مقيس): المالك أغلق مراكزه بيده، فبقيت تذاكرها في
+        سجلّ الرغبة. اللقطة الفعلية تخلو منها فتُصنَّف MISSING_AT_BROKER،
+        وحالة النطاق تصير ATTENTION **أبديًّا**، فيرفض 552 كل أمر جديد
+        بـRECONCILIATION_NOT_MATCHED — قِيس 24 رفضًا من 24 أمرًا، وحالة
+        النطاق ATTENTION بينما الحساب كلّه MATCH_EMPTY_ACCOUNT.
+        تذكرة اختفت من الوسيط = مركز أُغلق (بهدف أو وقف أو بيد المالك)،
+        وهذا واقع لا انحراف. لكن اختفاء مركز خبرٌ يجب أن يُرى: العقد
+        المختوم (اختبار P0) يوجب إنذار MISSING_AT_BROKER عند أول لقطة
+        تكشف الغياب. فالإسقاط على مرحلتين — أول لقطة تُعلّم وتُنذر،
+        والتالية تُسقط ويُسجَّل الإغلاق بتذكرته. الإنذار يُرى، والبوابة
+        لا تبقى مقفلة إلى الأبد.
+        """
+        changed=set()
+        for k,record in list(self._desired.items()):
+            a,b,_=parts(k)
+            if (a,b)!=owner:continue
+            if k not in self._actual_seen:continue
+            live={text(x.get("ticket")) for x in self._actual.get(k,[])}
+            legs=record.get("legs") or []
+            kept=[]
+            closed=[]
+            for leg in legs:
+                ticket=text(leg.get("ticket"))
+                if not ticket or ticket in live:
+                    leg.pop("_absent_once",None)
+                    kept.append(leg)
+                elif leg.get("_absent_once"):
+                    closed.append(ticket)
+                else:
+                    leg["_absent_once"]=True
+                    kept.append(leg)
+            if not closed:continue
+            record["legs"]=kept
+            changed.add(k)
+            if self._context is not None:
+                self._context.logger.warning(
+                    "520 desired legs closed at broker scope=%r tickets=%r "
+                    "remaining=%d",k,closed,len(kept))
+        return changed
+
     async def _on_actual(self,payload):
         if not self._running or not isinstance(payload,dict):return
         grouped,stamp=actual_records(self._enrich(payload))
@@ -200,6 +243,7 @@ class Atom(AtomBase):
                     a,b,_=parts(k)
                     if (a,b)==owner:self._actual_seen.add(k);affected.add(k)
             if stamp is not None:self._stamps[source_scope]=stamp
+            affected|=self._drop_closed_legs(owner)
             if not any(parts(k)[:2]==owner for k in self._actual):
                 if self._context is not None:
                     await self._context.publish(EVENT_OUT,{"account_id":account,"broker":broker,"symbol":"*","asset_canonical":"*","status":"MATCH_EMPTY_ACCOUNT","actual_snapshot":True,"items":[],"classification_counts":{},"escalate":False,"warnings":[]})

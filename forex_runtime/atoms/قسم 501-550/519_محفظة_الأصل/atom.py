@@ -226,7 +226,16 @@ class Atom(AtomBase):
                 return FROZEN, FREEZE
             return NORMAL, NONE
         if current == HEDGING:
-            return HEDGING, HOLD
+            # ٢٠٢٦-٠٩-٠٥ (مقيس): HEDGING كانت أبدية مثل FROZEN تمامًا —
+            # يدخلها إغلاقٌ بوقف خسارة واحد (_on_trade_closed, reason=SL)
+            # ولا تخرج منها أبدًا، وتُستعاد مع كل إقلاع. وأثرها في محرك
+            # الفرق أن target_net = 0 دائمًا، أي **صفر تداول اتجاهي**:
+            # الحساب فارغ (0 مركز، equity=10,513.24) والدفاتر نظيفة
+            # (u=0.0 warning=False breached=False) ومع ذلك 551 built=0.
+            # تبقى الحالة ما دام سببها حيًّا، وتزول بزواله.
+            if breached or warning:
+                return HEDGING, HOLD
+            return NORMAL, NONE
         if breached:
             return FROZEN, FREEZE
         if warning:
@@ -275,8 +284,19 @@ class Atom(AtomBase):
         breached = bool(ledger.get("breached")) or (
             utilization is not None and utilization >= BREACH_RATIO
         )
+        previous = self._states.get(scope)
         state, intent = self.next_state(scope, utilization, warning, breached)
         self._states[scope] = state
+        if self._context is not None and state != NORMAL:
+            self._freeze_trace = getattr(self, "_freeze_trace", 0) + 1
+            if self._freeze_trace <= 15:
+                self._context.logger.warning(
+                    "519 state=%s prev=%s u=%r warning=%r breached=%r "
+                    "ledger_warning=%r ledger_breached=%r paused=%r halted=%r",
+                    state, previous, utilization, warning, breached,
+                    ledger.get("warning"), ledger.get("breached"),
+                    scope in self._paused,
+                    scope.partition(SEP)[0] in self._halted_accounts)
         net = num(ledger.get("v_net"))
         alive = self._alive.get(account)
         mode = self._modes.get(account, "UNKNOWN")

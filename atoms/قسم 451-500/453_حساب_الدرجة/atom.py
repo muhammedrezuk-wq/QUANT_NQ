@@ -175,7 +175,17 @@ class Atom(AtomBase):
             if not cycle_complete or not item.get("eligible"):
                 continue
             spoken_weight += weight
-            share = _clamp(_number(item.get("score")) / _FULL_SCORE)
+            # ٢٠٢٦-٠٩-٠٥ (سؤال المالك «ليش بس عم يشتري» — مقيس ومؤكَّد):
+            # عقد البطاقة يضع `score = direction` (shared/strategy_contract
+            # سطر 200 وprobability_contract سطر 206)، أي +100 للشراء
+            # و**-100 للبيع**. و_clamp حدّه الأدنى صفر، فكل صف بيع كان
+            # ينهار إلى share=0.00 بينما صفوف الشراء share=1.00 — قِيس
+            # حرفيًّا: range_rotation:sell share=0.00 conf=1.00 q=1.00.
+            # فـsell_total = 0 دائمًا، والدرجة +100 دائمًا، و456 رفض
+            # 138/138 بـDIRECTION_ABOVE_THRESHOLD. الإشارة يحملها حقل
+            # direction المستعمل بعد أسطر لتوزيع القيمة، فالمقدار وحده هو
+            # ما يلزم هنا — وإلا طُبِّقت الإشارة مرّتين فقتلت نفسها.
+            share = _clamp(abs(_number(item.get("score"))) / _FULL_SCORE)
             confidence = _clamp(_number(item.get("confidence")))
             quality = _clamp(_number(item.get("quality_factor"), 1.0))
             value = weight * share * confidence * quality
@@ -186,6 +196,7 @@ class Atom(AtomBase):
                 sell_total += value
             contributions.append({"source": item.get("source"), "label": item.get("label"),
                                   "direction": direction, "weight": round(weight, 6),
+                                  "share": round(share, 6),
                                   "score": round(share * _FULL_SCORE, 4),
                                   "confidence": round(confidence, 6),
                                   "quality_factor": round(quality, 6),
@@ -208,6 +219,27 @@ class Atom(AtomBase):
             self._directional_verdicts += 1
         self._last_verdict = "%s s=%d p=%.2f/%.2f" % (
             direction, round(score), participation, self._min_participation)
+        # سؤال المالك ٢٠٢٦-٠٩-٠٥ («ليش بس عم يشتري»): 456 رفض 138/138 بـ
+        # DIRECTION_ABOVE_THRESHOLD، أي أن sell_total = 0 دائمًا. من يتكلّم
+        # ومن يصمت يُقاس هنا بالاسم بدل أن يُخمَّن: بصمة المصادر المؤهّلة
+        # واتجاهها تُسجَّل مرّة عند كل تغيّر في التوليفة.
+        if self._context is not None:
+            stamp = tuple(sorted(
+                (str(c.get("source")), str(c.get("direction")))
+                for c in contributions))
+            if stamp != getattr(self, "_last_evidence_stamp", None):
+                self._last_evidence_stamp = stamp
+                self._context.logger.warning(
+                    "453 evidence %s: buy=%.4f sell=%.4f rows=%d spoken=%d "
+                    "present_w=%.3f spoken_w=%.3f | %s",
+                    payload.get("symbol"), buy_total, sell_total, len(rows),
+                    len(contributions), present_weight, spoken_weight,
+                    ", ".join(
+                        "%s:%s w=%.2f share=%.2f conf=%.2f q=%.2f => %.3f"
+                        % (c.get("label") or c.get("source"), c.get("direction"),
+                           c.get("weight"), c.get("share"), c.get("confidence"),
+                           c.get("quality_factor"), c.get("contribution"))
+                        for c in contributions[:8]))
         # NQ seal item 22 batch B (wiring the eight): direction_value re-encodes
         # the SAME published contract (the word is the signal, the score its
         # 0-100 magnitude) as one signed number: +score for buy, -score for

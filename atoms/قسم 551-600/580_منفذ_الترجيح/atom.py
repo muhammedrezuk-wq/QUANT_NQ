@@ -241,16 +241,39 @@ def _sibling(name: str):
     """
     import importlib.util
     import sys
-    cached = sys.modules.get(name)
+    # ٢٠٢٦-٠٩-٠٥ (مقيس): الاسم المجرّد `gate_runner` مفتاح عام في
+    # sys.modules. القراءة منه أعادت وحدة بلا `_on_gate_passed` فسقط
+    # **كل** قرار يعبر البوابة بـAttributeError — إمّا لتصادم اسم مع
+    # وحدة أخرى، أو لأن تنفيذًا فاشلًا سابقًا ترك قشرة فارغة مسجّلة.
+    # المفتاح صار فريدًا بالذرّة، والفشل ينظّف أثره بدل أن يتحجّر.
+    key = "atom580_" + name
+    cached = sys.modules.get(key)
     if cached is not None:
         return cached
     path = Path(__file__).resolve().parent / (name + ".py")
-    spec = importlib.util.spec_from_file_location(name, path)
+    spec = importlib.util.spec_from_file_location(key, path)
     if spec is None or spec.loader is None:
         raise ImportError(name)
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
+    sys.modules[key] = module
+    # الوحدات الشقيقة تستورد بعضها بالاسم المجرّد (`import rules_store`)،
+    # ومجلد الذرّة ليس في sys.path وقت الاستدعاء المتأخّر — فكان التنفيذ
+    # يفشل بـModuleNotFoundError. المجلد يُدرَج للحظة التنفيذ ثم يُرفع.
+    folder = str(path.parent)
+    added = folder not in sys.path
+    if added:
+        sys.path.insert(0, folder)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(key, None)
+        raise
+    finally:
+        if added:
+            try:
+                sys.path.remove(folder)
+            except ValueError:
+                pass
     return module
 
 

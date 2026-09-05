@@ -21,6 +21,19 @@ EVENT_REJECTED = "risk.position_size.rejected"
 METHOD = "risk_percent_sizing"
 MAX_STRUCT_STOP_FRAC = 0.05
 MAX_RISK_PER_TRADE_PCT = 5.0
+# حكم المالك ٢٠٢٦-٠٩-٠٥: «أكثر من ١٪ على صفقة ما بصير يخسر». سقف صلب
+# فوق العيار المضبوط، لا يُتجاوز من لوحة ولا من ملف إعداد.
+HARD_RISK_CAP_PCT = 1.0
+# وحكمه الأصرح في اليوم نفسه: «ما في صفقة تضرب ستوب أكثر من ١٠ دولار،
+# مع هامش بسيط ٢٪». سقف بعملة الحساب يحكم فوق النسبة المئوية: على رصيد
+# 10,513.24 كانت ١٪ تساوي 105.13 — عشرة أضعاف ما يقبله المالك. الخسارة
+# المقصودة هي الكلّية: مسافة الوقف + السبريد + الانزلاق + العمولة.
+MAX_TRADE_LOSS_ACCOUNT_CCY = 10.0
+RISK_TOLERANCE = 1.02
+# احتياطي الانزلاق كمضاعف للسبريد — مقيس على ٢٤ صفقة منفَّذة على هذا
+# الحساب: الانزلاق ضدّنا دائمًا (وسيط 2.7 · متوسط 4.7 · أقصى 16.90)
+# مقابل سبريد 5.00، فمضاعف 2 يغطّي 20 منها.
+SLIPPAGE_SPREAD_MULT = 2.0
 _BUDGET_TOLERANCE = 1.01
 _PERCENT = 100.0
 _DP = 6
@@ -42,6 +55,7 @@ class Atom(AtomBase):
         self._context: AtomContext | None = None
         self._running = False
         self._risk_pct = 1.0
+        self._commission_per_lot = 0.0
         self._stop_pct = 0.5
         self._min_lot = 0.01
         self._max_lot = 1.0
@@ -165,14 +179,33 @@ class Atom(AtomBase):
             return None, "STALE_ACCOUNT_SYMBOL_SPECS", False
         return None, "SIZING_UNAVAILABLE_FOR_SYMBOL", False
 
-    def _lot(self, equity: float, distance: float, spec: dict[str, Any]) -> tuple[float | None, str]:
-        risk_amount = equity * self._risk_pct / _PERCENT
-        denom = distance * spec["tick_value"] / spec["tick_size"]
+    def _budget(self, equity: float) -> float:
+        """ميزانية مخاطرة الصفقة — بسقف صلب لا يُتجاوز مهما كان العيار.
+
+        حكم المالك ٢٠٢٦-٠٩-٠٥: «أكثر من ١٪ على صفقة ما بصير يخسر».
+        العيار قد يُرفع من اللوحة أو من ملف؛ السقف هنا يحكم فوقه.
+        """
+        pct = min(self._risk_pct, HARD_RISK_CAP_PCT)
+        return min(equity * pct / _PERCENT, MAX_TRADE_LOSS_ACCOUNT_CCY)
+
+    def _lot(self, equity: float, distance: float, spec: dict[str, Any],
+             spread: float = 0.0) -> tuple[float | None, str]:
+        # حكم المالك ٢٠٢٦-٠٩-٠٥: «لما يحسب لوت لازم يضمن دخول وانزلاق
+        # وسبريد وعمولة داخل الستوب». الخسارة الفعلية ليست مسافة الوقف
+        # وحدها — مقيس على ٢٤ صفقة حقيقية: السبريد 5.00 والانزلاق ضدّنا
+        # دائمًا (وسيطه 2.7 · متوسطه 4.7 · أقصاه 16.90)، فتكلفة العبور
+        # وحدها ~10 دولارات على صفقة وقفها 20. الاحتياطي يُربط بالسبريد
+        # لا برقم ثابت كي يصحّ على كل رمز: سبريد×2 يغطّي 20 من 24.
+        # العمولة مقيسة 0.0 على هذا الحساب وتبقى عيارًا صريحًا.
+        risk_amount = self._budget(equity)
+        effective = distance + spread * (1.0 + SLIPPAGE_SPREAD_MULT)
+        vpp = spec["tick_value"] / spec["tick_size"]
+        denom = effective * vpp + self._commission_per_lot
         if denom <= 0: return None, "INVALID_STOP_DISTANCE"
         raw = risk_amount / denom
         step = spec.get("volume_step") or self._lot_step
         stepped = round(raw / step) * step
-        if stepped * denom > risk_amount * _BUDGET_TOLERANCE:
+        if stepped * denom > risk_amount * RISK_TOLERANCE:
             stepped = math.floor(raw / step) * step
         broker_min = max(self._min_lot, spec.get("volume_min") or 0.0)
         broker_max = min(self._max_lot, spec.get("volume_max") or self._max_lot)
@@ -217,9 +250,12 @@ class Atom(AtomBase):
         if spec_fallback:
             self._sized_by_symbol_fallback += 1
         self._unavailable_scopes.pop(key, None)
-        risk_amount = equity * self._risk_pct / _PERCENT
+        risk_amount = self._budget(equity)
+        bid = number(payload.get("bid"))
+        ask = number(payload.get("ask"))
+        spread = (ask - bid) if (bid is not None and ask is not None and ask > bid) else 0.0
         default_distance = close * self._stop_pct / _PERCENT
-        lot, default_reason = self._lot(equity, default_distance, spec)
+        lot, default_reason = self._lot(equity, default_distance, spec, spread)
         buy_lot = sell_lot = buy_stop = sell_stop = None
         reasons = [default_reason] if default_reason else []
         stops = self._stops.get(key)
@@ -234,14 +270,14 @@ class Atom(AtomBase):
                 if close - candidate > ceiling:
                     reasons.append("BUY_STRUCT_STOP_TOO_FAR")
                 else:
-                    buy_stop = candidate; buy_lot, reason = self._lot(equity, close - candidate, spec)
+                    buy_stop = candidate; buy_lot, reason = self._lot(equity, close - candidate, spec, spread)
                     if reason: reasons.append("BUY_" + reason)
             candidate = stops.get("sell_stop")
             if candidate is not None and candidate > close:
                 if candidate - close > ceiling:
                     reasons.append("SELL_STRUCT_STOP_TOO_FAR")
                 else:
-                    sell_stop = candidate; sell_lot, reason = self._lot(equity, candidate - close, spec)
+                    sell_stop = candidate; sell_lot, reason = self._lot(equity, candidate - close, spec, spread)
                     if reason: reasons.append("SELL_" + reason)
         status = "OK" if any(x is not None for x in (lot, buy_lot, sell_lot)) else "REJECTED"
         if status == "REJECTED":
@@ -259,7 +295,23 @@ class Atom(AtomBase):
                          "risk_amount": round(risk_amount, 2), "risk_pct": self._risk_pct,
                          "stop_distance": round(default_distance, _DP), "equity": round(equity, 2),
                          "price": close, "buy_lot": buy_lot, "buy_stop": buy_stop,
-                         "sell_lot": sell_lot, "sell_stop": sell_stop}})
+                         "sell_lot": sell_lot, "sell_stop": sell_stop,
+                         # ٢٠٢٦-٠٩-٠٥ (حكم المالك: «وقف الخسارة لازم ينحسب
+                         # على معادلة حجم لوت»): اللوت أعلاه محسوب على
+                         # مسافة وقف هذه الذرّة. حين يستبدل 551 الوقف بوقف
+                         # بنيوي أقرب، تنكسر المعادلة ما لم يُعَد الحساب —
+                         # فتعبر معاملات المعادلة نفسها هنا بدل تخمينها.
+                         "tick_value": spec.get("tick_value"),
+                         "tick_size": spec.get("tick_size"),
+                         # تكاليف العبور تعبر معها كي يعيد 551 الحساب على
+                         # المسافة الفعلية لا على مسافة الوقف وحدها.
+                         "spread": round(spread, _DP),
+                         "slippage_reserve": round(spread * SLIPPAGE_SPREAD_MULT, _DP),
+                         "commission_per_lot": self._commission_per_lot,
+                         "max_trade_loss": MAX_TRADE_LOSS_ACCOUNT_CCY,
+                         "volume_step": spec.get("volume_step") or self._lot_step,
+                         "volume_min": max(self._min_lot, spec.get("volume_min") or 0.0),
+                         "volume_max": min(self._max_lot, spec.get("volume_max") or self._max_lot)}})
         self._emitted += 1
 
     async def snapshot(self) -> dict[str, Any]:

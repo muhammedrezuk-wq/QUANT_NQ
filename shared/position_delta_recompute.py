@@ -3,10 +3,28 @@ from __future__ import annotations
 import time
 from typing import Any
 
-COOLDOWN_S = 60.0
+# ٢٠٢٦-٠٩-٠٥ (حكم المالك: «مو سكالبينغ عصبي — أخفّ شوي من عصبي»):
+# الكبح كان 60 ثانية فخُفّض إلى 10 للسكالبينغ، فصار القرار يتكرّر كل
+# عشر ثوانٍ على تِكّات متلاصقة. 45 ثانية تترك للسوق مجالًا يتحرّك بين
+# قرار وآخر بلا أن تعود إلى بطء الدقيقة الكاملة.
+COOLDOWN_S = 45.0
 REWARD_RISK = 2.0
 MAX_STOP_FRAC = 0.02
 MIN_STEP_FRAC = 0.20
+MIN_RR = 1.5
+# مضاعف السبريد كحدّ أدنى لمسافة الوقف والهدف: الدخول على جانب والخروج
+# على الآخر يبتلع سبريدًا كاملًا، فوقف على بعد سبريد واحد يُضرب لحظة
+# الفتح. مقيس على BTCUSD: سبريد 5.00 ووقف 2.20 ⇒ RETCODE_10016.
+#
+# ٢٠٢٦-٠٩-٠٥ (حكم المالك: «مو سكالبينغ عصبي — أخفّ شوي من عصبي»):
+# المضاعف 2 يعني وقفًا عند 10.00 على سبريد 5.00 — نصف المخاطرة سبريد،
+# وأي ضجيج لحظي يضربه. المضاعف 4 يجعل أدنى وقف 20.00 وأدنى هدف يحقّق
+# النسبة ~30.00، أي صفقة تتنفّس دقائق لا ثوانيَ، والسبريد يصير خُمس
+# المخاطرة بدل نصفها.
+SPREAD_STOP_MULT = 4.0
+# احتياطي الانزلاق كمضاعف للسبريد — مقيس على ٢٤ صفقة منفَّذة: الانزلاق
+# ضدّنا دائمًا (وسيط 2.7 · متوسط 4.7 · أقصى 16.90) مقابل سبريد 5.00.
+SLIPPAGE_SPREAD_MULT = 2.0
 
 SEP = "\x1f"
 GATE_MARK = "_gate"
@@ -210,6 +228,21 @@ async def recompute(atom: Any, scope_key: str) -> None:
         capacity = min(atom._max_target, budget / (price * stop_frac * value_per_unit))
         gross_cap = atom._gross_cap(scope_key, budget, price, stop_frac, value_per_unit)
         held, reason = atom._held_direction(scope_key, direction, strength, current_net)
+        # سؤال المالك ٢٠٢٦-٠٩-٠٥: «ليش بس عم يشتري». الجواب يجب أن يكون
+        # رقمًا لا رأيًا: كلّما اختلف اتجاه القرار عن الاتجاه الممسوك،
+        # يُسجَّل الاثنان مع الصافي والقوة — فيُعرف هل الروم لا يطلب بيعًا
+        # أصلًا، أم يطلبه ويمنعه قفل «الانعكاس عبر الحياد».
+        if direction in (BUY, SELL) and held != direction:
+            last = getattr(atom, "_last_dir_block", None)
+            if last is None:
+                last = atom._last_dir_block = {}
+            stamp = (direction, held or "NONE", reason)
+            if last.get(scope_key) != stamp:
+                last[scope_key] = stamp
+                atom._context.logger.warning(
+                    "581 direction blocked %s: decision=%s held=%s reason=%s "
+                    "net=%.2f strength=%.2f",
+                    symbol, direction, held or "NONE", reason, current_net, strength)
         exposure = atom._fraction(strength)
         hedge = atom._hedge_fraction(strength)
         if filter_verdict != FILTER_PASSED:
@@ -343,6 +376,24 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
     # كان شراء 2.06 مقابل بيع 0.23 فخرجتا 0.05 و0.05. التحوّط شأن 576/578.
     target_net = real(out.get("target_net")) or 0.0
     if abs(target_net) < min_volume:
+        # ٢٠٢٦-٠٩-٠٥: هذا الخروج كان صامتًا تمامًا — 581 targets=847 بلا
+        # سطر واحد في السجلّ، فبدا النظام واقفًا بلا سبب. الأرقام التي
+        # تصنع target_net تُسجَّل مرّة عند كل تغيّر في تركيبتها.
+        stamp = (out.get("held_direction"), out.get("reason"),
+                 round(real(out.get("strength")) or 0.0, 2),
+                 round(real(out.get("target_gross")) or 0.0, 2))
+        seen = getattr(atom, "_last_flat_stamp", None)
+        if seen is None:
+            seen = atom._last_flat_stamp = {}
+        if seen.get(scope_key) != stamp:
+            seen[scope_key] = stamp
+            atom._context.logger.warning(
+                "581 flat %s: target_net=%.4f held=%r reason=%r strength=%.3f "
+                "gross=%.3f exposure=%r hedge=%r dir=%r state=%r",
+                symbol, target_net, out.get("held_direction"), out.get("reason"),
+                real(out.get("strength")) or 0.0, real(out.get("target_gross")) or 0.0,
+                out.get("exposure_fraction"), out.get("hedge_fraction"),
+                out.get("direction"), out.get("state"))
         return
     wanted_side = BUY if target_net > 0 else SELL
 
@@ -356,7 +407,13 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # لا تنقيط: إضافة أصغر من MIN_STEP_FRAC من الهدف لا تستحق مركزًا
         # جديدًا. بدونها يفتح النظام مركزًا بحجم السقف كل دورة حتى يمتلئ
         # الحدّ — أربعة مراكز متطابقة قِيست، وهو ما سمّاه المالك «أعمى».
-        if target_gross > 0 and delta < target_gross * MIN_STEP_FRAC:
+        # لكن الأرضية لا تتجاوز سقف الخطوة نفسه، وإلا جمد كل شيء: قِيس
+        # هدف 5.7 وسقف خطوة 0.5، فصارت الأرضية 1.14 وتُخطّى كل طلب بصمت.
+        floor = target_gross * MIN_STEP_FRAC if target_gross > 0 else 0.0
+        floor = min(floor, float(getattr(atom, "_max_step", delta) or delta))
+        if delta < floor:
+            atom._context.logger.warning(
+                "581 skip %s: STEP_BELOW_FLOOR delta=%s floor=%s", symbol, delta, floor)
             continue
         volume = round(delta / min_volume) * min_volume
         if volume < min_volume:
@@ -366,24 +423,146 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         share = budget
         if budget > 0 and target_gross > 0:
             share = round(budget * min(1.0, volume / target_gross), 2)
-        # الوقف والهدف: بلا هذين يرفض 584 كل أمر غير محايد
-        # (INCOMPLETE_ORDER)، ووجود الحجم لازم وإلا رفض 585 الهامش.
-        frac = real(out.get("stop_distance_frac")) or 0.0
-        if frac <= 0:
-            continue
-        # سقف أمان: قيست مسافة وقف 0.5 (50%) فوضعت وقف شراء عند نصف
-        # السعر (79,722 -> 39,722). المسافة العملية المقيسة في 576 هي
-        # 0.0055، فنقصّ أي قيمة شاذّة عند MAX_STOP_FRAC.
-        frac = min(frac, MAX_STOP_FRAC)
-        span = price * frac
+        # ٢٠٢٦-٠٩-٠٥ (حكم المالك): «ستوب وهدف ثابتين من رقم هندسي على
+        # ميزانية — هاد عيب. كل هالمحلّلات ما توصلك مكان ستوب من تحليل،
+        # وبنفس الوقت هدف ١/٢ بدون تحليل — عم تقفل باب بوجه التحليل».
+        # الوقف والهدف يُعلَّقان الآن على برك السيولة: 200 ينشر السوينغ،
+        # 251 يحوّله إلى بركة (METHOD=swing_as_pool)، و252/253 ينشران
+        # سعرَي البركة العليا والسفلى. كلاهما مشتقّ من السعر وحده — صالح
+        # لوسيط CFD الذي لا يقدّم حجمًا حقيقيًّا ولا CVD.
+        sym = symbol.upper()
+        pools = (getattr(atom, "_liquidity_pools", {}) or {}).get(sym, {})
+        swings = (getattr(atom, "_swings", {}) or {}).get(sym, {})
+        # ٢٠٢٦-٠٩-٠٥ (مقيس على رفض الوسيط RETCODE_10016 = INVALID_STOPS):
+        # مواصفة BTCUSD تعلن stops_level = 0 وfreeze_level = 0، فالحارس
+        # القديم (stops_level × point) كان صفرًا ولا يمنع شيئًا — ومع ذلك
+        # رُفض أمرا الجسر 125 و126 عند التنفيذ. السبب المقيس: **السبريد
+        # 5.00 دولار** (bid 79,721.64 / ask 79,726.64) بينما الوقف على
+        # بعد 2.20 و2.38 — أي داخل السبريد. البيع يدخل على bid ويُوقَف
+        # على ask، فالمسافة الفعلية تنكمش بمقدار سبريد كامل. الحدّ الأدنى
+        # الحقيقي هو السبريد لا رقم الوسيط المعلن.
+        spread = real(getattr(atom, "_spread_price", {}).get(scope_key)) or 0.0
+        min_gap = max(
+            real(getattr(atom, "_broker_min_stop", {}).get(scope_key)) or 0.0,
+            spread * SPREAD_STOP_MULT,
+        )
+
+        # مرشّحو المستويات: السوينغ (أقرب حدّ بنيوي — سكالبينغ) وبرك
+        # السيولة (أبعد — تحرّك أوسع). الوقف يأخذ الأقرب فالمخاطرة أصغر،
+        # والهدف يأخذ أقرب مستوى يحقّق النسبة فالعائد ليس أصغر من المخاطرة.
+        # خريطة المستويات: كل ما سجّلته 251/252/253 و201 من قمم وقيعان،
+        # لا آخر واحد فقط — بها يجد الهدف مدى يحقّق النسبة بدل الجار
+        # الملاصق (13 نقطة) الذي كان يُسقط كل أمر بـRR_BELOW_MIN.
+        lows = list(pools.get("lows") or []) + list(swings.get("lows") or [])
+        lows += [pools.get("sellside"), swings.get("low")]
+        highs = list(pools.get("highs") or []) + list(swings.get("highs") or [])
+        highs += [pools.get("buyside"), swings.get("high")]
+        below = sorted({real(x) for x in lows
+                        if real(x) is not None and 0 < real(x) < price})
+        above = sorted({real(x) for x in highs
+                        if real(x) is not None and real(x) > price})
+
+        # ٢٠٢٦-٠٩-٠٥ (مقيس): اختيار «الأقرب مطلقًا» كان يوقف التداول
+        # كلّيًّا — LEVEL_INSIDE_BROKER_MIN gap=20.0 مع مستويات تفصلها 13
+        # نقطة (79,690.55 · 79,703.56 · 79,704.57). المستوى الملاصق ليس
+        # الخيار الوحيد: يُؤخذ **أقرب مستوى يبلغ الحدّ الأدنى**، فيبقى
+        # الوقف بنيويًّا حقيقيًّا ويُقبل عند الوسيط في آن.
+        # الوقف: أقرب مستوى بنيوي يبلغ الحدّ الأدنى. وإن كان أبعد مستوى
+        # متاح ما زال داخل الحدّ، يُزاح **إلى الخارج** إلى الحدّ بالضبط —
+        # المستوى البنيوي يبقى محميًّا داخله، والإزاحة ضرورة وسيط لا
+        # اختراع تحليل. اللوت يُعاد حسابه على المسافة الجديدة فتبقى
+        # الخسارة تحت سقف المالك. (٢٠٢٦-٠٩-٠٥: بلا هذه الإزاحة توقّف
+        # التداول كلّيًّا — LEVEL_INSIDE_BROKER_MIN على كل تِكّة.)
+        # الهدف لا يُزاح أبدًا: يبقى مستوى بنيويًّا حقيقيًّا، وإن لم يبلغ
+        # أيُّ مستوى الحدَّ والنسبة معًا فلا صفقة.
+        shifted = False
         if side == BUY:
-            stop_loss = round(price - span, 8)
-            take_profit = round(price + span * REWARD_RISK, 8)
+            stop_loss = next((s for s in reversed(below) if (price - s) >= min_gap),
+                             below[0] if below else None)
+            if stop_loss is not None and (price - stop_loss) < min_gap:
+                stop_loss = price - min_gap
+                shifted = True
+            risk_gap = (price - stop_loss) if stop_loss else 0.0
+            take_profit = next((t for t in above
+                                if (t - price) >= max(risk_gap * MIN_RR, min_gap)),
+                               None)
         else:
-            stop_loss = round(price + span, 8)
-            take_profit = round(price - span * REWARD_RISK, 8)
-        if stop_loss <= 0 or take_profit <= 0:
+            stop_loss = next((s for s in above if (s - price) >= min_gap),
+                             above[-1] if above else None)
+            if stop_loss is not None and (stop_loss - price) < min_gap:
+                stop_loss = price + min_gap
+                shifted = True
+            risk_gap = (stop_loss - price) if stop_loss else 0.0
+            take_profit = next((t for t in reversed(below)
+                                if (price - t) >= max(risk_gap * MIN_RR, min_gap)),
+                               None)
+
+        if stop_loss is None or take_profit is None:
+            # لا مستوى تحليلي = لا صفقة. رقم هندسي بديل يكذب على القرار.
+            # الرسالة تميّز غياب الوقف عن غياب الهدف، وتذكر مصادر
+            # المستويات التي وصلت فعلًا — فيُعرف أيّ محلّل صامت.
+            want = max((risk_gap * MIN_RR), min_gap)
+            atom._context.logger.warning(
+                "581 skip %s: NO_STRUCTURE_LEVEL missing=%s price=%.2f "
+                "stop=%r risk_gap=%.2f need_target_at=%.2f "
+                "below=%s above=%s sources=%r",
+                symbol, "STOP" if stop_loss is None else "TARGET", price,
+                stop_loss, risk_gap, want,
+                [round(x, 2) for x in below[-3:]],
+                [round(x, 2) for x in above[:3]],
+                getattr(atom, "_level_sources", {}))
             continue
+
+        # الاتجاه لا يُفتح على مستويات مقلوبة (وقف فوق السعر لشراء مثلًا).
+        if side == BUY and not (stop_loss < price < take_profit):
+            atom._context.logger.warning(
+                "581 skip BUY %s: LEVELS_INVERTED sl=%s price=%s tp=%s",
+                symbol, stop_loss, price, take_profit)
+            continue
+        if side == SELL and not (take_profit < price < stop_loss):
+            atom._context.logger.warning(
+                "581 skip SELL %s: LEVELS_INVERTED tp=%s price=%s sl=%s",
+                symbol, take_profit, price, stop_loss)
+            continue
+
+        # حدّ الوسيط الأدنى: مستوى أقرب منه يرفضه الوسيط.
+        if min_gap > 0 and (abs(price - stop_loss) < min_gap
+                            or abs(take_profit - price) < min_gap):
+            atom._context.logger.warning(
+                "581 skip %s: LEVEL_INSIDE_BROKER_MIN gap=%s sl=%s tp=%s",
+                symbol, min_gap, stop_loss, take_profit)
+            continue
+
+        # سقف مخاطرة: مستوى أبعد من MAX_STOP_FRAC ليس خطأ في التحليل بل
+        # مخاطرة أكبر من المسموح — تُترك الصفقة ولا يُزوَّر الوقف.
+        if abs(price - stop_loss) / price > MAX_STOP_FRAC:
+            atom._context.logger.warning(
+                "581 skip %s: STOP_BEYOND_RISK_CAP dist=%.2f%% cap=%.2f%%",
+                symbol, abs(price - stop_loss) / price * 100.0,
+                MAX_STOP_FRAC * 100.0)
+            continue
+
+        # ٢٠٢٦-٠٩-٠٥ (حكم المالك على لقطة الحساب: «هدف أصغر من ستوب»):
+        # المستويان صحيحان بنيويًّا لكن النسبة بينهما قد تكون مقلوبة —
+        # مقيس على الحساب: مخاطرة 1,593 مقابل عائد 878 (نسبة 0.55)، وأسوأ
+        # 7,156 مقابل 868 (نسبة 0.12). أي صفقة لا تبلغ MIN_RR تُترك.
+        # النسبة تُحسب على ما يقبضه الحساب فعلًا: الدخول على الجانب
+        # المعاكس والخروج على الآخر، فسبريد كامل يُضاف إلى المخاطرة
+        # ويُطرح من العائد. مع سبريد 5.00 على وقف 8 نقاط، النسبة
+        # المعلنة 5.8 حقيقتها 3.3 — والفرق ليس تفصيلًا على السكالبينغ.
+        risk = abs(price - stop_loss) + spread
+        reward = max(0.0, abs(take_profit - price) - spread)
+        if risk <= 0 or reward / risk < MIN_RR:
+            atom._context.logger.warning(
+                "581 skip %s: RR_BELOW_MIN rr=%.2f risk=%.2f reward=%.2f min=%.2f "
+                "| price=%.2f below=%s above=%s",
+                symbol, (reward / risk if risk > 0 else 0.0), risk, reward, MIN_RR,
+                price, [round(x, 2) for x in below[-4:]],
+                [round(x, 2) for x in above[:4]])
+            continue
+
+        stop_loss = round(stop_loss, 8)
+        take_profit = round(take_profit, 8)
         body = {
             "request_id": "dir-%s-%s-%s" % (decision_id, side, atom._version(scope_key)),
             "account_id": account, "broker": broker,
@@ -392,13 +571,27 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
             "stop_loss": stop_loss, "take_profit": take_profit,
             "origin": "directional", "attempt": 1,
             "risk_budget": share,
+            # ٢٠٢٦-٠٩-٠٥ (مقيس على التذكرة 1911032162): 513 يستمع إلى
+            # market.tick.validated وهو لا يحمل bid/ask، فوصلت تكاليف
+            # العبور إلى 551 أصفارًا — فحسب لوتًا 0.5 على وقف 20 نقطة
+            # (10.00$ بالضبط)، ثم انزلق التنفيذ 8.25 فصارت الخسارة 14.12
+            # واضطُرّ 577 إلى تضييق الوقف بعد الفتح. السبريد يُقاس هنا
+            # من تِكّة الوسيط نفسها، فيعبر مع الطلب إلى حاسب الحجم.
+            "spread": round(spread, 8),
+            "slippage_reserve": round(spread * SLIPPAGE_SPREAD_MULT, 8),
             "parent_decision_id": decision_id,
             "gate_request_id": out.get("gate_request_id"),
         }
         await atom._context.publish(EVENT_ORDER_REQUESTED, body)
+        # الوقف يُطبع بمسافته لا بسعره وحده: حكم المالك «كيف وقف ٢٠ نقطة
+        # ما عم يتغيّر على تحليل؟». وقف مُزاح (shifted) يعني أن التحليل لم
+        # يقدّم مستوى أبعد من الحدّ — إن تكرّر فالمصدر ضيّق لا القاعدة.
         atom._context.logger.warning(
-            "581 order requested side=%s volume=%s price=%s decision=%s",
-            side, body["volume"], body["reference_price"], decision_id)
+            "581 order requested side=%s volume=%s price=%s stop_dist=%.2f "
+            "target_dist=%.2f shifted=%s levels=%d/%d decision=%s",
+            side, body["volume"], body["reference_price"],
+            abs(price - stop_loss), abs(take_profit - price), shifted,
+            len(below), len(above), decision_id)
         published = True
     if published:
         seen[scope_key] = decision_id

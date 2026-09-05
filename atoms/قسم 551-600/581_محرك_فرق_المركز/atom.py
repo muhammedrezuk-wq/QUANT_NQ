@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.decision_dials import (EVENT_COMMAND as EVENT_SETTINGS_COMMAND,
@@ -68,6 +69,40 @@ def side(value: Any) -> str:
     return "BUY" if text in ("buy", "long", "1") else "SELL" if text in ("sell", "short", "-1") else ""
 
 
+_LEVEL_HISTORY = 24
+_LEVEL_EPSILON = 1e-9
+# ٢٠٢٦-٠٩-٠٥ (حكم المالك، وهو ردّ على ما بنيتُه أنا): «عم تساوي قالب
+# ثابت على سِستم تحليلي — ثلاث قوالب يعني ستوب مو دقيق جاي على تحليل
+# مباشر». نوافذ المدى الزمنية (60/300/900 ثانية) كانت أرقامًا اخترعتها
+# لا مستويات قالها التحليل، فحُذفت. المستويات تأتي من الذرّات التي
+# تقيسها فعلًا، وهذه خريطة مصادرها المقيسة من مانيفستاتها وحمولاتها:
+#
+#   202 الهيكل الخارجي  structure.external.state  swing_high · swing_low
+#   203 الهيكل الداخلي  structure.internal.state  swing_high · swing_low
+#   204 كاشف BOS        structure.bos.state       level
+#   205 كاشف CHoCH      structure.choch.state     level
+#   206 تحوّل MSS        structure.mss.state       level
+#   254 كنس السيولة     liquidity.sweep.state     level
+#   255 الفجوة FVG      liquidity.fvg.state       gap_top · gap_bottom
+#   157 الفجوات         analysis.gap.state        gap حسب حمولتها
+#
+# الهيكل الخارجي يعطي المسافات الواسعة (الوقف ٧٠)، والداخلي المتوسطة
+# (٤٠)، والسوينغ والبرك الضيقة — فيختار الوقف مستوى حقيقيًّا بحسب ما
+# تحرّك السوق، والحجم يتبعه لأنه محسوب منه.
+LEVEL_FIELDS = ("swing_high", "swing_low", "level", "gap_top", "gap_bottom",
+                "high", "low", "price")
+
+
+def _push_level(bucket: dict, key: str, price: float) -> None:
+    """يحفظ مستوى بنيويًّا في خريطة الجهة بلا تكرار وبسقف طول ثابت."""
+    levels = bucket.setdefault(key, [])
+    if any(abs(x - price) < _LEVEL_EPSILON for x in levels):
+        return
+    levels.append(price)
+    if len(levels) > _LEVEL_HISTORY:
+        del levels[:-_LEVEL_HISTORY]
+
+
 def side_of(payload: dict[str, Any]) -> str:
     raw = payload.get("decision_side") or payload.get("direction") or payload.get("signal") or WAIT
     return str(raw).strip().lower()
@@ -95,6 +130,9 @@ class Atom(AtomBase):
         self._hedge_cost_per_volume = 0.0
         self._spread_price = {}
         self._spread_cost = {}
+        self._swings = {}
+        self._liquidity_pools = {}
+        self._level_sources = {}
         self._decisions = {}
         self._ledgers = {}
         self._portfolios = {}
@@ -144,6 +182,17 @@ class Atom(AtomBase):
         context.subscribe(EVENT_SETTINGS_COMMAND, self._on_setting)
         # ٢٠٢٦-٠٩-٠٥: هوية الوسيط لازمة لطلب الأمر (552 يرفض بلا وسيط).
         context.subscribe("platform.account.state", self._on_account_identity)
+        # برك السيولة: عليها يُبنى الوقف والهدف بدل نسبة ثابتة.
+        context.subscribe("liquidity.buyside.state", self._on_liquidity)
+        context.subscribe("liquidity.sellside.state", self._on_liquidity)
+        # السوينغ: أقرب حدّ بنيوي — عليه يقوم السكالبينغ.
+        context.subscribe("structure.swing.state", self._on_swing)
+        # مصادر المستويات التحليلية المباشرة — لا قوالب زمنية.
+        for event in ("structure.external.state", "structure.internal.state",
+                      "structure.bos.state", "structure.choch.state",
+                      "structure.mss.state", "liquidity.sweep.state",
+                      "liquidity.fvg.state", "analysis.gap.state"):
+            context.subscribe(event, self._on_analysis_level)
 
     async def start(self): self._running = True
     async def stop(self): self._running = False
@@ -247,6 +296,14 @@ class Atom(AtomBase):
             if account and symbol and tv is not None and ts and ts > 0:
                 self._vpu[scope] = tv / ts
                 if scope in self._spread_price: self._spread_cost[scope] = self._spread_price[scope] * self._vpu[scope]
+            # حدّ الوسيط الأدنى لمسافة الوقف/الهدف: مستوى تحليلي أقرب منه
+            # يرفضه الوسيط، فيُزاح إليه بدل أن يُرسل ويُرفض.
+            point = real(row.get("point")) or real(row.get("tick_size")) or 0.0
+            stops_level = real(row.get("stops_level")) or 0.0
+            if account and symbol:
+                if not hasattr(self, "_broker_min_stop"):
+                    self._broker_min_stop = {}
+                self._broker_min_stop[scope] = stops_level * point
 
     async def _on_stop(self,payload):
         if not self._running or not isinstance(payload,dict): return
@@ -269,7 +326,8 @@ class Atom(AtomBase):
         if bid is not None and ask is not None and bid > 0 and ask >= bid:
             self._spread_price[scope] = ask - bid
             if scope in self._vpu: self._spread_cost[scope] = (ask - bid) * self._vpu[scope]
-        if price and price > 0: self._price[scope] = price
+        if price and price > 0:
+            self._price[scope] = price
 
     async def _on_candle(self, payload):
         if not self._running or not isinstance(payload, dict): return
@@ -277,6 +335,98 @@ class Atom(AtomBase):
         symbol = str(payload.get("symbol") or "")
         price = real(payload.get("close"))
         if account and symbol and price and price > 0: self._price[key(account, symbol)] = price
+
+    async def _on_swing(self, payload):
+        """يلتقط آخر قمة/قاع سوينغ — أقرب مستوى بنيوي، وهو ما يلزم السكالبينغ.
+
+        ٢٠٢٦-٠٩-٠٥ (حكم المالك: «لازم يتداول أسرع من هيك — سكالبينغ»):
+        برك السيولة (251) تحتفظ بمستوى قد يبعد آلاف النقاط — قِيس وقف على
+        بعد 7,156 — بينما السوينغ من 201 (fractal_center) هو أقرب حدّ
+        بنيوي فعلي. كلاهما يُجمع، ويُختار الأنسب عند بناء الأمر.
+        """
+        if not isinstance(payload, dict):
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        price = real(meta.get("price")) or real(payload.get("price"))
+        signal = str(payload.get("signal") or "").lower()
+        if not symbol or price is None or price <= 0:
+            return
+        if not hasattr(self, "_swings"):
+            self._swings = {}
+        bucket = self._swings.setdefault(symbol, {})
+        # ٢٠٢٦-٠٩-٠٥ (مقيس): الاحتفاظ بآخر مستوى واحد لكل جهة جعل الهدف
+        # دائمًا الجارَ الأقرب — بركتان تفصلهما 13 نقطة (79,724.87 و
+        # 79,737.62) ⇒ كل أمر يسقط بـRR_BELOW_MIN (rr=0.18..0.35).
+        # خريطة المستويات تحفظ آخر _LEVEL_HISTORY مستوى لكل جهة، فيصير
+        # للهدف مدى حقيقي بدل نقطة واحدة، والوقف يبقى الأقرب.
+        if signal == "swing_high":
+            bucket["high"] = price
+            _push_level(bucket, "highs", price)
+        elif signal == "swing_low":
+            bucket["low"] = price
+            _push_level(bucket, "lows", price)
+        bucket["seen_at"] = time.time()
+
+    async def _on_analysis_level(self, payload):
+        """يلتقط كل مستوى سعري تقوله ذرّات التحليل مباشرة.
+
+        ٢٠٢٦-٠٩-٠٥ (حكم المالك): الوقف يجب أن يجيء «على تحليل مباشر» لا
+        على قالب. كل ذرّة هنا تقيس مستواها بطريقتها — الهيكل الخارجي
+        بقمم وقيعان أوسع، والداخلي بأضيق، وBOS بمستوى الاختراق، وFVG
+        بحدّي الفجوة. المستوى يُقبل كما نُشر، ويُصنَّف قمّة أو قاعًا
+        بموضعه من السعر الحالي، فتصير خريطة المستويات ذات مدى حقيقي
+        مصدره التحليل وحده.
+        """
+        if not isinstance(payload, dict):
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        if not symbol:
+            return
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        reference = real(meta.get("close")) or real(meta.get("price")) \
+            or real(payload.get("price"))
+        if reference is None or reference <= 0:
+            return
+        bucket = self._swings.setdefault(symbol, {})
+        source = str(payload.get("id") or payload.get("signal") or "")
+        found = 0
+        for field in LEVEL_FIELDS:
+            value = real(meta.get(field))
+            if value is None or value <= 0 or value == reference:
+                continue
+            _push_level(bucket, "highs" if value > reference else "lows", value)
+            found += 1
+        if found:
+            bucket["seen_at"] = time.time()
+            self._level_sources[source] = self._level_sources.get(source, 0) + found
+
+    async def _on_liquidity(self, payload):
+        """يلتقط برك السيولة — عليها يُعلَّق الوقف والهدف.
+
+        ٢٠٢٦-٠٩-٠٥ (حكم المالك): «ستوب وهدف ثابتين من رقم هندسي على
+        ميزانية — هاد عيب، كل هالمحلّلات ما توصلك مكان ستوب من تحليل».
+        252 ينشر سعر بركة الشراء (pool_high) و253 بركة البيع، وهما
+        المستويان اللذان يُبنى عليهما الخروج بدل نسبة ثابتة.
+        """
+        if not isinstance(payload, dict):
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        price = real(meta.get("price"))
+        side = str(meta.get("side") or "").lower()
+        if not symbol or price is None or price <= 0:
+            return
+        if not hasattr(self, "_liquidity_pools"):
+            self._liquidity_pools = {}
+        bucket = self._liquidity_pools.setdefault(symbol, {})
+        if side == "high":
+            bucket["buyside"] = price
+            _push_level(bucket, "highs", price)
+        elif side == "low":
+            bucket["sellside"] = price
+            _push_level(bucket, "lows", price)
+        bucket["seen_at"] = time.time()
 
     async def _on_account_identity(self, payload):
         """يلتقط اسم الوسيط لكل حساب — يلزم طلب الأمر (552 يرفض بلا وسيط)."""

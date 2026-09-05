@@ -15,6 +15,22 @@ ATOM_VERSION = "1.1.0"
 EVENT_PLAN = "perpetual.plan.state"
 EVENT_POSITIONS = "platform.positions.state"
 EVENT_MANAGE = "execution.manage.command"
+EVENT_SIZE = "risk.position_size.state"
+
+# آلية المالك اليدوية NQ_Manual v5.5 (أرسلها ٢٠٢٦-٠٩-٠٥) تحمل الفكرة
+# الناقصة هنا: بعد التعبئة يُعاد ضبط الوقف على **سعر الدخول الفعلي**
+# بحيث تبقى الخسارة مساوية للميزانية مهما كان الانزلاق:
+#     exactSL = floor(SavedRisk / (lot × valuePerPoint))
+#     إن كان الانزلاق ضدّنا: SL يُضيَّق بمقدار خسارة الانزلاق
+# لا تقدير مسبق للانزلاق — قياس بعدي على ما نُفِّذ فعلًا. مقيس على ٢٤
+# صفقة: الانزلاق ضدّنا دائمًا (وسيط 2.7 · أقصى 16.90 دولار).
+#
+# الفرق عن آلية المالك: وقفه من الميزانية وحدها، ووقفي من التحليل —
+# فالميزانية هنا **سقف** لا مصدر. الوقف البنيوي يبقى ما دامت خسارته
+# ضمن السقف، ويُضيَّق فقط إذا تجاوزته بعد الانزلاق (اللوت حينها منفَّذ
+# ولا يمكن تصغيره).
+MAX_TRADE_LOSS_ACCOUNT_CCY = 10.0
+LOSS_TOLERANCE = 1.02
 
 ACTION_MODIFY = "MODIFY_SL"
 ACT_MAINTAIN = "MAINTAIN_STOP"
@@ -56,6 +72,9 @@ class Atom(AtomBase):
         self._min_change = 1e-9
         self._legs: dict[str, list[dict[str, Any]]] = {}
         self._last_sl: dict[int, float] = {}
+        self._vpp: dict[str, float] = {}
+        self._capped: set[int] = set()
+        self._risk_capped = 0
         self._sent = 0
         self._updates = 0
         self._seen_plan = False
@@ -65,6 +84,62 @@ class Atom(AtomBase):
         self._min_change = float(context.config.get("min_sl_change", 1e-9))
         context.subscribe(EVENT_POSITIONS, self._on_positions)
         context.subscribe(EVENT_PLAN, self._on_plan)
+        context.subscribe(EVENT_SIZE, self._on_size)
+
+    async def _on_size(self, payload: dict[str, Any]) -> None:
+        """قيمة النقطة لكل لوت — من مواصفة الوسيط التي ينشرها 513."""
+        if not self._running or not isinstance(payload, dict):
+            return
+        meta = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        tick_value = _to_float(meta.get("tick_value"))
+        tick_size = _to_float(meta.get("tick_size"))
+        symbol = str(payload.get("symbol") or "")
+        if symbol and tick_value and tick_size:
+            self._vpp[symbol] = tick_value / tick_size
+
+    async def _cap_risk(self, pos: dict[str, Any]) -> None:
+        """يضبط وقف مركز منفَّذ كي لا تتجاوز خسارته سقف المالك.
+
+        يُحسب على سعر الدخول **الفعلي**، فيدخل الانزلاق في الحساب بلا
+        تقدير: خسارة الوقف الحالي = اللوت × (الدخول − الوقف) × قيمة
+        النقطة. إن تجاوزت السقف، يُقرَّب الوقف إلى المسافة القصوى التي
+        تُبقيها عنده بالضبط. الوقف يُضيَّق فقط — لا يُوسَّع أبدًا.
+        """
+        ticket = _to_int(pos.get("ticket"))
+        symbol = str(pos.get("symbol") or "")
+        side = _norm_side(pos.get("side"))
+        volume = _to_float(pos.get("volume"))
+        entry = _to_float(pos.get("entry_price"))
+        stop = _to_float(pos.get("stop_loss"))
+        vpp = self._vpp.get(symbol)
+        if (ticket is None or not side or not volume or not entry
+                or not stop or stop <= 0.0 or not vpp or vpp <= 0.0):
+            return
+        distance = (entry - stop) if side == "BUY" else (stop - entry)
+        if distance <= 0.0:
+            return
+        loss = volume * distance * vpp
+        if loss <= MAX_TRADE_LOSS_ACCOUNT_CCY * LOSS_TOLERANCE:
+            self._capped.discard(ticket)
+            return
+        if ticket in self._capped:
+            return
+        max_distance = MAX_TRADE_LOSS_ACCOUNT_CCY / (volume * vpp)
+        capped = (entry - max_distance) if side == "BUY" else (entry + max_distance)
+        self._capped.add(ticket)
+        self._risk_capped += 1
+        self._last_sl[ticket] = capped
+        self._sent += 1
+        self._context.logger.warning(
+            "577 risk cap %s ticket=%s: loss=%.2f > cap=%.2f | entry=%s "
+            "stop=%s -> %s (lot=%s vpp=%.4f)",
+            symbol, ticket, loss, MAX_TRADE_LOSS_ACCOUNT_CCY, entry, stop,
+            round(capped, 6), volume, vpp)
+        await self._context.publish(EVENT_MANAGE, {
+            "account_id": str(pos.get("account_id") or ""),
+            "action": ACTION_MODIFY, "ticket": ticket, "symbol": symbol,
+            "side": side, "stop_loss": round(capped, 6),
+            "magic": _to_int(pos.get("magic")), "origin": "risk_cap"})
 
     async def start(self) -> None:
         self._running = True
@@ -92,12 +167,22 @@ class Atom(AtomBase):
             if not symbol or ticket is None or not side:
                 continue
             key = str(pos.get("account_id") or "") + _KEY_SEP + symbol
-            legs.setdefault(key, []).append({"ticket": ticket, "side": side,
-                                             "magic": _to_int(pos.get("magic"))})
+            legs.setdefault(key, []).append({
+                "ticket": ticket, "side": side,
+                "magic": _to_int(pos.get("magic")),
+                # الوقف القائم على المركز نفسه — مرجع «لا توسيع».
+                "sl": _to_float(pos.get("stop_loss")),
+                "entry": _to_float(pos.get("entry_price")),
+            })
             live_tickets.add(ticket)
         self._legs = legs
         for ticket in [t for t in self._last_sl if t not in live_tickets]:
             del self._last_sl[ticket]
+        self._capped &= live_tickets
+        if self._context is not None:
+            for pos in positions:
+                if isinstance(pos, dict):
+                    await self._cap_risk(pos)
 
     async def _on_plan(self, payload: dict[str, Any]) -> None:
         if not self._running or self._context is None or not isinstance(payload, dict):
@@ -128,6 +213,22 @@ class Atom(AtomBase):
             prev = self._last_sl.get(ticket)
             if prev is not None and abs(prev - stop_price) < self._min_change:
                 continue
+            # ٢٠٢٦-٠٩-٠٥ (مقيس على أمرَي الجسر 116 و117): الوقف المحفظيّ
+            # للخطة الدائمة (72,957.55) طُبِّق على صفقة سكالبينغ دخلت عند
+            # 79,685 بوقف بنيوي 79,679 — فتحوّلت مخاطرة 6 نقاط إلى 6,728
+            # نقطة بأمر MODIFY_SL واحد بعد الفتح. الوقف يُشدّ ولا يُوسَّع:
+            # للشراء لا ينزل تحت الوقف القائم، وللبيع لا يصعد فوقه.
+            current = leg.get("sl") if leg.get("sl") else None
+            anchor = prev if prev is not None else current
+            if anchor is not None:
+                widening = (stop_price < anchor) if leg["side"] == "BUY" \
+                    else (stop_price > anchor)
+                if widening:
+                    self._context.logger.warning(
+                        "577 skip %s ticket=%s: STOP_WIDENING_REFUSED "
+                        "new=%s current=%s side=%s",
+                        symbol, ticket, stop_price, anchor, leg["side"])
+                    continue
             self._last_sl[ticket] = stop_price
             self._sent += 1
             await self._context.publish(EVENT_MANAGE, {

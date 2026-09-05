@@ -29,6 +29,17 @@ subscribes:
   - "platform.positions.state"
   - "risk.asset_stop.state"
   - "decision.settings.command"
+  - "structure.swing.state"
+  - "liquidity.buyside.state"
+  - "liquidity.sellside.state"
+  - "structure.external.state"
+  - "structure.internal.state"
+  - "structure.bos.state"
+  - "structure.choch.state"
+  - "structure.mss.state"
+  - "liquidity.sweep.state"
+  - "liquidity.fvg.state"
+  - "analysis.gap.state"
 
 startup_mode: auto
 
