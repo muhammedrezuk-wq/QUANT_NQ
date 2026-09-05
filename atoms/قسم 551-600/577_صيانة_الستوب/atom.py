@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -29,7 +29,13 @@ EVENT_SIZE = "risk.position_size.state"
 # فالميزانية هنا **سقف** لا مصدر. الوقف البنيوي يبقى ما دامت خسارته
 # ضمن السقف، ويُضيَّق فقط إذا تجاوزته بعد الانزلاق (اللوت حينها منفَّذ
 # ولا يمكن تصغيره).
-MAX_TRADE_LOSS_ACCOUNT_CCY = 10.0
+# ٢٠٢٦-٠٩-٠٦ (مقيس على التذكرة 1911165380): هذا الثابت بقي ١٠ دولارات
+# بعد أن صار السقف ١٪ من الرصيد (105.13$)، فخنق الحارسُ صفقةً سليمة:
+# فُتحت 01:37:23 بوقف ٣٥ نقطة، وبعد **ثانيتين** أُرسل MODIFY_SL يقرّبه
+# إلى 12.82 نقطة (79,800.24) كي تصير الخسارة عشرة — فماتت على أوّل
+# تذبذب بـ−17.21. السقف يُقرأ الآن من 513 مع كل تحجيم (metadata
+# max_trade_loss)، فيتبع الرصيد والنسبة بدل رقم متحجّر.
+DEFAULT_MAX_TRADE_LOSS = 10.0
 LOSS_TOLERANCE = 1.02
 
 ACTION_MODIFY = "MODIFY_SL"
@@ -76,6 +82,7 @@ class Atom(AtomBase):
         self._capped: set[int] = set()
         self._risk_capped = 0
         self._structure: dict[str, dict[str, float]] = {}
+        self._loss_cap: dict[str, float] = {}
         self._trailed = 0
         self._sent = 0
         self._updates = 0
@@ -194,6 +201,11 @@ class Atom(AtomBase):
         symbol = str(payload.get("symbol") or "")
         if symbol and tick_value and tick_size:
             self._vpp[symbol] = tick_value / tick_size
+        # سقف الخسارة الساري كما يحسبه 513 من الرصيد والنسبة — لا رقم
+        # ثابت هنا يتحجّر ويخنق الصفقات حين تتغيّر المعايرة.
+        cap = _to_float(meta.get("max_trade_loss"))
+        if symbol and cap and cap > 0:
+            self._loss_cap[symbol] = cap
 
     async def _cap_risk(self, pos: dict[str, Any]) -> None:
         """يضبط وقف مركز منفَّذ كي لا تتجاوز خسارته سقف المالك.
@@ -216,13 +228,14 @@ class Atom(AtomBase):
         distance = (entry - stop) if side == "BUY" else (stop - entry)
         if distance <= 0.0:
             return
+        cap = self._loss_cap.get(symbol) or DEFAULT_MAX_TRADE_LOSS
         loss = volume * distance * vpp
-        if loss <= MAX_TRADE_LOSS_ACCOUNT_CCY * LOSS_TOLERANCE:
+        if loss <= cap * LOSS_TOLERANCE:
             self._capped.discard(ticket)
             return
         if ticket in self._capped:
             return
-        max_distance = MAX_TRADE_LOSS_ACCOUNT_CCY / (volume * vpp)
+        max_distance = cap / (volume * vpp)
         capped = (entry - max_distance) if side == "BUY" else (entry + max_distance)
         self._capped.add(ticket)
         self._risk_capped += 1
@@ -231,7 +244,7 @@ class Atom(AtomBase):
         self._context.logger.warning(
             "577 risk cap %s ticket=%s: loss=%.2f > cap=%.2f | entry=%s "
             "stop=%s -> %s (lot=%s vpp=%.4f)",
-            symbol, ticket, loss, MAX_TRADE_LOSS_ACCOUNT_CCY, entry, stop,
+            symbol, ticket, loss, cap, entry, stop,
             round(capped, 6), volume, vpp)
         await self._context.publish(EVENT_MANAGE, {
             "account_id": str(pos.get("account_id") or ""),

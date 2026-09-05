@@ -203,6 +203,16 @@ class Atom(AtomBase):
                 self._last_snapshot[source_scope] = stamp
         if affected:
             await self._publish_all()
+        elif payload.get("complete") is True or source in ("609", "broker"):
+            # ٢٠٢٦-٠٩-٠٦ (مقيس — حلقة مفرغة أوقفت التداول كلّيًّا):
+            # `affected` لا تمتلئ إلا بمركز قديم أو جديد. وعلى حساب فارغ
+            # تمامًا لا يوجد أيّ منهما، فلا يُنشر الدفتر أبدًا — فتبقى
+            # 519 على NO_LEDGER_YET، ويخرج محرّك الفرق بـ
+            # PORTFOLIO_STATE_MISSING (581 targets=0 · 551 built=0).
+            # أي أن الدفتر ينتظر أوّل مركز، والمركز ينتظر الدفتر.
+            # لقطة مراكز كاملة لحساب معروف — ولو خالية — حالةٌ صالحة
+            # تعني «الميزانية كاملة ولا تعرّض»، فتُنشر كما تُنشر أيّ حالة.
+            await self._publish_all()
 
     async def _on_specs(self, payload: dict[str, Any]) -> None:
         if not self._running or not isinstance(payload, dict):
@@ -222,8 +232,18 @@ class Atom(AtomBase):
                 if text(raw.get("account_id") or payload.get("account_id")) and payload not in self._pending_specs: self._pending_specs.append(dict(payload))
                 continue
             account, broker = owner
-            self._specs[scope(account, symbol, broker)] = {"symbol": symbol, "tick_size": tick_size,
-                                                     "tick_value": tick_value}
+            asset = scope(account, symbol, broker)
+            self._specs[asset] = {"symbol": symbol, "tick_size": tick_size,
+                                  "tick_value": tick_value}
+            # ٢٠٢٦-٠٩-٠٦ (مقيس — الحلقة الثانية التي أوقفت التداول):
+            # `_known` كانت تمتلئ من المراكز وحدها، فعلى حساب فارغ تبقى
+            # خالية ⇒ ledgers=[] ⇒ 523 محرّك العيار dials=0 (رغم
+            # emits=369) ⇒ stop_distance_frac مفقود في محرّك الفرق ⇒
+            # كل قرار يخرج NO_DIRECTION (dir=wait في 231 من 231).
+            # أي: الأصل لا يُعرف إلا بمركز، والمركز لا يُفتح بلا عيار،
+            # والعيار لا يُحسب بلا أصل معروف. رمزٌ له مواصفة عند الوسيط
+            # أصلٌ معروف — يستحق دفترًا ولو خاليًا من المراكز.
+            self._known.add(asset)
             affected = True
         if affected:
             await self._publish_all()
