@@ -24,7 +24,26 @@ MIN_RR = 1.5
 # 20→30 انزلقت +0.30 إلى +8.57 فقط. الحدّ الأدنى 20.00 يمنع الأوقاف
 # الانتحارية، ولا يبطّئ النظام — البيتكوين يقطع عشرين نقطة في ثوانٍ،
 # والقياس يشهد: صفقات كثيرة أُغلقت خلال دقائق بوقف 20.
-SPREAD_STOP_MULT = 4.0
+#
+# ٢٠٢٦-٠٩-٠٦ (مقيس — توقّف التداول عشرين مرّة من عشرين): الحدّ أعلاه
+# **قياسه 20.00 مطلقًا**، لكنّه كُتب `spread × 4` لأن السبريد يوم القياس
+# كان 5.00 بالضبط. فلمّا اتّسع السبريد إلى 7.25 (مقيس على ticks_v2:
+# 5.00 و7.49) انزاح الحدّ تلقائيًّا إلى **29.00** — رقم لم يُقس قطّ.
+# أثره المقيس في السجلّ: `NO_STRUCTURE_LEVEL missing=TARGET` عشرين مرّة
+# من عشرين، لأن وقفًا مصنوعًا بـ29.00 يطلب هدفًا على بعد 43.50 والبنية
+# الحقيقية تتباعد نقطةً أو اثنتين (79,918.95 · 79,919.79 · 79,921.65).
+# وهو حرفيًّا ما رفضه المالك: «ما بصير يجي التحليل مع قالب مركّب».
+#
+# الحدّ يُكتب الآن كما قِيس: أرضية مطلقة، ونسبتها من السعر 20.00 ÷ 80,000
+# كي تصحّ على أيّ سعر للرمز نفسه. ويبقى فوقها حارس قبول الوسيط —
+# ومقياسه في `commands`: كل رفض RETCODE_10016 وقع بمسافة **دون سبريد
+# واحد** (2.20 · 2.20 · 2.20 · 2.38 · 4.20 مقابل سبريد 5.00)، وأضيق
+# وقفٍ قُبل كان 2.65 بسبريد أضيق. فالمضاعف المقيس واحد لا أربعة.
+# ولا ينقص هذا حماية الوسيط شيئًا: `cost_pad` أدناه يزيح الوقف المرسل
+# ثلاثة سبريدات أخرى للخارج، فالمسافة التي يراها الوسيط تبقى أربعة
+# أضعاف السبريد كما هي اليوم — التحرير يمسّ وقف التحليل وحده.
+MIN_STOP_PRICE_FRAC = 0.00025
+SPREAD_STOP_MULT = 1.0
 # احتياطي الانزلاق كمضاعف للسبريد — مقيس على ٢٤ صفقة منفَّذة: الانزلاق
 # ضدّنا (وسيط 2.7 · متوسط 4.7 · أقصى 16.90) مقابل سبريد 5.00.
 #
@@ -486,6 +505,7 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         spread = real(getattr(atom, "_spread_price", {}).get(scope_key)) or 0.0
         min_gap = max(
             real(getattr(atom, "_broker_min_stop", {}).get(scope_key)) or 0.0,
+            price * MIN_STOP_PRICE_FRAC,
             spread * SPREAD_STOP_MULT,
         )
 
@@ -589,12 +609,20 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
             # الرسالة تميّز غياب الوقف عن غياب الهدف، وتذكر مصادر
             # المستويات التي وصلت فعلًا — فيُعرف أيّ محلّل صامت.
             want = max((risk_gap * MIN_RR), min_gap)
+            # ٢٠٢٦-٠٩-٠٦: الرسالة كانت تطبع الجيران الثلاثة فقط، وهم
+            # الأقرب إلى السعر — فلا تُظهر هل المدى المطلوب غير موجود
+            # أصلًا أم موجود وأبعد. المدى الكامل (الأقصى في كل جهة) هو
+            # ما يفصل «البنية ضيّقة» عن «الحدّ الأدنى مبالغ».
+            far_below = (price - below[0]) if below else 0.0
+            far_above = (above[-1] - price) if above else 0.0
             atom._context.logger.warning(
                 "581 skip %s: NO_STRUCTURE_LEVEL missing=%s price=%.2f "
-                "stop=%r risk_gap=%.2f need_target_at=%.2f "
-                "below=%s above=%s sources=%r",
+                "stop=%r risk_gap=%.2f need_target_at=%.2f min_gap=%.2f "
+                "spread=%.2f n_below=%d n_above=%d span_below=%.2f "
+                "span_above=%.2f below=%s above=%s sources=%r",
                 symbol, "STOP" if stop_loss is None else "TARGET", price,
-                stop_loss, risk_gap, want,
+                stop_loss, risk_gap, want, min_gap, spread,
+                len(below), len(above), far_below, far_above,
                 [round(x, 2) for x in below[-3:]],
                 [round(x, 2) for x in above[:3]],
                 getattr(atom, "_level_sources", {}))

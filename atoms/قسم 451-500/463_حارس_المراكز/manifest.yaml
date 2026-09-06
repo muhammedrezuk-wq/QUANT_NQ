@@ -39,6 +39,6 @@ config_schema:
   additionalProperties: false
 
 config:
-  max_per_symbol: 20
+  max_per_symbol: 3
 metadata:
   max_idle_s: 301
