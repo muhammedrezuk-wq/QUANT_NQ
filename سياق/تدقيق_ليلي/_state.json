@@ -1,0 +1,1026 @@
+{
+ "round": 1,
+ "at": "2026-09-06 03:59:49",
+ "dead_code": {
+  "candidates": [
+   {
+    "name": "_official_now",
+    "file": "atoms\\قسم 001-050\\003_الساعة\\atom.py"
+   },
+   {
+    "name": "trade_key",
+    "file": "atoms\\قسم 501-550\\518_دفتر_مخاطر_الأصل\\ledger_support.py"
+   }
+  ],
+  "total": 2,
+  "scanned": 789
+ },
+ "vulnerabilities": {
+  "findings": [
+   {
+    "file": "atoms\\قسم 451-500\\464_فلتر_الطزاجة\\atom.py",
+    "line": 50,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "conn.execute(f\"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}\")"
+   },
+   {
+    "file": "atoms\\قسم 451-500\\464_فلتر_الطزاجة\\atom.py",
+    "line": 132,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "rows = conn.execute("
+   },
+   {
+    "file": "atoms\\قسم 551-600\\575_مرسل_الإدارة\\atom.py",
+    "line": 83,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "conn.execute(f\"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}\")"
+   },
+   {
+    "file": "atoms\\قسم 551-600\\580_منفذ_الترجيح\\atom.py",
+    "line": 352,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\601_كاتب_جسر_الدماغ\\atom.py",
+    "line": 96,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "conn.execute(f\"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}\")"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\601_كاتب_جسر_الدماغ\\atom.py",
+    "line": 104,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "return any(str(row[1]) == column for row in conn.execute(f\"PRAGMA table_info({table})\"))"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\609_مزامنة_المراكز\\atom.py",
+    "line": 48,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "connection.execute(f\"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}\")"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\609_مزامنة_المراكز\\atom.py",
+    "line": 129,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "rows = connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\609_مزامنة_المراكز\\atom.py",
+    "line": 137,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "available = {str(row[1]) for row in connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\609_مزامنة_المراكز\\atom.py",
+    "line": 139,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "rows = [dict(row) for row in connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 54,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "conn.execute(f\"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}\")"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 110,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "row = conn.execute(f\"SELECT MAX(id) FROM {self._table}\").fetchone()"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 148,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "rows = [dict(r) for r in conn.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 160,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "ident = conn.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 169,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "prof = conn.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 178,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "reqs = conn.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 188,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "values = conn.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 211,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "rows = [dict(row) for row in connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\615_جسر_مصدر_الأخبار\\atom.py",
+    "line": 84,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\616_جسر_الأخبار\\atom.py",
+    "line": 116,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\616_جسر_الأخبار\\atom.py",
+    "line": 129,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "rows = connection.execute(\"PRAGMA table_info(%s)\" % name).fetchall()"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\618_مصدر_جسر_MT5\\atom.py",
+    "line": 91,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "conn.execute(f\"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}\")"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\618_مصدر_جسر_MT5\\atom.py",
+    "line": 185,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "return [dict(r) for r in conn.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\618_مصدر_جسر_MT5\\atom.py",
+    "line": 194,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "conn.execute(f\"DELETE FROM {self._table} WHERE id <= ?\", (up_to_id,))"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\618_مصدر_جسر_MT5\\atom.py",
+    "line": 203,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "return [dict(r) for r in conn.execute(f\"SELECT * FROM {self._spec_table}\").fetchall()]"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\619_حالة_الحساب\\atom.py",
+    "line": 70,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "connection.execute(f\"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}\")"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\619_حالة_الحساب\\atom.py",
+    "line": 153,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "return [dict(row) for row in connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\615_جسر_مصدر_الأخبار\\tests\\test_atom.py",
+    "line": 75,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "con.execute(\"CREATE TABLE news (%s)\" % \", \".join("
+   },
+   {
+    "file": "atoms\\قسم 601-650\\622_تغذية_FIX_سي_تريدر\\tests\\test_atom.py",
+    "line": 19,
+    "kind": "سرّ محتمل بنصّ صريح",
+    "code": "PASSWORD = \"TOP-SECRET-VALUE\""
+   },
+   {
+    "file": "atoms\\قسم 701-750\\701_مخزن_بيانات_السوق\\atom.py",
+    "line": 159,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\702_مخزن_الصفقات\\atom.py",
+    "line": 151,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\702_مخزن_الصفقات\\atom.py",
+    "line": 177,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "cursor = connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 701-750\\703_مخزن_الأوامر\\atom.py",
+    "line": 163,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\704_مخزن_الخط_الزمني\\atom.py",
+    "line": 168,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\706_مخزن_النماذج\\atom.py",
+    "line": 138,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\707_مخزن_القرارات\\atom.py",
+    "line": 198,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\707_مخزن_القرارات\\atom.py",
+    "line": 211,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"ALTER TABLE decisions ADD COLUMN %s TEXT\" % column)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\707_مخزن_القرارات\\atom.py",
+    "line": 236,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "cursor = connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 701-750\\709_مخزن_المحفظة\\atom.py",
+    "line": 149,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\712_مخزن_التحليل\\atom.py",
+    "line": 153,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\713_مخزن_البنية\\atom.py",
+    "line": 153,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\714_الأرشفة\\atom.py",
+    "line": 128,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "connection.execute(f\"CREATE TABLE IF NOT EXISTS archive.{table} AS SELECT * FROM main.{table} WHERE "
+   },
+   {
+    "file": "atoms\\قسم 701-750\\714_الأرشفة\\atom.py",
+    "line": 129,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "ids = [row[0] for row in connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 701-750\\714_الأرشفة\\atom.py",
+    "line": 135,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "connection.execute(f\"INSERT INTO archive.{table} SELECT * FROM main.{table} WHERE id IN ({marks})\", "
+   },
+   {
+    "file": "atoms\\قسم 701-750\\714_الأرشفة\\atom.py",
+    "line": 136,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "deleted=connection.execute(f\"DELETE FROM main.{table} WHERE id IN ({marks})\",ids).rowcount or 0"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\714_الأرشفة\\atom.py",
+    "line": 180,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "total += int(connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 701-750\\714_الأرشفة\\atom.py",
+    "line": 41,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\716_تنظيف_التكرار\\atom.py",
+    "line": 108,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\716_تنظيف_التكرار\\atom.py",
+    "line": 110,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "cursor = connection.execute("
+   },
+   {
+    "file": "atoms\\قسم 701-750\\717_سلامة_البيانات\\atom.py",
+    "line": 119,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\718_مخزن_السيولة\\atom.py",
+    "line": 153,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "atoms\\قسم 901-950\\901_بوابة_الأوامر\\atom.py",
+    "line": 238,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "conn.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_TIMEOUT_MS)"
+   },
+   {
+    "file": "core\\event_bus.py",
+    "line": 123,
+    "kind": "pickle — فكّ تسلسل غير آمن",
+    "code": "return pickle.loads(pickle.dumps(value, pickle.HIGHEST_PROTOCOL))"
+   },
+   {
+    "file": "core\\event_bus.py",
+    "line": 542,
+    "kind": "pickle — فكّ تسلسل غير آمن",
+    "code": "return pickle.loads(blob) if blob is not None else copy.deepcopy(base)"
+   },
+   {
+    "file": "shared\\durable_execution_journal.py",
+    "line": 39,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "connection.execute(\"PRAGMA busy_timeout=%d\" % _BUSY_MS)"
+   },
+   {
+    "file": "shared\\live_analysis.py",
+    "line": 238,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "conn.execute("
+   },
+   {
+    "file": "shared\\live_analysis.py",
+    "line": 291,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "columns = {row[1] for row in conn.execute("
+   },
+   {
+    "file": "shared\\live_analysis.py",
+    "line": 300,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "conn.execute(\"DROP TABLE %s\" % table)"
+   },
+   {
+    "file": "governance\\checks\\check_broker_clock_contract.py",
+    "line": 143,
+    "kind": "exec — تنفيذ نصّ",
+    "code": "exec(compile(\"_CLOCK_TOLERANCE_S = %s\\n\" % tolerance.group(1) + block.group(0),"
+   },
+   {
+    "file": "governance\\checks\\check_crash_replay_contract.py",
+    "line": 277,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "conn.execute(\"INSERT INTO trade_events (%s) VALUES (%s)\""
+   },
+   {
+    "file": "governance\\checks\\check_replay_contract.py",
+    "line": 113,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "conn.execute(\"INSERT INTO trade_events (%s) VALUES (%s)\" % (\", \".join(names), marks),"
+   },
+   {
+    "file": "governance\\checks\\check_trade_lifecycle_contract.py",
+    "line": 204,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "conn.execute(\"INSERT INTO trade_events (%s) VALUES (%s)\""
+   },
+   {
+    "file": "governance\\scripts\\check_bridge.py",
+    "line": 31,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "try: count = con.execute(f\"SELECT COUNT(*) FROM {table}\").fetchone()[0]"
+   },
+   {
+    "file": "governance\\scripts\\live_probe.py",
+    "line": 102,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "cols = [r[1] for r in conn.execute(\"PRAGMA table_info(%s)\" % tname)]"
+   },
+   {
+    "file": "governance\\scripts\\night_audit.py",
+    "line": 95,
+    "kind": "subprocess بـshell=True",
+    "code": "(r\"shell\\s*=\\s*True\", \"subprocess بـshell=True\"),"
+   },
+   {
+    "file": "governance\\scripts\\proof_store_sizes.py",
+    "line": 29,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "return sum(c.execute(f'select count(*) from {t}').fetchone()[0] for t in tables)"
+   },
+   {
+    "file": "governance\\scripts\\proof_store_sizes.py",
+    "line": 28,
+    "kind": "SQL بتنسيق % (حقن)",
+    "code": "tables=[r[0] for r in c.execute(\"select name from sqlite_master where type='table' and name not like"
+   },
+   {
+    "file": "governance\\scripts\\verify_bridge.py",
+    "line": 96,
+    "kind": "SQL بسلسلة منسَّقة (حقن)",
+    "code": "report[\"tables\"][name] = conn.execute("
+   }
+  ],
+  "total": 68
+ },
+ "leaks": {
+  "findings": [
+   {
+    "file": "atoms\\قسم 451-500\\464_فلتر_الطزاجة\\atom.py",
+    "line": 47,
+    "code": "conn = sqlite3.connect("
+   },
+   {
+    "file": "atoms\\قسم 501-550\\506_حدود_الجلسة\\tests\\test_atom.py",
+    "line": 114,
+    "code": "print(\"OK — crypto_24h/open (خاصّة برمز) لا تغيّر الجلسة الزمنيّة\")"
+   },
+   {
+    "file": "atoms\\قسم 551-600\\575_مرسل_الإدارة\\atom.py",
+    "line": 82,
+    "code": "conn = sqlite3.connect(db_path, timeout=_CONNECT_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 551-600\\576_المحرك_الدائم\\naked_leg.py",
+    "line": 4,
+    "code": "first leg open (real, unhedged, stop-loss-less) while the second leg"
+   },
+   {
+    "file": "atoms\\قسم 551-600\\578_منفذ_التحوط\\pair_store.py",
+    "line": 31,
+    "code": "conn = sqlite3.connect(path, timeout=10.0)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\601_كاتب_جسر_الدماغ\\atom.py",
+    "line": 95,
+    "code": "conn = sqlite3.connect(path, timeout=_CONNECT_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\601_كاتب_جسر_الدماغ\\atom.py",
+    "line": 234,
+    "code": "conn = sqlite3.connect(f\"file:{self._db_path}?mode=ro\", uri=True,"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\601_كاتب_جسر_الدماغ\\atom.py",
+    "line": 473,
+    "code": "conn = sqlite3.connect(f\"file:{self._db_path}?mode=ro\", uri=True, timeout=_CONNECT_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\609_مزامنة_المراكز\\atom.py",
+    "line": 46,
+    "code": "connection = sqlite3.connect(f\"file:{db_path}?mode=ro\", uri=True,"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\611_قارئ_الصفقات\\atom.py",
+    "line": 53,
+    "code": "conn = sqlite3.connect(f\"file:{db_path}?mode=ro\", uri=True, timeout=_CONNECT_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\615_جسر_مصدر_الأخبار\\atom.py",
+    "line": 82,
+    "code": "connection = sqlite3.connect(db_path, timeout=_CONNECT_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\616_جسر_الأخبار\\atom.py",
+    "line": 114,
+    "code": "connection = sqlite3.connect(\"file:%s?mode=ro\" % db_path, uri=True,"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\618_مصدر_جسر_MT5\\atom.py",
+    "line": 90,
+    "code": "conn = sqlite3.connect(uri, uri=read_only, timeout=_CONNECT_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\625_تغذية_الإعادة\\atom.py",
+    "line": 145,
+    "code": "return sqlite3.connect(f\"file:{path}?mode=ro\", uri=True)"
+   },
+   {
+    "file": "atoms\\قسم 601-650\\630_مصدر_المحاكاة\\atom.py",
+    "line": 115,
+    "code": "conn = sqlite3.connect(str(path), timeout=10.0)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\701_مخزن_بيانات_السوق\\atom.py",
+    "line": 157,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\702_مخزن_الصفقات\\atom.py",
+    "line": 149,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\703_مخزن_الأوامر\\atom.py",
+    "line": 161,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\704_مخزن_الخط_الزمني\\atom.py",
+    "line": 166,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\707_مخزن_القرارات\\atom.py",
+    "line": 196,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\709_مخزن_المحفظة\\atom.py",
+    "line": 147,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\712_مخزن_التحليل\\atom.py",
+    "line": 151,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\713_مخزن_البنية\\atom.py",
+    "line": 151,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\714_الأرشفة\\atom.py",
+    "line": 39,
+    "code": "connection = sqlite3.connect(path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\717_سلامة_البيانات\\atom.py",
+    "line": 118,
+    "code": "connection = sqlite3.connect(source, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 701-750\\718_مخزن_السيولة\\atom.py",
+    "line": 151,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=_DB_TIMEOUT_S)"
+   },
+   {
+    "file": "atoms\\قسم 851-900\\870_عقل_المعايرة\\atom.py",
+    "line": 173,
+    "code": "connection = sqlite3.connect(self._db_path, timeout=5.0)"
+   },
+   {
+    "file": "atoms\\قسم 901-950\\901_بوابة_الأوامر\\atom.py",
+    "line": 236,
+    "code": "conn = sqlite3.connect(str(self._db_path))"
+   },
+   {
+    "file": "shared\\live_analysis.py",
+    "line": 185,
+    "code": "conn = sqlite3.connect(str(self.path), timeout=10.0)"
+   },
+   {
+    "file": "shared\\parameter_registry.py",
+    "line": 136,
+    "code": "conn = sqlite3.connect(str(self.path), timeout=10.0)"
+   },
+   {
+    "file": "governance\\app.py",
+    "line": 422,
+    "code": "webbrowser.open(_url)"
+   },
+   {
+    "file": "governance\\server.py",
+    "line": 1109,
+    "code": "con = sqlite3.connect(f\"file:{TRADE_DB}?mode=ro\", uri=True, timeout=3)"
+   },
+   {
+    "file": "governance\\server.py",
+    "line": 1262,
+    "code": "connection = sqlite3.connect(str(MANUAL_TRADE_RESULTS_DB), timeout=3)"
+   },
+   {
+    "file": "governance\\server.py",
+    "line": 1860,
+    "code": "conn = sqlite3.connect(f\"file:{path}?mode=ro\", uri=True, timeout=3)"
+   },
+   {
+    "file": "governance\\server.py",
+    "line": 1955,
+    "code": "conn = sqlite3.connect(f\"file:{ANALYSIS_SETTINGS_DB}?mode=ro\", uri=True, timeout=3)"
+   },
+   {
+    "file": "governance\\server.py",
+    "line": 2517,
+    "code": "fd = _os.open(MEXC_KEYS_PATH, _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)"
+   },
+   {
+    "file": "governance\\checks\\check_snapshot_button_contract.py",
+    "line": 11,
+    "code": "open(path, \"rb\") + os.fsync(fd)  ->  OSError [Errno 9] Bad file descriptor"
+   },
+   {
+    "file": "governance\\checks\\check_snapshot_button_contract.py",
+    "line": 12,
+    "code": "open(path, \"r+b\") + os.fsync(fd) ->  OK"
+   },
+   {
+    "file": "governance\\checks\\check_snapshot_button_contract.py",
+    "line": 13,
+    "code": "open(path, \"ab\")  + os.fsync(fd) ->  OK"
+   },
+   {
+    "file": "governance\\scripts\\check_bridge.py",
+    "line": 20,
+    "code": "con = sqlite3.connect(f\"file:{path}?mode=ro\", uri=True, timeout=5)"
+   },
+   {
+    "file": "governance\\scripts\\live_probe.py",
+    "line": 35,
+    "code": "return sqlite3.connect(\"file:\" + path.replace(\"\\\\\", \"/\") + \"?mode=ro\", uri=True)"
+   },
+   {
+    "file": "governance\\scripts\\start_asset.py",
+    "line": 44,
+    "code": "con = sqlite3.connect(f\"file:{bridge}?mode=ro\", uri=True, timeout=5)"
+   }
+  ],
+  "total": 42
+ },
+ "encoding": {
+  "bom": [],
+  "syntax_errors": []
+ },
+ "parity": {
+  "identical": 533,
+  "different": []
+ },
+ "disk": {
+  "dirs": [
+   {
+    "path": "forex_runtime/var",
+    "mb": 4409.9,
+    "files": 214
+   },
+   {
+    "path": ".git",
+    "mb": 32.0,
+    "files": 191
+   },
+   {
+    "path": "atoms",
+    "mb": 12.2,
+    "files": 1700
+   },
+   {
+    "path": "crypto_runtime",
+    "mb": 7.9,
+    "files": 1137
+   },
+   {
+    "path": "forex_runtime/atoms",
+    "mb": 7.5,
+    "files": 1454
+   },
+   {
+    "path": "docs",
+    "mb": 2.2,
+    "files": 276
+   }
+  ]
+ },
+ "live": {
+  "running": false,
+  "account": {
+   "balance": 10241.26,
+   "equity": 10241.26
+  },
+  "positions": 0,
+  "orders_24h": 62,
+  "failed_24h": 10
+ },
+ "governance": {
+  "check_166_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 3"
+  },
+  "check_405_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 3"
+  },
+  "check_409_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 3"
+  },
+  "check_account_freshness_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 5"
+  },
+  "check_account_stamp_contract": {
+   "ok": false,
+   "tail": "ساقط: الختم لا يتجدّد — `585` يرفض على بيانات صحيحة."
+  },
+  "check_analysis_dials_contract": {
+   "ok": true,
+   "tail": "سليم: الحرّاس الأربعة على قائمة واحدة · المساران مستقلّان · العيار يحجب فعلًا."
+  },
+  "check_arabic_ui": {
+   "ok": true,
+   "tail": "OK كل اسم يُعرض للمالك عربيّ، والخام في تلميح الفأرة وحده"
+  },
+  "check_archive_catchup_contract": {
+   "ok": true,
+   "tail": "سليم: اللحاق يقع عند الحاجة، ولا يُسجَّل نجاح لم يُتحقَّق."
+  },
+  "check_boot": {
+   "ok": false,
+   "tail": "❌ اختلاف الإقلاع: missing=[516] unexpected=لا شيء"
+  },
+  "check_broker_clock_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1"
+  },
+  "check_budget_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1 (تقادم عقد — ترحيل لاحق)"
+  },
+  "check_canonical_scripts_contract": {
+   "ok": false,
+   "tail": "FileNotFoundError: [WinError 2] The system cannot find the file specified"
+  },
+  "check_concurrency_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 4"
+  },
+  "check_config_rebase": {
+   "ok": false,
+   "tail": "🛑 المخالفات: 4"
+  },
+  "check_conviction_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 20"
+  },
+  "check_crash_replay_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 5"
+  },
+  "check_crypto_ahmad_parity": {
+   "ok": true,
+   "tail": "🟠 لا حكم — المرجع غائب. (وغيابه ليس نجاحًا.)"
+  },
+  "check_crypto_chain": {
+   "ok": false,
+   "tail": "نواة الكريبتو (8020) غير قابلة للوصول: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+  },
+  "check_crypto_feed": {
+   "ok": false,
+   "tail": "نواة الكريبتو (8020) غير قابلة للوصول: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+  },
+  "check_crypto_isolation": {
+   "ok": false,
+   "tail": "🛑 العزل مخروق — الفوركس والكريبتو يختلطان."
+  },
+  "check_crypto_manual_execution": {
+   "ok": true,
+   "tail": "🟢 التنفيذ بشريّ محفوظ — النظام يقترح، والزرّ بيد أسمر."
+  },
+  "check_delta_visibility_contract": {
+   "ok": false,
+   "tail": "  ✗ 578 لم تُصدر أمرًا بعقد السيناريو المتقادم (م-58) — ترحيل لاحق"
+  },
+  "check_disconnect_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 5"
+  },
+  "check_dispatch_contract": {
+   "ok": false,
+   "tail": "      بطاقة 575    لم تُكتب ✓"
+  },
+  "check_dispatch_store_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1"
+  },
+  "check_duplicate_event_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1"
+  },
+  "check_events": {
+   "ok": true,
+   "tail": "✅ الأحداث الأساسية موصولة؛ المصادر الخارجية غير المتاحة معلّمة اختيارية فقط."
+  },
+  "check_execution_safety": {
+   "ok": true,
+   "tail": "✅ أهداف التنفيذ اكتُشفت بالهوية لا بالمسار؛ يمكن متابعة فحوص البيئة فقط."
+  },
+  "check_execution_state_truth_contract": {
+   "ok": true,
+   "tail": "EXECUTION_STATE_TRUTH_CONTRACT=PASS"
+  },
+  "check_files": {
+   "ok": true,
+   "tail": "✅ الفحص البنيوي للملفات والمانيفستات ناجح — والتوثيق العربي حاجب إصدار (م-29)."
+  },
+  "check_financial_scope_contract": {
+   "ok": true,
+   "tail": "FINANCIAL_SCOPE_CONTRACT=PASS (account + broker + symbol; execution account + request)"
+  },
+  "check_governance": {
+   "ok": false,
+   "tail": "❌ ملف حوكمة مفقود: governance/ui/built/index.html"
+  },
+  "check_halt_authority_contract": {
+   "ok": true,
+   "tail": "سليم: سلطة واحدة للإيقاف · طلب موحَّد بأصله · وفكّ بمسار واحد."
+  },
+  "check_halt_reset_restart_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 6"
+  },
+  "check_hard_stop_owner_contract": {
+   "ok": true,
+   "tail": "سليم: 525 المالك الوحيد · 512 يحتفظ بحالته · و571 يستهلك الأصل."
+  },
+  "check_hedge_chain": {
+   "ok": false,
+   "tail": "stages_missing_or_forbidden=7"
+  },
+  "check_hedge_contract": {
+   "ok": false,
+   "tail": "الحالات=26  ·  الاختلافات=2"
+  },
+  "check_held_direction_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 2"
+  },
+  "check_hot_reload_state_contract": {
+   "ok": false,
+   "tail": "task: <Task pending name='Task-7' coro=<EventBus._consume() done, defined at C:\\Users\\NQ\\QUANT_NQ\\core\\event_bus.py:300> wait_for=<Future pending cb=[Task.task_"
+  },
+  "check_killswitch_reset_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1"
+  },
+  "check_lifecycle_conflict_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 2"
+  },
+  "check_limits_state_contract": {
+   "ok": true,
+   "tail": "سليم: دفاتر الحدود تنجو من الإقلاع، و508 مشتقّة فعلًا، والفساد لا يفتح حدًّا."
+  },
+  "check_manage_identity_contract": {
+   "ok": true,
+   "tail": "سليم: كل أمر إدارة يحمل هويّة حسابه، والمرسل يرفض ما لا يحملها."
+  },
+  "check_money_path_behaviour": {
+   "ok": false,
+   "tail": "ساقط: عقد لا يمسك عطله."
+  },
+  "check_no_side_path_contract": {
+   "ok": true,
+   "tail": "OK: no side path found around 467 (approval/identity/dup) or 576 (parent/owner authority, gate-verified since unit 1); 581 needs a real gate-pass to take a side"
+  },
+  "check_out_of_order_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1"
+  },
+  "check_paper_11_bridge_contract": {
+   "ok": false,
+   "tail": "FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\Users\\\\NQ\\\\QUANT_NQ\\\\atoms\\\\617_cTrader_feed\\\\الشرح.md'"
+  },
+  "check_papers_9_10_truth_contract": {
+   "ok": true,
+   "tail": "PAPERS_9_10_TRUTH_CONTRACT=PASS"
+  },
+  "check_parameters_endpoint": {
+   "ok": true,
+   "tail": "OK endpoint contract holds; the live database was never opened"
+  },
+  "check_path_authority": {
+   "ok": true,
+   "tail": "🟢 فحص سلطة المسارات: القارئ والواضع على جذر واحد، والنسخ مطابقة، والحفظ لا يعتمد"
+  },
+  "check_price_decimals_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1"
+  },
+  "check_project": {
+   "ok": false,
+   "tail": "❌ فحص المشروع توقف: 2 فحص فشل"
+  },
+  "check_project_freeze": {
+   "ok": false,
+   "tail": "FREEZE_MANIFEST_INVALID: governance/freeze/project_freeze.json مفقود"
+  },
+  "check_protection_state_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 3"
+  },
+  "check_reevaluation_contract": {
+   "ok": true,
+   "tail": "سليم: الأحدث يفوز · القديم لا يلوّث · إعادة الحسم ثابتة · والتجميد يصمد."
+  },
+  "check_reference_alignment_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 15"
+  },
+  "check_reference_latch_contract": {
+   "ok": true,
+   "tail": "سليم: القفزة تُرفض مرّة واحدة، والمرجع يُعاد بناؤه فورًا."
+  },
+  "check_replay_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 3"
+  },
+  "check_request_id_identity_contract": {
+   "ok": false,
+   "tail": "task: <Task pending name='Task-2' coro=<Atom._watchdog() running at C:\\Users\\NQ\\QUANT_NQ\\atoms\\قسم 551-600\\586_بوابة_الرموز\\atom.py:80> wait_for=<Future pending"
+  },
+  "check_safety_gate_scope_contract": {
+   "ok": true,
+   "tail": "سليم: التخطّي معلَن ومحصور، والبوّابة ترفض فعلًا حين يكون هناك ما تحرسه."
+  },
+  "check_shutdown_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 2"
+  },
+  "check_snapshot_button_contract": {
+   "ok": false,
+   "tail": "       يُحذف في مسار الخطأ، فلا يبقى أثر يدلّه على السبب."
+  },
+  "check_snapshot_state_contract": {
+   "ok": true,
+   "tail": "سليم: لا حالة رسميّة بلا تحقّق، ولا فشلٍ يمحو ما قبله."
+  },
+  "check_specs_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 6"
+  },
+  "check_stale_account_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 5"
+  },
+  "check_stop_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 14"
+  },
+  "check_stop_path_contract": {
+   "ok": true,
+   "tail": "سليم: الإيقاف يجرّب النظيف أوّلًا، ولا يقع القسريّ صامتًا، ولا تعليق أبديّ."
+  },
+  "check_storage_cap_contract": {
+   "ok": false,
+   "tail": "       أخرى تصل في الوقت (المقيس 2026-08-18: 11.87 جيجا/يوم)."
+  },
+  "check_sweep_score_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 5"
+  },
+  "check_switch_safety_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 7"
+  },
+  "check_telegram": {
+   "ok": false,
+   "tail": "=========================================================="
+  },
+  "check_tick_jump_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 1"
+  },
+  "check_tilt_rules_endpoint": {
+   "ok": true,
+   "tail": "OK endpoint contract holds; the live store was never opened"
+  },
+  "check_trade_chain_contract": {
+   "ok": true,
+   "tail": "سليم: كل تنفيذ يُثبَت أو يُعلَن غير مُثبَت — ولا فجوة صامتة."
+  },
+  "check_trade_lifecycle_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 13"
+  },
+  "check_transport_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 2"
+  },
+  "check_unhedge_contract": {
+   "ok": true,
+   "tail": "سليم: الفكّ لا يقع إلا بشرط صريح، ولا يكتمل إلا بإثبات تنفيذ."
+  },
+  "check_versions": {
+   "ok": false,
+   "tail": "checked=233 mismatches=2 atoms_without_code_constant=1 live_core=no"
+  },
+  "check_weight_contract": {
+   "ok": false,
+   "tail": "الاختلافات = 13"
+  }
+ },
+ "tests": {
+  "ok": false,
+  "summary": "3 failed, 2254 passed, 2 skipped in 212.68s (0:03:32)",
+  "failed": [
+   "tests/test_analysis_live_independence.py::test_decision_consumer_accepts_only_ready_live_analysis",
+   "tests/test_atom_quality_contract.py::test_validator_json_leaves_only_real_quality_errors",
+   "tests/test_release_contract.py::test_active_runtime_code_mirrors_match_canonical_sources"
+  ]
+ },
+ "seconds": 737.2
+}
