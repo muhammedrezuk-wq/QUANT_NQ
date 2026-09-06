@@ -396,6 +396,16 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         last = atom._requested_at = {}
     if now - float(last.get(scope_key) or 0.0) < COOLDOWN_S:
         return
+    # ٢٠٢٦-٠٩-٠٦ (مقيس — سباق تزامن كلّف ستّ صفقات متراكمة): الفتحة
+    # كانت تُحجز **بعد** النشر (`if published: last[...] = now`)، وبينهما
+    # `await publish` يُسلّم التحكّم لحلقة الأحداث — فيدخل استدعاء آخر،
+    # يجد الكبح كما هو، ويمرّ وينشر أيضًا. المقيس: ستّة أوامر بفواصل
+    # 0.8 · 1.4 · 1.8 · 1.9 ثانية رغم كبح خمس وأربعين، وستّ مراكز بيع
+    # مفتوحة معًا بمخاطرة مجمّعة ~160$ فوق سقف الواحد بالمئة.
+    # الفتحة تُحجز الآن قبل أيّ await؛ وإن لم يُنشر شيء تُعاد أدناه كي
+    # لا يُحرم النطاق من دورته التالية بلا سبب.
+    previous_slot = last.get(scope_key)
+    last[scope_key] = now
 
     budget = real(out.get("risk_budget")) or 0.0
     target_gross = real(out.get("target_gross")) or 0.0
@@ -729,4 +739,9 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         published = True
     if published:
         seen[scope_key] = decision_id
-        last[scope_key] = now
+    else:
+        # لم يخرج أمر: تُعاد الفتحة كما كانت، فلا يُكبح النطاق بلا نشر.
+        if previous_slot is None:
+            last.pop(scope_key, None)
+        else:
+            last[scope_key] = previous_slot
