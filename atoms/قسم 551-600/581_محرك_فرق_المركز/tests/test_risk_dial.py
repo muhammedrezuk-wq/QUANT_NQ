@@ -60,8 +60,29 @@ def gate(payload, cycle):
                 gate_request_id="d-" + cycle + ":req1")
 
 
+async def setup_for(a, side, symbol="GOLD", strength=80.0, entry=100.0):
+    """٢٠٢٦-٠٩-٠٦ — ورقة ملكية الصفقة (§١١): الاتجاه صار ملك الإعداد،
+    والتصويت سياقًا يضبط التعرّض. فكل حالة قبول تحتاج فكرةً مملوكة
+    تفتح المسار، وإلا فلا اتجاه أصلًا — وهو السلوك المقصود."""
+    stop = entry - 5.0 if side == "buy" else entry + 5.0
+    target = entry + 20.0 if side == "buy" else entry - 20.0
+    await a._on_setup({
+        "contract_version": 1, "setup_id": "s-%s-%s" % (symbol, side),
+        "setup_owner": "410", "setup_type": "LIQUIDITY_RAID", "side": side,
+        "symbol": symbol, "entry_reference": entry,
+        "invalidation_price": stop, "invalidation_source": "410:sweep_edge",
+        "invalidation_reason": "اختبار", "target_price": target,
+        "target_source": "410:opposite_liquidity", "target_reason": "اختبار",
+        "strength": strength, "confidence": 80.0,
+        "created_at": 0.0, "expires_at": 1e18})
+
+
 async def decide(a, payload, cycle="GOLD|60s|1"):
     payload = dict(payload, cycle_id=cycle)
+    side = str(payload.get("direction") or "").lower()
+    if side in ("buy", "sell"):
+        strength = (payload.get("strength") or 0.0) * 100.0
+        await setup_for(a, side, payload["symbol"], strength=strength)
     await a._on_verdict({"symbol": payload["symbol"], "cycle_id": cycle,
                          "metadata": {"approved": True}})
     await a._on_gate_passed(gate(payload, cycle))

@@ -192,15 +192,26 @@ async def recompute(atom: Any, scope_key: str) -> None:
     current_sell = sum(row["volume"] for row in legs if row["side"] == "SELL")
     current_net = current_buy - current_sell
     current_gross = current_buy + current_sell
-    direction = str(decision.get("direction") or decision.get("signal") or WAIT).lower()
-    direction = (
-        BUY if direction in ("buy", "up", "long")
-        else SELL if direction in ("sell", "down", "short")
+    # ═══ مصدر الاتجاه: الإعداد لا التصويت (ورقة التنفيذ §١١) ═══
+    # «التصويت لا يخلق الصفقة. هو فقط يدعم أو يضعف الإعداد».
+    # المقيس الذي فرض هذا: أربعون إعدادًا صالحًا في تسع دقائق ولا أمر
+    # واحد — لأن `target_net` كان يُشتقّ من اتجاه التصويت، فإن قال الروم
+    # `wait` لم يُسأل الإعداد أصلًا. كان الإعداد **فيتو لا فاتح**.
+    # الآن: الإعداد يفتح المسار، والتصويت يضبط التعرّض عليه.
+    vote_direction = str(decision.get("direction") or decision.get("signal") or WAIT).lower()
+    vote_direction = (
+        BUY if vote_direction in ("buy", "up", "long")
+        else SELL if vote_direction in ("sell", "down", "short")
         else WAIT
     )
-    strength = real(decision.get("strength"))
-    fallback_strength = (real(decision.get("score")) or 0.0) / 100.0
-    strength = max(0.0, min(1.0, strength if strength is not None else fallback_strength))
+    setup = (getattr(atom, "_setups", {}) or {}).get(symbol.upper())
+    now_ts = time.time()
+    price_now = atom._price.get(scope_key)
+    direction, stance, setup_block = _direction_from_setup(setup, price_now, now_ts)
+    # قوّة الفكرة من صاحبها (0..100 في بطاقة الاستراتيجية)، لا من التصويت.
+    strength = 0.0
+    if direction != WAIT and isinstance(setup, dict):
+        strength = max(0.0, min(1.0, (real(setup.get("strength")) or 0.0) / 100.0))
     budget = real(ledger.get("risk_budget", ledger.get("R", ledger.get("budget"))))
     filter_verdict = atom._filter_verdict(scope_key, decision)
     if filter_verdict != FILTER_PASSED:
@@ -245,6 +256,18 @@ async def recompute(atom: Any, scope_key: str) -> None:
     # يعبران في المخرَج كي يقرأهما تشخيص الحجب أدناه بلا تخمين.
     out["account_mode"] = account_mode
     out["system_alive"] = system_alive
+    out["vote_direction"] = vote_direction
+    out["setup_block"] = setup_block
+    # §٢٦: النظام يقول لماذا لم يتداول، ولو كان عدد الصفقات صفرًا.
+    if setup_block:
+        last_block = getattr(atom, "_last_setup_reason", None)
+        if last_block is None:
+            last_block = atom._last_setup_reason = {}
+        if last_block.get(scope_key) != setup_block:
+            last_block[scope_key] = setup_block
+            atom._context.logger.warning(
+                "581 لا اتجاه %s: %s — الاتجاه ملك الإعداد، والتصويت (%s) "
+                "سياقٌ لا يخلق صفقة", symbol, setup_block, vote_direction)
 
     if portfolio is None:
         out.update(status="BLOCKED", action=BLOCKED, reason="PORTFOLIO_STATE_MISSING")
@@ -306,9 +329,21 @@ async def recompute(atom: Any, scope_key: str) -> None:
                     symbol, direction, held or "NONE", reason, current_net, strength)
         exposure = atom._fraction(strength)
         hedge = atom._hedge_fraction(strength)
-        if filter_verdict != FILTER_PASSED:
-            exposure = 0.0
-            hedge = 1.0
+        # ═══ التصويت عامل تعرّض لا مصدر اتجاه (ورقة التنفيذ §١١) ═══
+        # الفكرة فتحت المسار؛ السياق يقول كم نحمل عليها:
+        #   مؤيّد  ⇒ التعرّض كما حسبته قوّة الفكرة
+        #   محايد  ⇒ نصفه — «لا تجعل المحايد = صفقة كاملة» (نصّ المالك)
+        #   معارض  ⇒ لا صفقة، ولا تصغير: فكرةٌ يعارضها السياق لا تُفتح.
+        stance = _vote_stance(vote_direction, direction, filter_verdict)
+        if direction == WAIT:
+            exposure, hedge = 0.0, 1.0
+        elif stance == STANCE_AGAINST:
+            exposure, hedge = 0.0, 1.0
+        elif stance == STANCE_NEUTRAL:
+            exposure *= NEUTRAL_EXPOSURE_FACTOR
+        out["vote_stance"] = stance
+        out["setup_id"] = str((setup or {}).get("setup_id") or "")
+        out["setup_owner"] = str((setup or {}).get("setup_owner") or "")
         previous_strength = atom._last_strength.get(scope_key)
         previous_gross = atom._last_gross_target.get(scope_key)
         # عقد المحورين v1.1 §3 — تحذير المالك اللفظي (نصّه الحرفي، مختوم NQ):
@@ -412,6 +447,51 @@ NO_SETUP = "NO_SETUP"
 SETUP_SIDE_MISMATCH = "SETUP_SIDE_MISMATCH"
 SETUP_EXPIRED = "SETUP_EXPIRED"
 SETUP_ALREADY_BROKEN = "SETUP_ALREADY_BROKEN"
+
+
+# موقف التصويت من الإعداد — عامل تعرّض لا مصدر اتجاه (ورقة التنفيذ §١١).
+STANCE_SUPPORT = "SUPPORT"      # التصويت مع الفكرة ⇒ تعرّض كامل
+STANCE_NEUTRAL = "NEUTRAL"      # لا رأي ⇒ تعرّض مخفَّض
+STANCE_AGAINST = "AGAINST"      # التصويت ضدّ الفكرة ⇒ لا صفقة
+# المحايد لا يساوي صفقة كاملة (نصّ المالك): نصف التعرّض لا أكثر.
+NEUTRAL_EXPOSURE_FACTOR = 0.5
+
+
+def _direction_from_setup(setup: Any, price: Any, now: float) -> tuple[str, str, str]:
+    """يعيد (الاتجاه، موقف التصويت مبدئيًّا، سبب المنع).
+
+    الاتجاه ملك الإعداد وحده. وإن غاب إعداد صالح حيّ غير مكسور، فلا
+    اتجاه — ولا يُسأل التصويت أصلًا، لأن التصويت لا يخلق صفقة.
+    """
+    if not isinstance(setup, dict):
+        return WAIT, STANCE_NEUTRAL, NO_SETUP
+    side = str(setup.get("side") or "").lower()
+    if side not in (BUY, SELL):
+        return WAIT, STANCE_NEUTRAL, NO_SETUP
+    if not (str(setup.get("setup_id") or "").strip()
+            and real(setup.get("invalidation_price"))
+            and real(setup.get("target_price"))):
+        return WAIT, STANCE_NEUTRAL, NO_SETUP
+    if not is_alive(setup, now):
+        return WAIT, STANCE_NEUTRAL, SETUP_EXPIRED
+    if price is not None and is_broken(setup, price):
+        return WAIT, STANCE_NEUTRAL, SETUP_ALREADY_BROKEN
+    return side, STANCE_NEUTRAL, ""
+
+
+def _vote_stance(vote_direction: str, setup_side: str, verdict: str) -> str:
+    """موقف السياق من فكرة مملوكة — يضبط الحجم ولا يقلب الاتجاه.
+
+    حكم المالك: «لا تجعل المحايد = صفقة كاملة». والمعارض لا يُخفَّض بل
+    يُرفض: فكرةٌ يعارضها السياق لا تُفتح ثم تُصغَّر، بل لا تُفتح.
+    """
+    if verdict == FILTER_BLOCKED:
+        return STANCE_AGAINST
+    if vote_direction == setup_side:
+        return STANCE_SUPPORT
+    if vote_direction == WAIT:
+        return STANCE_NEUTRAL
+    return STANCE_AGAINST
 
 
 def _setup_gate(setup: Any, side: str, price: Any, now: float) -> str:

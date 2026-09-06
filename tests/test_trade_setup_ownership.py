@@ -157,6 +157,33 @@ def test_577_respects_the_owned_invalidation() -> None:
     assert "_on_setup" in source, "577 بلا مستقبِل للإعداد"
 
 
+def test_setup_opens_even_when_the_vote_is_neutral() -> None:
+    """الاختبار الحاسم (نصّ المالك): 410 = SELL_SETUP و404/408 محايدان
+    ⇒ يجب أن يصل إلى OPEN، بتعرّض مخفَّض لا كامل."""
+    setup = _setup(side="sell")
+    now = setup["created_at"] + 1.0
+    direction, _, block = pdr._direction_from_setup(setup, 79986.0, now)
+    assert block == "" and direction == "sell", (block, direction)
+    # التصويت محايد ⇒ موقف محايد ⇒ تعرّض مخفَّض، لا صفر ولا كامل.
+    stance = pdr._vote_stance("wait", "sell", pdr.FILTER_PASSED)
+    assert stance == pdr.STANCE_NEUTRAL
+    assert 0.0 < pdr.NEUTRAL_EXPOSURE_FACTOR < 1.0, "المحايد صار صفقة كاملة"
+
+
+def test_bare_direction_still_yields_no_trade() -> None:
+    """وبالمقابل: 404/408 = SELL بلا إعداد ⇒ لا اتجاه أصلًا ⇒ NO TRADE."""
+    direction, _, block = pdr._direction_from_setup(None, 79986.0, time.time())
+    assert direction == "wait" and block == pdr.NO_SETUP
+
+
+def test_opposing_context_refuses_rather_than_shrinks() -> None:
+    """سياقٌ معارض لا يُصغَّر بل يُرفض — ولا يقلب اتجاه الفكرة أبدًا."""
+    assert pdr._vote_stance("buy", "sell", pdr.FILTER_PASSED) == pdr.STANCE_AGAINST
+    assert pdr._vote_stance("sell", "sell", pdr.FILTER_PASSED) == pdr.STANCE_SUPPORT
+    # وحكم البوّابة المانع يُعامَل معارضةً مهما كان اتجاه التصويت.
+    assert pdr._vote_stance("sell", "sell", pdr.FILTER_BLOCKED) == pdr.STANCE_AGAINST
+
+
 def test_owners_refuse_ideas_they_cannot_afford() -> None:
     """المالك يصمت بدل أن يقترح فكرة داخل تكلفة العبور.
 
