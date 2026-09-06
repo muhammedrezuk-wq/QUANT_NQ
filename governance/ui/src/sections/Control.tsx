@@ -8,7 +8,7 @@ import { arabicHealth } from '../core/arabic'
 import { AccountsPair } from '../components/AccountsBar'
 
 type Danger = 'halt' | 'kill_switch_reset' | 'activate_asset' | 'deactivate_asset'
-  | 'asset_control' | 'execution_gate'
+  | 'asset_control' | 'execution_gate' | 'adaptation_switch'
 
 async function send(action: Danger, payload: Record<string, unknown>):
   Promise<{ ok: boolean; message?: string; error?: string }> {
@@ -314,6 +314,24 @@ export default function Control() {
             onClick={() => void run('halt', {}, 'أُعلن الإيقاف الطارئ')}><TradingLed status={tradingStatus()} text={statusText(tradingStatus())} />🛑 إيقاف طارئ شامل</button>
           <button className="btn" disabled={busy}
             onClick={() => void run('kill_switch_reset', {}, 'صُفّر قاطع الأمان')}><TradingLed status={atomStatus(516)} text={statusText(atomStatus(516), 'قاطع الأمان')} />♻️ صفّر قاطع الأمان</button>
+        </div>
+      </div>
+
+      {/* ٢٠٢٦-٠٩-٠٦ (جرد اللوحات بأمر المالك): المسار كامل من طرفيه —
+          901 يترجم `adaptation_switch` إلى `adaptation.kill_switch.command`
+          و860 مشترك فيه — ولا زرّ في اللوحة كلّها يرسله. حارس بلا مفتاح،
+          وهو حكم المالك المسجَّل: «حرّاس بلا مفاتيح = فشل». العقد الذي
+          يتحقّق منه 901: `action` إمّا ON أو OFF، لا شيء غيرهما. */}
+      <div className="scard" style={{ marginTop: 14 }}>
+        <div className="st" style={{ color: 'var(--ink)' }}>🧬 مفتاح التكيّف (860)</div>
+        <div className="ss dim">التكيّف يعدّل النظام على الانحراف والتأخير. إيقافه يجمّد ذلك
+          فيبقى النظام على معايرته الحالية — ولا يمسّ صفقة مفتوحة ولا يفتح صفقة.
+          <br />كان بابًا باتّجاه واحد: يُوقَف ولا ناشر يعيده إلا إقلاع (ختم NQ ٢٠٢٦-٠٨-٢٥).</div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+          <button className="btn" disabled={busy}
+            onClick={() => void run('adaptation_switch', { action: 'ON' }, 'أُعيد التكيّف')}><TradingLed status={atomStatus(860)} text={statusText(atomStatus(860), 'مفتاح التكيّف')} />▶️ أعِد التكيّف</button>
+          <button className="btn" disabled={busy}
+            onClick={() => void run('adaptation_switch', { action: 'OFF' }, 'أُوقف التكيّف')}><TradingLed status={atomStatus(860)} text={statusText(atomStatus(860), 'مفتاح التكيّف')} />⏹️ أوقف التكيّف</button>
         </div>
       </div>
 
