@@ -4,8 +4,10 @@ from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
+from shared.trade_setup import (EVENT_SETUP, SETUP_LIQUIDITY_RAID, build_setup,
+                                validate_setup, OK as SETUP_OK)
 
-ATOM_VERSION = "2.0.0"
+ATOM_VERSION = "2.1.0"
 EVENT_TICK = VALIDATED_TICK_EVENT
 EVENT_OUT = "strategy.liquidity.state"
 STRATEGY_ID = "liquidity_raid"
@@ -22,6 +24,7 @@ class Atom(AtomBase):
         self._rt = StrategyRuntime(STRATEGY_ID)
         self._window = 24
         self._seen = self._emitted = 0
+        self._setups = self._rejected = 0
 
     async def initialize(self, c):
         self._context = c
@@ -89,6 +92,71 @@ class Atom(AtomBase):
             )
         await self._context.publish(EVENT_OUT, card)
         self._emitted += 1
+        await self._propose_setup(tick, card)
+
+    async def _propose_setup(self, tick: dict[str, Any], card: dict[str, Any]) -> None:
+        """ينشر **إعداد صفقة مملوكًا** حين يكتمل الكنس والاسترداد.
+
+        ورقة التنفيذ ٢٠٢٦-٠٩-٠٦ (§١٣): 410 هو أوّل مالك لعقد الإعداد،
+        لأنه الوحيد الذي يملك أدلّة بنيوية حقيقية — طرفا النافذة وسعر
+        الكنس. والإبطال هنا ليس رقمًا مستعارًا من خريطة عامّة بل **معنى
+        الفكرة نفسها**: الاسترداد يموت إذا عاد السعر خلف طرف الكنس.
+        والهدف هو السيولة المقابلة التي تقصدها الحركة.
+
+        بطاقة الاستراتيجية أعلاه تبقى كما هي — سياقٌ يصوّت. الجديد أن
+        الفكرة صارت تملك هندستها، فلا يخترعها 581 من بعدُ.
+        """
+        meta = card.get("metadata") or {}
+        low, high = meta.get("reference_low"), meta.get("reference_high")
+        direction = card.get("direction") or 0.0
+        entry = card.get("price") or tick.get("price")
+        raid = meta.get("raid_distance")
+        if not direction or low is None or high is None or not entry:
+            return
+        buy = direction > 0
+        # طرف الكنس: السعر الذي تجاوز الحدّ قبل الاسترداد. هو نفسه حدّ
+        # الإبطال — تجاوزه ثانيةً يعني أن الاسترداد لم يكن استردادًا.
+        sweep_edge = (low - raid) if buy else (high + raid)
+        setup = build_setup(
+            owner="410",
+            setup_type=SETUP_LIQUIDITY_RAID,
+            side="buy" if buy else "sell",
+            entry_reference=entry,
+            invalidation_price=sweep_edge,
+            invalidation_source="410:sweep_edge",
+            invalidation_reason=("عودة السعر تحت طرف الكنس تُبطل الاسترداد"
+                                 if buy else
+                                 "عودة السعر فوق طرف الكنس تُبطل الاسترداد"),
+            target_price=high if buy else low,
+            target_source="410:opposite_liquidity",
+            target_reason="السيولة المقابلة في الطرف الآخر من النافذة",
+            account_id=tick.get("account_id") or "",
+            broker=tick.get("broker") or "",
+            symbol=tick.get("symbol") or "",
+            cycle_id=tick.get("cycle_id") or "",
+            period_start=tick.get("period_start"),
+            structure_id="raid:%s:%s" % (round(float(low), 8), round(float(high), 8)),
+            strength=card.get("strength") or 0.0,
+            confidence=card.get("confidence") or 0.0,
+            evidence={"reference_low": low, "reference_high": high,
+                      "raid_distance": raid, "signal": card.get("signal")},
+        )
+        reason = validate_setup(setup)
+        if reason != SETUP_OK:
+            # الرفض يُعلن ولا يُبتلع (§٢٦): النظام يقول لماذا لم يتداول.
+            self._rejected += 1
+            if self._rejected <= 20:
+                self._context.logger.warning(
+                    "410 إعداد مرفوض %s: %s (دخول=%s إبطال=%s هدف=%s)",
+                    setup.get("symbol"), reason, setup.get("entry_reference"),
+                    setup.get("invalidation_price"), setup.get("target_price"))
+            return
+        self._setups += 1
+        self._context.logger.warning(
+            "410 إعداد %s %s: دخول=%.2f إبطال=%.2f هدف=%.2f setup_id=%s",
+            setup["symbol"], setup["side"], setup["entry_reference"],
+            setup["invalidation_price"], setup["target_price"], setup["setup_id"])
+        await self._context.publish(EVENT_SETUP, setup)
 
     async def snapshot(self):
         return {
@@ -113,5 +181,7 @@ class Atom(AtomBase):
                 "ticks": self._seen,
                 "emitted": self._emitted,
                 "invalid": self._rt.invalid,
+                "setups": self._setups,
+                "setups_rejected": self._rejected,
             },
         )

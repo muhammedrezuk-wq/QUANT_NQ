@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from shared.trade_setup import is_alive, is_broken
+
 # ٢٠٢٦-٠٩-٠٥ (حكم المالك: «مو سكالبينغ عصبي — أخفّ شوي من عصبي»):
 # الكبح كان 60 ثانية فخُفّض إلى 10 للسكالبينغ، فصار القرار يتكرّر كل
 # عشر ثوانٍ على تِكّات متلاصقة. 45 ثانية تترك للسوق مجالًا يتحرّك بين
@@ -405,6 +407,38 @@ async def recompute(atom: Any, scope_key: str) -> None:
 EVENT_ORDER_REQUESTED = "execution.order.requested"
 ACTION_OPEN = "OPEN"
 
+# أسباب امتناع البوّابة — تُعلَن كي يقول النظام لماذا لم يتداول (§٢٦).
+NO_SETUP = "NO_SETUP"
+SETUP_SIDE_MISMATCH = "SETUP_SIDE_MISMATCH"
+SETUP_EXPIRED = "SETUP_EXPIRED"
+SETUP_ALREADY_BROKEN = "SETUP_ALREADY_BROKEN"
+
+
+def _setup_gate(setup: Any, side: str, price: Any, now: float) -> str:
+    """يعيد سبب المنع، أو "" إن كان الإعداد يملك هذه الصفقة فعلًا.
+
+    أربعة شروط لا خامس لها، وكلٌّ منها يمنع صفقةً بلا فكرة:
+      · وجود إعداد صالح أصلًا (تحقّق منه 581 عند الاستلام).
+      · أن يكون جانبه هو الجانب المطلوب — السياق لا يقلب فكرة مالكها.
+      · أن يكون حيًّا لا منتهيًا — فكرةٌ قديمة تصف سوقًا مضى.
+      · ألّا يكون السعر قد تجاوز إبطاله — فكرةٌ ماتت لا تُفتح.
+    """
+    if not isinstance(setup, dict):
+        return NO_SETUP
+    # هوية الفكرة وهندستها شرط وجود، لا تفصيل: بلا `setup_id` أو إبطال أو
+    # هدف فليس أمامنا إعداد بل قرار اتجاه عارٍ — وهو ما نمنعه من أصله.
+    if not (str(setup.get("setup_id") or "").strip()
+            and real(setup.get("invalidation_price"))
+            and real(setup.get("target_price"))):
+        return NO_SETUP
+    if str(setup.get("side") or "").lower() != side:
+        return SETUP_SIDE_MISMATCH
+    if not is_alive(setup, now):
+        return SETUP_EXPIRED
+    if is_broken(setup, price):
+        return SETUP_ALREADY_BROKEN
+    return ""
+
 
 async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None:
     """يترجم الدلتا الموجبة إلى طلب أمر — الوصلة التي لم تُكتب قط.
@@ -535,6 +569,25 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # سعرَي البركة العليا والسفلى. كلاهما مشتقّ من السعر وحده — صالح
         # لوسيط CFD الذي لا يقدّم حجمًا حقيقيًّا ولا CVD.
         sym = symbol.upper()
+        # ═══ بوّابة ملكية الصفقة (ورقة التنفيذ ٢٠٢٦-٠٩-٠٦ §٨ و§٩) ═══
+        # «لا يوجد إعداد صالح ⇒ لا توجد صفقة». هذا هو الباب الذي كان
+        # مفتوحًا: قرارُ اتجاه من 404/408 يكفي لفتح صفقة، ثم يؤلّف 581
+        # وقفها وهدفها من خريطة مستويات لا علاقة لها بسبب الدخول — وهو
+        # ما أنتج التذكرة 1911362798. الباب مُغلق الآن: لا أمر فتح بلا
+        # إعداد مملوك يحمل إبطاله وهدفه.
+        setup = (getattr(atom, "_setups", {}) or {}).get(sym)
+        why = _setup_gate(setup, side, price, now)
+        if why:
+            stamp = (sym, side, why)
+            last_gate = getattr(atom, "_last_setup_gate", None)
+            if last_gate is None:
+                last_gate = atom._last_setup_gate = {}
+            if last_gate.get(scope_key) != stamp:
+                last_gate[scope_key] = stamp
+                atom._context.logger.warning(
+                    "581 لا صفقة %s %s: %s — الاتجاه وحده لا يفتح صفقة، "
+                    "والإبطال والهدف ملك صاحب الفكرة", symbol, side, why)
+            continue
         pools = (getattr(atom, "_liquidity_pools", {}) or {}).get(sym, {})
         swings = (getattr(atom, "_swings", {}) or {}).get(sym, {})
         # ٢٠٢٦-٠٩-٠٥ (مقيس على رفض الوسيط RETCODE_10016 = INVALID_STOPS):
@@ -615,49 +668,26 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
                         "have=%r", symbol, side, trend, want, sweep_row)
                     continue
 
-        # الوقف: أقرب مستوى بنيوي يبلغ الحدّ الأدنى. وإن كان أبعد مستوى
-        # متاح ما زال داخل الحدّ، يُزاح **إلى الخارج** إلى الحدّ بالضبط —
-        # المستوى البنيوي يبقى محميًّا داخله، والإزاحة ضرورة وسيط لا
-        # اختراع تحليل. اللوت يُعاد حسابه على المسافة الجديدة فتبقى
-        # الخسارة تحت سقف المالك. (٢٠٢٦-٠٩-٠٥: بلا هذه الإزاحة توقّف
-        # التداول كلّيًّا — LEVEL_INSIDE_BROKER_MIN على كل تِكّة.)
-        # الهدف لا يُزاح أبدًا: يبقى مستوى بنيويًّا حقيقيًّا، وإن لم يبلغ
-        # أيُّ مستوى الحدَّ والنسبة معًا فلا صفقة.
-        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «مو تحطّ سقف يخنق غلطه — لازم من أساس
-        # ما يغلط»). كان الهدف يُختار على نسبة **وقف التحليل**، ثم تُضاف
-        # التكاليف فتهبط النسبة الفعلية، ثم تأتي بوّابة تَرفض ما بُني
-        # خاطئًا. حارسٌ يقصّ خطأً صنعناه نحن.
-        # الأرضية تُحسب الآن على المسافة التي **سترسَل فعلًا** (وقف
-        # التحليل + التكاليف)، فأيّ هدف يُختار يستوفي العقد بالبناء —
-        # والبوّابة أدناه تصير تأكيدًا لا مِقصًّا.
+        # ═══ ملكية الإبطال والهدف (ورقة التنفيذ ٢٠٢٦-٠٩-٠٦ §١٤) ═══
+        #
+        # هنا كان قلب العطب: 581 يختار الوقف من `below`/`above` والهدف
+        # منهما أيضًا — أي **يؤلّف** الصفقة من خريطة مستويات لا علاقة لها
+        # بسبب الدخول. فتصير الصفقة تجميع أجزاء: الاتجاه من 404/408،
+        # والوقف من 581، والهدف من 581، والحجم من 551. ولا أحد يستطيع
+        # الإجابة: لماذا هذه الصفقة موجودة؟
+        #
+        # الاختيار محذوف. الإبطال والهدف يأتيان من الإعداد كما نطق بهما
+        # مالكه، ولا يملك 581 تغييرهما. خريطة المستويات تبقى للتشخيص
+        # وحده (رسائل الرفض أدناه) ولا تُنتج قرارًا.
         cost_pad = spread * (1.0 + SLIPPAGE_SPREAD_MULT)
+        analysis_invalidation = real(setup.get("invalidation_price"))
+        analysis_target = real(setup.get("target_price"))
+        setup_id = str(setup.get("setup_id") or "")
+        setup_owner = str(setup.get("setup_owner") or "")
+        stop_loss, take_profit = analysis_invalidation, analysis_target
+        risk_gap = abs(price - stop_loss) if stop_loss else 0.0
+        floor_t = max((risk_gap + cost_pad + spread) * MIN_RR + spread, min_gap)
         shifted = False
-        if side == BUY:
-            stop_loss = next((s for s in reversed(below) if (price - s) >= min_gap),
-                             below[0] if below else None)
-            if stop_loss is not None and (price - stop_loss) < min_gap:
-                stop_loss = price - min_gap
-                shifted = True
-            risk_gap = (price - stop_loss) if stop_loss else 0.0
-            # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «بين ستوب وهدف ليس محدود — إذا
-            # اتجاه مدعوم يكمل مو يوقف»): كان يُختار **أقرب** مستوى يبلغ
-            # النسبة، فيصير الهدف سقفًا يوقف الصفقة عند أوّل محطّة. صار
-            # يُختار **أبعد** مستوى بنيوي متاح، فالصفقة تكمل ما دام
-            # الهيكل يحملها، ووقفها المتحرّك هو من يقرّر الخروج لا رقم.
-            # الشرط الأدنى يبقى: أن يبلغ الهدف النسبة وحدّ الوسيط.
-            floor_t = max((risk_gap + cost_pad + spread) * MIN_RR + spread, min_gap)
-            reachable = [t for t in above if (t - price) >= floor_t]
-            take_profit = reachable[-1] if reachable else None
-        else:
-            stop_loss = next((s for s in above if (s - price) >= min_gap),
-                             above[-1] if above else None)
-            if stop_loss is not None and (stop_loss - price) < min_gap:
-                stop_loss = price + min_gap
-                shifted = True
-            risk_gap = (stop_loss - price) if stop_loss else 0.0
-            floor_t = max((risk_gap + cost_pad + spread) * MIN_RR + spread, min_gap)
-            reachable = [t for t in below if (price - t) >= floor_t]
-            take_profit = reachable[0] if reachable else None
 
         if stop_loss is None or take_profit is None:
             # لا مستوى تحليلي = لا صفقة. رقم هندسي بديل يكذب على القرار.
@@ -798,6 +828,20 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
             "slippage_reserve": round(spread * SLIPPAGE_SPREAD_MULT, 8),
             "analysis_stop": round(analysis_stop, 8),
             "analysis_risk": round(abs(price - analysis_stop), 8),
+            # ═══ هوية الفكرة تعبر معها (ورقة التنفيذ §١٨ و§٢٢) ═══
+            # `setup_id` هوية الفكرة، و`decision_id` هوية القرار الذي
+            # أيّدها — وهما لا يختلطان: القرار يتغيّر كل لحظة، والفكرة
+            # لها حياة واحدة. بهذه الحقول تصير كل صفقة قابلة لإعادة
+            # البناء من السجل: من أنشأ الفكرة؟ ولماذا؟ وأين إبطالها؟
+            "setup_id": setup_id,
+            "setup_owner": setup_owner,
+            "setup_type": str(setup.get("setup_type") or ""),
+            "analysis_invalidation": round(analysis_invalidation, 8),
+            "analysis_target": round(analysis_target, 8),
+            "invalidation_source": str(setup.get("invalidation_source") or ""),
+            "invalidation_reason": str(setup.get("invalidation_reason") or ""),
+            "target_source": str(setup.get("target_source") or ""),
+            "target_reason": str(setup.get("target_reason") or ""),
             "parent_decision_id": decision_id,
             "gate_request_id": out.get("gate_request_id"),
         }

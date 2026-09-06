@@ -7,6 +7,8 @@ from shared.decision_dials import (EVENT_COMMAND as EVENT_SETTINGS_COMMAND,
                                    apply_command, effective_value)
 from shared.horizon_profile import hysteresis_override
 from shared.position_delta_recompute import recompute
+from shared.trade_setup import (EVENT_SETUP, is_alive, is_broken, validate_setup,
+                                OK as SETUP_OK)
 
 ATOM_VERSION = "3.4.1"
 EVENT_GATE = "decision.gate.passed"
@@ -147,6 +149,9 @@ class Atom(AtomBase):
         self._swings = {}
         self._liquidity_pools = {}
         self._level_sources = {}
+        # إعداد الصفقة لكل رمز — مملوك لمن أنشأه، و581 حافظٌ لا مؤلّف.
+        self._setups = {}
+        self._setup_seen = self._setup_rejected = 0
         self._trend = {}
         self._sweep = {}
         self._decisions = {}
@@ -212,6 +217,10 @@ class Atom(AtomBase):
         # فلتر الاتجاه: حالة الاتجاه من 207 وكنس السيولة من 254.
         context.subscribe("structure.trend.state", self._on_trend)
         context.subscribe("liquidity.sweep.state", self._on_sweep)
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «حلّها من جذر لا ترقّع»): إعداد الصفقة
+        # هو صاحب الفكرة، ومنه وحده يأتي الإبطال والهدف. 581 يسمعه ولا
+        # يخترع بديلًا عنه.
+        context.subscribe(EVENT_SETUP, self._on_setup)
 
     async def _on_trend(self, payload):
         """حالة الاتجاه من 207: uptrend · downtrend · range · transition."""
@@ -414,6 +423,24 @@ class Atom(AtomBase):
             bucket["low"] = price
             _push_level(bucket, "lows", price)
         bucket["seen_at"] = time.time()
+
+    async def _on_setup(self, payload):
+        """يحفظ آخر إعداد صالح لكل رمز — ولا يعدّله أبدًا.
+
+        ورقة التنفيذ ٢٠٢٦-٠٩-٠٦ (§١٤): 581 مدير صفقة لا مؤلّفها. يستقبل
+        الإعداد كما نطق به مالكه، ويرفض ما لا يصحّ، ولا يخترع بديلًا.
+        """
+        if not self._running or not isinstance(payload, dict):
+            return
+        reason = validate_setup(payload)
+        if reason != SETUP_OK:
+            self._setup_rejected += 1
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        if not symbol:
+            return
+        self._setups[symbol] = dict(payload)
+        self._setup_seen += 1
 
     async def _on_analysis_level(self, payload):
         """يلتقط كل مستوى سعري تقوله ذرّات التحليل مباشرة.
