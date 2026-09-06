@@ -184,8 +184,14 @@ async def recompute(atom: Any, scope_key: str) -> None:
         )
     ):
         decision = wildcard
-    if decision is None or ledger is None:
+    if ledger is None:
         return
+    if decision is None:
+        # ٢٠٢٦-٠٩-٠٦ (ورقة التنفيذ §١١): القرار سياق، والسياق قد يغيب.
+        # كان غيابه يُنهي الحساب فورًا، فلا تُسأل الفكرة أصلًا — وهو ما
+        # أبقى خمسة وأربعين إعدادًا بلا أمر. الفكرة تُقيَّم، والسياق
+        # الغائب يُعامَل حيادًا فيُنصّف التعرّض.
+        decision = {}
 
     legs = list(atom._positions.get(scope_key, []))
     current_buy = sum(row["volume"] for row in legs if row["side"] == "BUY")
@@ -214,10 +220,15 @@ async def recompute(atom: Any, scope_key: str) -> None:
         strength = max(0.0, min(1.0, (real(setup.get("strength")) or 0.0) / 100.0))
     budget = real(ledger.get("risk_budget", ledger.get("R", ledger.get("budget"))))
     filter_verdict = atom._filter_verdict(scope_key, decision)
-    if filter_verdict != FILTER_PASSED:
-        direction = WAIT
-        if filter_verdict == FILTER_BLOCKED:
-            atom._blocked += 1
+    # ٢٠٢٦-٠٩-٠٦ (تناقض مقيس بعد نقل ملكية الاتجاه): هذا السطر كان
+    # يصفّر الاتجاه عند أيّ حكم غير مُمرَّر — بما فيه FILTER_PENDING، أي
+    # مجرّد **تأخّر** حكم البوّابة عن دورة الفكرة. فبقي `dir='wait'` رغم
+    # وجود إعداد حيّ (مقيس: strength=0.146 مع dir='wait'). والفلتر سياق
+    # لا مالك للاتجاه: المانع الصريح يُعامَل معارضةً في `_vote_stance`
+    # فيُلغي التعرّض، والمعلَّق يُعامَل حيادًا فيُنصّفه. الاتجاه يبقى
+    # للإعداد وحده.
+    if filter_verdict == FILTER_BLOCKED:
+        atom._blocked += 1
 
     price = atom._price.get(scope_key)
     dial = atom._dials.get(scope_key, {})
@@ -487,6 +498,8 @@ def _vote_stance(vote_direction: str, setup_side: str, verdict: str) -> str:
     """
     if verdict == FILTER_BLOCKED:
         return STANCE_AGAINST
+    if verdict != FILTER_PASSED:
+        return STANCE_NEUTRAL      # حكم لم يصل بعد ⇒ حياد لا منع
     if vote_direction == setup_side:
         return STANCE_SUPPORT
     if vote_direction == WAIT:
@@ -544,13 +557,18 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
                 out.get("state"), out.get("filter_verdict"),
                 out.get("account_mode"), out.get("system_alive"))
         return
-    decision_id = out.get("decision_id")
-    if not decision_id:
+    # ٢٠٢٦-٠٩-٠٦ (ورقة التنفيذ §١٨): هوية الفكرة هي مفتاح التكرار، لا
+    # هوية القرار — «القرار ممكن يتغيّر كل لحظة، بينما فكرة الصفقة نفسها
+    # لها هوية وحياة». وكان الغياب يمنع الأمر أصلًا، فتُهدَر الفكرة لأن
+    # سياقها لم يصل.
+    decision_id = out.get("decision_id") or ""
+    dedup_key = str(out.get("setup_id") or "") or decision_id
+    if not dedup_key:
         return
     seen = getattr(atom, "_requested_decisions", None)
     if seen is None:
         seen = atom._requested_decisions = {}
-    if seen.get(scope_key) == decision_id:
+    if seen.get(scope_key) == dedup_key:
         return
 
     min_volume = float(getattr(atom, "_min_volume", 0.01) or 0.01)
@@ -955,7 +973,7 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
             trend or None, decision_id)
         published = True
     if published:
-        seen[scope_key] = decision_id
+        seen[scope_key] = dedup_key
     else:
         # لم يخرج أمر: تُعاد الفتحة كما كانت، فلا يُكبح النطاق بلا نشر.
         if previous_slot is None:

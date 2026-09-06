@@ -441,6 +441,13 @@ class Atom(AtomBase):
             return
         self._setups[symbol] = dict(payload)
         self._setup_seen += 1
+        # ٢٠٢٦-٠٩-٠٦ (مقيس — خمسون إعدادًا ولا أمر): الفكرة تولد على
+        # التِكّة بينما `recompute` كان يعمل على نبضة القرار وحدها، فحين
+        # يُسأل الإعداد يكون قد انتهى أجله أو كسره السعر (SETUP_EXPIRED ·
+        # SETUP_ALREADY_BROKEN). والإعداد صار **الفاتح**، فمن حقّه أن
+        # يُطلق التقييم لحظة ولادته — أنضر ما تكون الفكرة.
+        for key in [x for x in self._ledgers if x.endswith(SEP + symbol)]:
+            await self._recompute(key)
 
     async def _on_analysis_level(self, payload):
         """يلتقط كل مستوى سعري تقوله ذرّات التحليل مباشرة.
