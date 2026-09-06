@@ -18,6 +18,12 @@ UTILISATION_CEILING = 0.95
 # وانزلاق الوقف مئينه الثمانون 2.60 — مجموعهما ~5.7 عند سبريد 5.00.
 # يدخل حساب اللوت كي تكون الخسارة المقيَّدة هي **الواقعة** لا الاسمية.
 EXECUTION_ALLOWANCE_SPREAD_MULT = 1.2
+# ذيل الانزلاق للأوقاف الواسعة — مقيس على ٣٠ صفقة أُغلقت على الوقف،
+# مصنَّفة بمسافة الوقف المرسل: ٠→١٥ أقصاه 25.06 · ١٥→٢٥ أقصاه 20.90 ·
+# ٢٥→٣٥ أقصاه 1.11 · ٣٥+ أقصاه 9.16. الأوقاف صارت ≥ ٣٠ (581)، فذيلها
+# المقيس 9.16 — يُدوَّر إلى 10.00 على سعر 80,000 = 0.000125 من السعر.
+# لا يُستعمل في تحجيم الحالة العادية بل في الحارس وحده: «ما يتجاوز 100».
+TAIL_SLIPPAGE_FRAC = 0.000125
 # v4.3.1 (2026-08-27, item 22/27 of the 27-atom review -- verification
 # only, no code change): _on_validated builds an order via one of two
 # paths -- _direct_order() (already-priced/sized input) or the sized
@@ -197,6 +203,19 @@ class Atom(AtomBase):
             return None
         step = size.get("volume_step") or 0.01
         stepped = math.floor((risk_amount / denom) / step) * step
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «ما يتجاوز 100 أبدًا» — وقد انكسر مرّة):
+        # التذكرة 1911353370 خسرت 125.07$ لأن البدل النموذجيّ (5.7) لا يغطّي
+        # ذيلًا. البدل أعلاه يضبط **الحجم المعتاد**؛ هذا الحارس يضبط
+        # **الحدّ**: لا يتدخّل إلا إن كانت الخسارة عند أقصى انزلاق مقيس
+        # للأوقاف الواسعة (9.16 على أوقاف ≥ ٢٥) ستتجاوز السقف الصلب.
+        # فيبقى اللوت كما هو في الحالة العادية، ويُقصّ عند الحافة وحدها.
+        hard_cap = size.get("hard_trade_loss_cap")
+        tail = size.get("tail_slippage") or 0.0
+        if hard_cap and tail > 0.0 and stepped > 0.0:
+            worst = (effective + tail) * tick_value / tick_size \
+                + (size.get("commission_per_lot") or 0.0)
+            if worst > 0.0 and stepped * worst > hard_cap:
+                stepped = math.floor((hard_cap / worst) / step) * step
         v_min = size.get("volume_min") or 0.0
         v_max = size.get("volume_max")
         if stepped + 1e-12 < v_min:
@@ -293,6 +312,9 @@ class Atom(AtomBase):
         # السقف، وجودة الإشارة تحرّك الموضع داخله لا خارجه. فأضعف إعداد
         # يخاطر بثمانين، وأقواه بخمسة وتسعين، والمئة لا تُبلَغ أبدًا.
         cap = size.get("max_trade_loss") or size.get("risk_amount")
+        # السقف الصلب قبل أي حصّة — الحارس أدناه يقيس عليه لا على الحصّة.
+        if cap:
+            size["hard_trade_loss_cap"] = float(cap)
         if cap:
             share = 1.0
             exposure = _to_float(payload.get("exposure_fraction"))
@@ -315,6 +337,9 @@ class Atom(AtomBase):
         req_spread = _to_float(payload.get("spread")) or 0.0
         if req_spread > 0.0:
             size["execution_allowance"] = req_spread * EXECUTION_ALLOWANCE_SPREAD_MULT
+        ref_price = _to_float(payload.get("reference_price")) or 0.0
+        if ref_price > 0.0:
+            size["tail_slippage"] = ref_price * TAIL_SLIPPAGE_FRAC
         if payload.get("costs_in_stop") is not True:
             if req_spread > 0.0:
                 size["spread"] = req_spread
