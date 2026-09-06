@@ -227,6 +227,44 @@ def setup_ratio(setup: dict[str, Any]) -> float:
     return (setup_reward(setup) / risk) if risk > 0 else 0.0
 
 
+def round_trip_cost(bid: Any, ask: Any) -> float:
+    """تكلفة العبور الاقتصادية للجهتين — لا نصفها ولا ضعفها.
+
+    حكم المالك ٢٠٢٦-٠٩-٠٦: «احسب التكلفة اقتصاديًّا على الجهتين». وعلى
+    وسيط ذي سعرين، الدورة الكاملة تدفع السبريد **مرّة واحدة**: الشراء
+    يدخل على `ask` ويخرج على `bid`، والبيع بالعكس. فالسبريد هو تكلفة
+    الذهاب والإياب مجتمعةً، لا تكلفةَ كلّ جهة على حدة.
+    """
+    top = _real(ask)
+    bottom = _real(bid)
+    if top is None or bottom is None:
+        return 0.0
+    return max(0.0, top - bottom)
+
+
+def net_ratio(setup: dict[str, Any], cost: float) -> float:
+    """نسبة العائد إلى المخاطرة **بعد** التكاليف — اقتصاد الصفقة لا هندستها.
+
+    حكم المالك ٢٠٢٦-٠٩-٠٦ بعد أن قِيس أن ٨١٪ من الأفكار تُرفض لأن
+    إبطالها أضيق من سبريد: «المهم ليس أن risk < spread، بل هل الخطر
+    الاقتصادي الصافي والربح الاقتصادي الصافي ما زالا يحقّقان الحدّ».
+
+        reward_net = العائد الخام − تكلفة العبور
+        risk_net   = الخطر الخام + تكلفة العبور
+        net_rr     = reward_net / risk_net
+
+    فكرةٌ إبطالها ٣ وهدفها ٤٠ بتكلفة ٥ ⇒ 35 ÷ 8 = 4.38 — تُقبل.
+    وفكرةٌ إبطالها ٢٠ وهدفها ٢٥ بالتكلفة نفسها ⇒ 20 ÷ 25 = 0.80 — تُرفض.
+    الضيق ليس عيبًا، والاتّساع ليس فضيلة؛ الاقتصاد وحده يحكم.
+    """
+    cost = max(0.0, float(cost or 0.0))
+    risk_net = setup_risk(setup) + cost
+    reward_net = setup_reward(setup) - cost
+    if risk_net <= 0.0 or reward_net <= 0.0:
+        return 0.0
+    return reward_net / risk_net
+
+
 def is_alive(setup: dict[str, Any], now: float | None = None) -> bool:
     """هل الإعداد ما زال يصف السوق الحاضر؟"""
     stamp = float(now if now is not None else time.time())

@@ -22,7 +22,7 @@ from shared import position_delta_recompute as pdr  # noqa: E402
 from shared.trade_setup import (  # noqa: E402
     OK, REJECT_GEOMETRY, REJECT_PRICES, REJECT_WHY, SETUP_LIQUIDITY_RAID,
     build_setup, geometry_matches_entry, is_alive, is_broken, is_target_reached,
-    setup_ratio, validate_setup)
+    net_ratio as pdr_net, round_trip_cost, setup_ratio, validate_setup)
 
 
 def _setup(side="sell", entry=79986.0, stop=80012.0, target=79850.0, **kw):
@@ -227,21 +227,57 @@ def test_opposing_context_refuses_rather_than_shrinks() -> None:
     assert pdr._vote_stance("sell", "sell", pdr.FILTER_BLOCKED) == pdr.STANCE_AGAINST
 
 
-def test_owners_refuse_ideas_they_cannot_afford() -> None:
-    """المالك يصمت بدل أن يقترح فكرة داخل تكلفة العبور.
+def test_economics_judge_the_idea_not_the_spread() -> None:
+    """اختبارا المالك الإلزاميّان ٢٠٢٦-٠٩-٠٦.
 
-    مقيس حيًّا بعد أن صار 410 مالكًا: من اثنين وأربعين إعدادًا في أربع
-    دقائق جاءت أفكارٌ إبطالها 0.86 و2.24 والسبريد 5.00 — أي تموت داخل
-    التكلفة — وأخرى نسبتها 0.09. الشرطان خاصّيتان للفكرة عند صاحبها،
-    لا حارسًا لاحقًا يقصّها (حكم المالك: «لازم من أساس ما يغلط»).
+    قِيس أن ٢٢ من ٢٧ فكرة تُرفض لأن إبطالها أضيق من سبريد — «حكم على
+    جودة الفكرة من معيار واحد، بدل أن يكون جزءًا من حساب الاقتصاد
+    الكامل». الحكم صار اقتصاديًّا بتكلفة الجهتين.
+    """
+    cost = 5.0
+    # مخاطرة ٣ · هدف ٤٠ · تكلفة ٥ ⇒ (40−5)/(3+5) = 4.38 — تُقبل رغم 3 < 5.
+    tight = _setup(side="sell", entry=79624.75, stop=79627.75, target=79584.75)
+    assert abs(pdr_net(tight, cost) - (35.0 / 8.0)) < 1e-9, pdr_net(tight, cost)
+    assert pdr_net(tight, cost) >= 1.5, "رُفضت فكرة ضيّقة اقتصادها ممتاز"
+    # مخاطرة ٢٠ · هدف ٢٥ ⇒ (25−5)/(20+5) = 0.80 — تُرفض اقتصاديًّا.
+    wide = _setup(side="sell", entry=79600.0, stop=79620.0, target=79575.0)
+    assert abs(pdr_net(wide, cost) - 0.8) < 1e-9, pdr_net(wide, cost)
+    assert pdr_net(wide, cost) < 1.5, "قُبلت فكرة واسعة اقتصادها خاسر"
+    # وتكلفة العبور تُحسب مرّة واحدة للدورة كاملة، لا مرّتين.
+    assert round_trip_cost(79995.0, 80000.0) == 5.0
+
+
+def test_spread_is_no_longer_a_verdict_on_the_idea() -> None:
+    """`RISK_INSIDE_SPREAD` لم يعد سببًا مستقلًّا عند أيّ مالك."""
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("atoms/قسم 401-450/410_استراتيجية_السيولة/atom.py",
+                "atoms/قسم 401-450/406_استراتيجية_الاختراق/atom.py"):
+        source = (root / rel).read_text(encoding="utf-8")
+        # الذكر في تعليق يوثّق التاريخ مسموح؛ الممنوع أن يعود **حكمًا**.
+        assert 'reason = "RISK_INSIDE_SPREAD"' not in source, \
+            f"{rel}: السبريد ما زال حكمًا على الفكرة"
+        assert "NET_RR_REJECTED" in source, f"{rel}: بلا حكم اقتصاديّ"
+        assert "INVALIDATION_NOT_STRUCTURAL" in source, \
+            f"{rel}: حُذف الحارس بلا بديل بنيويّ"
+        assert "round_trip_cost" in source, f"{rel}: لا يحسب تكلفة الجهتين"
+
+
+def test_owners_refuse_ideas_they_cannot_afford() -> None:
+    """المالك يصمت بدل أن يقترح فكرة لا يُطاق اقتصادها.
+
+    الشرطان خاصّيتان للفكرة عند صاحبها لا حارسًا لاحقًا يقصّها (حكم
+    المالك: «لازم من أساس ما يغلط»)، وقد صارا بعد تصحيحه ٢٠٢٦-٠٩-٠٦:
+    صلاحية بنيوية للإبطال، ثم حكم اقتصاديّ بتكاليف الجهتين — لا مقارنة
+    بالسبريد وحده.
     """
     root = Path(__file__).resolve().parents[1]
     for rel in ("atoms/قسم 401-450/410_استراتيجية_السيولة/atom.py",
                 "atoms/قسم 401-450/406_استراتيجية_الاختراق/atom.py"):
         source = (root / rel).read_text(encoding="utf-8")
-        assert "RISK_INSIDE_SPREAD" in source, f"{rel}: يقترح إبطالًا داخل السبريد"
-        assert "RATIO_BELOW_MIN" in source, f"{rel}: يقترح نسبةً دون الحدّ"
-        assert "setup_ratio" in source, f"{rel}: لا يقيس نسبة فكرته"
+        assert "INVALIDATION_NOT_STRUCTURAL" in source, \
+            f"{rel}: بلا فحص بنيويّ للإبطال"
+        assert "NET_RR_REJECTED" in source, f"{rel}: بلا حكم اقتصاديّ"
+        assert "MIN_SETUP_RATIO = 1.5" in source, f"{rel}: تغيّر الحدّ 1.5"
 
 
 def test_406_is_the_second_owner() -> None:

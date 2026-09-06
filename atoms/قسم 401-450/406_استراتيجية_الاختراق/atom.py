@@ -5,12 +5,11 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_BREAKOUT, build_setup,
-                                setup_ratio, validate_setup, OK as SETUP_OK)
+                                net_ratio, round_trip_cost, validate_setup,
+                                OK as SETUP_OK)
 
-ATOM_VERSION = "2.1.0"
-# صلاحية الفكرة — كما في 410: إبطالٌ داخل السبريد ضجيج، ونسبةٌ دون
-# الحدّ رهانٌ خاسر بالبناء. المالك يصمت بدل أن يقترح ما لا يُطاق.
-MIN_RISK_SPREADS = 1.0
+ATOM_VERSION = "2.2.0"
+# الحدّ يبقى 1.5 بلا تغيير، كي يُقاس أثر رفع شرط السبريد وحده.
 MIN_SETUP_RATIO = 1.5
 EVENT_TICK = VALIDATED_TICK_EVENT
 EVENT_OUT = "strategy.breakout.state"
@@ -138,11 +137,15 @@ class Atom(AtomBase):
         )
         reason = validate_setup(setup)
         if reason == SETUP_OK:
-            spread = abs(float(tick.get("ask") or 0.0) - float(tick.get("bid") or 0.0))
-            if spread > 0 and abs(float(entry) - break_level) < spread * MIN_RISK_SPREADS:
-                reason = "RISK_INSIDE_SPREAD"
-            elif setup_ratio(setup) < MIN_SETUP_RATIO:
-                reason = "RATIO_BELOW_MIN"
+            # كما في 410 (حكم المالك ٢٠٢٦-٠٩-٠٦): السبريد ليس تعريفًا
+            # لصلاحية الإبطال. فحصان مستقلّان — بنيويّ ثم اقتصاديّ:
+            #   ١) حدّ المدى مستوًى حقيقيّ: مدى بعرض موجب واختراق فعليّ.
+            #   ٢) النسبة بعد تكاليف الجهتين تبلغ الحدّ.
+            cost = round_trip_cost(tick.get("bid"), tick.get("ask"))
+            if width <= 0.0 or abs(float(entry) - break_level) <= 0.0:
+                reason = "INVALIDATION_NOT_STRUCTURAL"
+            elif net_ratio(setup, cost) < MIN_SETUP_RATIO:
+                reason = "NET_RR_REJECTED"
         if reason != SETUP_OK:
             self._rejected += 1
             if self._rejected <= 20:
