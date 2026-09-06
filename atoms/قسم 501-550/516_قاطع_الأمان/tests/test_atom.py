@@ -103,6 +103,13 @@ async def test_9_auto_rearm_only_clears_its_own_reason(tmp_path):
     await atom._on_reset({"account_id": "A", "origin": "901",
                           "reason": "OWNER_COMMAND", "command_id": 71})
     assert atom.book("A")["kill"] is False, "رُفض زرّ المالك — حارس بلا مفتاح"
+    # ٢٠٢٦-٠٩-٠٦ (مقيس): التصفير كان يمسح المفتاح ولا يمسح العدّاد الذي
+    # رفعه، فأوّل نتيجة صفقة تُعيده — زرٌّ يدوم صفقة واحدة. أمر المالك
+    # يعني «قبلتُ خسارة اليوم»، فيُصفَّر العدّاد ولا يعود المفتاح فورًا.
+    assert atom.book("A")["daily_loss_pct"] == 0.0, atom.book("A")
+    await atom._on_loss({"event_id": "loss:after-release", "account_id": "A",
+                         "loss_pct": 0.5, "completeness": "COMPLETE", "is_loss": True})
+    assert atom.book("A")["kill"] is False, "عاد المفتاح من أوّل صفقة بعد التصفير"
 
     # ويُعاد رفعه لاختبار المسار الآليّ المطابق.
     await atom._on_loss({"event_id": "loss:big1b", "account_id": "A", "loss_pct": 99.0,

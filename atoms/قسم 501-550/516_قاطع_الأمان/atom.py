@@ -365,7 +365,20 @@ class Atom(AtomBase):
                 before=copy.deepcopy(self.book(account))
                 b=self.book(account)
                 b.update({"kill":False,"reason":""})
-                if not scoped:b["consecutive_losses"]=0
+                # ٢٠٢٦-٠٩-٠٦ (مقيس — زرّ المالك دام صفقة واحدة):
+                #   15:49:33 فُكّ المفتاح — زرّ المالك
+                #   16:07:57 صفقة واحدة (رابحة +35.87$)
+                #   16:12:13 KILL SWITCH — RISK_DAILY_LIMIT 5.0690%
+                # التصفير كان يمسح المفتاح ولا يمسح **العدّاد** الذي
+                # رفعه، والعدّاد ما زال فوق السقف — فأوّل نتيجة صفقة
+                # تُعيد رفعه فورًا. زرٌّ يدوم صفقة واحدة ليس زرًّا.
+                # الشيفرة كانت تصفّر المتتاليات عند أمر المالك بالمنطق
+                # نفسه؛ العدّاد اليوميّ نُسي وحده. أمر المالك يعني:
+                # «قبلتُ خسارة اليوم، أكمل» — فيُصفَّر ما رفع المفتاح.
+                # والإفراج الآليّ لا يمسّ عدّادًا البتّة.
+                if not scoped:
+                    b["consecutive_losses"]=0
+                    b["daily_loss_pct"]=0.0
                 await self._persist_financial_state(account,("auto-rearm:"+scoped) if scoped else ("owner-release:"+str(p.get("request_id") or self._official_time or "")))
             self._context.logger.warning(
                 "516 فُكّ المفتاح حساب=%s نوع=%s سبب=%s — التداول مستأنف",
