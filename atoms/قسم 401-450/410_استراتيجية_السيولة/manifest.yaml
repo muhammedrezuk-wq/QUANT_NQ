@@ -58,6 +58,6 @@ config:
   confidence_threshold: 60.0
   strength_threshold: 0.0
   required_ticks: 24
-  tick_window: 3000
+  tick_window: 1200
 metadata:
   max_idle_s: 64

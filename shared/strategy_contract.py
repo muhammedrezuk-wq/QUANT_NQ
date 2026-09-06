@@ -7,7 +7,9 @@ lean on -100..100; weights become effective only after evidence gates pass.
 from __future__ import annotations
 
 import math
+import sqlite3
 from collections import deque
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,6 +72,55 @@ class StrategicTickState:
     sequence: int = 0
 
 
+# ٢٠٢٦-٠٩-٠٦ (قياس المالك: «ساعتين ولا صفقة»). السبب مقيس لا مُخمَّن:
+# النواة تُقلع ونوافذ الاستراتيجيات فارغة، فتُملأ من التِكّ الحيّ وحده
+# بمعدّل 0.58 تِكّة/ثانية — أي 86 دقيقة لنافذة 3000 و115 دقيقة لنافذة
+# 4000. طوال تلك المدّة كل بطاقة `insufficient_data` وكل اتجاه صفر،
+# فلا يولد إعدادٌ أصلًا ولا يُرفض — صمتٌ تامّ لا يُعلن عن نفسه.
+#
+# وتاريخ السوق كان موجودًا طوال الوقت (٢٩٨ ألف تِكّة في market_data.db)
+# ولا أحد يقرؤه. الذرّة لا يجوز أن تولد عمياء: تُملأ نافذتها من
+# التاريخ المخزَّن مرّة واحدة عند أوّل تِكّة لكل نطاق، فتعمل من الثانية
+# الأولى بدل أن تنتظر ساعتين بعد كل إقلاع.
+_MARKET_DB = Path(__file__).resolve().parents[1] / "forex_runtime" / "var" / "store" / "market_data.db"
+
+
+def warm_start(state: "StrategicTickState", symbol: str) -> int:
+    """يملأ النافذة من تاريخ السوق المخزَّن. يُرجع عدد التِكّات المحمَّلة."""
+    if not _MARKET_DB.exists():
+        return 0
+    try:
+        conn = sqlite3.connect(
+            "file:%s?mode=ro" % _MARKET_DB.as_posix(), uri=True, timeout=2.0
+        )
+        try:
+            rows = conn.execute(
+                "SELECT bid, ask, occurred_at FROM market_data "
+                "WHERE symbol = ? ORDER BY id DESC LIMIT ?",
+                (symbol, _HISTORY),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return 0
+    loaded = 0
+    for bid, ask, stamp in reversed(rows):
+        b, a, ts = finite(bid), finite(ask), finite(stamp)
+        if b is None or a is None or ts is None or b <= 0 or a < b or ts <= 0:
+            continue
+        if state.timestamps and ts <= state.timestamps[-1]:
+            continue
+        price = (b + a) / 2.0
+        if state.prices:
+            state.returns.append(price / state.prices[-1] - 1.0)
+        state.prices.append(price)
+        state.bids.append(b)
+        state.asks.append(a)
+        state.timestamps.append(ts)
+        loaded += 1
+    return loaded
+
+
 class StrategyRuntime:
     def __init__(self, strategy_id: str, *, directional: bool = True) -> None:
         if strategy_id not in ALL_IDS:
@@ -83,6 +134,7 @@ class StrategyRuntime:
         self.strength_threshold = 0.0
         self.required_ticks = 24
         self.invalid = 0
+        self.warmed: dict[tuple[str, str, str], int] = {}
 
     def configure(self, config: dict[str, Any]) -> None:
         self.weight = (
@@ -120,7 +172,11 @@ class StrategyRuntime:
             self.invalid += 1
             return None
         scope = (account, broker, symbol)
-        state = self.states.setdefault(scope, StrategicTickState())
+        state = self.states.get(scope)
+        if state is None:
+            state = StrategicTickState()
+            self.warmed[scope] = warm_start(state, symbol)
+            self.states[scope] = state
         if state.timestamps and stamp <= state.timestamps[-1]:
             self.invalid += 1
             return None

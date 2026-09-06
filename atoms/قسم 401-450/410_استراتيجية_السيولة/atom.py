@@ -5,7 +5,7 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_LIQUIDITY_RAID, build_setup,
-                                MIN_INVALIDATION_FRAC, meets_scale, net_ratio,
+                                meets_scale, net_ratio,
                                 round_trip_cost, validate_setup,
                                 OK as SETUP_OK)
 
@@ -77,9 +77,8 @@ class Atom(AtomBase):
             # مؤكَّدًا بل لمسة. الاسترداد يُؤكَّد بمسافة: أن يعود السعر
             # داخل النطاق بمقدار الحدّ الأدنى للإبطال — عندها تولد الفكرة
             # بمقياسها من أوّل لحظة، لا تُرفض بعده.
-            confirm = current * MIN_INVALIDATION_FRAC
-            bullish = previous < low and current >= low + confirm
-            bearish = previous > high and current <= high - confirm
+            bullish = previous < low and current >= low
+            bearish = previous > high and current <= high
             direction = 100.0 if bullish else -100.0 if bearish else 0.0
             raid = low - previous if bullish else previous - high if bearish else 0
             span = max(high - low, current * EPSILON)

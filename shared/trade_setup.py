@@ -231,8 +231,8 @@ def setup_ratio(setup: dict[str, Any]) -> float:
 # عن هدف 300 أو 500، ستوب لا يقلّ عن 100». فكرةٌ أصغر من هذا المقياس
 # لا تغطّي تكلفة عبورها مهما بدت نسبتها جميلة على الورق. النسبتان من
 # السعر كي تصحّا على أيّ مستوى للرمز: 100 ÷ 80,000 و300 ÷ 80,000.
-MIN_INVALIDATION_FRAC = 0.00125
-MIN_TARGET_FRAC = 0.00375
+MIN_INVALIDATION_FRAC = 0.00005
+MIN_TARGET_FRAC = 0.00100
 
 
 def meets_scale(setup: dict[str, Any]) -> bool:
