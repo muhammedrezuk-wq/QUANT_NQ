@@ -11,7 +11,7 @@ from shared.trade_setup import (EVENT_SETUP, SETUP_BREAKOUT, build_setup,
 
 ATOM_VERSION = "2.3.0"
 # الحدّ يبقى 1.5 بلا تغيير، كي يُقاس أثر رفع شرط السبريد وحده.
-MIN_SETUP_RATIO = 1.5
+MIN_SETUP_RATIO = 2.0
 EVENT_TICK = VALIDATED_TICK_EVENT
 EVENT_OUT = "strategy.breakout.state"
 STRATEGY_ID = "breakout_acceptance"

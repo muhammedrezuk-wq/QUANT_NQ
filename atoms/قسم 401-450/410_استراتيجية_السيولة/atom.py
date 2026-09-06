@@ -12,7 +12,7 @@ from shared.trade_setup import (EVENT_SETUP, SETUP_LIQUIDITY_RAID, build_setup,
 ATOM_VERSION = "2.4.0"
 # ٢٠٢٦-٠٩-٠٦: المالك لا يقترح فكرة لا يُطاق اقتصادها، ولا ينتظر حارسًا
 # يقصّها. والحدّ يبقى كما هو (1.5) كي يُقاس أثر رفع شرط السبريد وحده.
-MIN_SETUP_RATIO = 1.5
+MIN_SETUP_RATIO = 2.0
 EVENT_TICK = VALIDATED_TICK_EVENT
 EVENT_OUT = "strategy.liquidity.state"
 STRATEGY_ID = "liquidity_raid"

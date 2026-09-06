@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 
 CAP = 100.0        # سقف المالك الصلب لكل صفقة (١٪ من قاعدة 10,000)
-MIN_RR = 1.5       # الحدّ الأدنى للنسبة على المسافة المرسلة
+MIN_RR = 2.0       # الحدّ الأدنى للنسبة على المسافة المرسلة
 MIN_WIN_R = 1.0    # الرابحة تُخرج مثل مخاطرتها فأكثر
 BRIDGE = Path(os.environ.get("APPDATA", "")) / \
     "MetaQuotes/Terminal/Common/Files/nq_brain.db"

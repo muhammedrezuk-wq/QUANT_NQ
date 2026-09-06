@@ -277,7 +277,10 @@ def test_owners_refuse_ideas_they_cannot_afford() -> None:
         assert "INVALIDATION_NOT_STRUCTURAL" in source, \
             f"{rel}: بلا فحص بنيويّ للإبطال"
         assert "NET_RR_REJECTED" in source, f"{rel}: بلا حكم اقتصاديّ"
-        assert "MIN_SETUP_RATIO = 1.5" in source, f"{rel}: تغيّر الحدّ 1.5"
+        # ٢٠٢٦-٠٩-٠٧ (أمر المالك): «نسبة المخاطرة/العائد ≥ 2، مخاطرة 1%
+        # بالصفقة». الحدّ رُفع من 1.5 إلى 2.0 في المالكَين وفي محرّك
+        # الفرق معًا، فلا يمرّ إعداد اقتصاده دون ضعفَي مخاطرته.
+        assert "MIN_SETUP_RATIO = 2.0" in source, f"{rel}: تغيّر الحدّ 2.0"
 
 
 def test_406_is_the_second_owner() -> None:
