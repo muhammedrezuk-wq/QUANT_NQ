@@ -5,7 +5,8 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_BREAKOUT, build_setup,
-                                meets_scale, net_ratio, round_trip_cost, validate_setup,
+                                MIN_INVALIDATION_FRAC, meets_scale, net_ratio,
+                                round_trip_cost, validate_setup,
                                 OK as SETUP_OK)
 
 ATOM_VERSION = "2.3.0"
@@ -69,7 +70,14 @@ class Atom(AtomBase):
             high = max(prior)
             low = min(prior)
             width = max(high - low, price * EPSILON)
-            direction = 100.0 if price > high else -100.0 if price < low else 0.0
+            # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «ستوب لا يقلّ عن 100»): الاختراق
+            # كان يُعلَن عند تجاوز الحدّ بأيّ مقدار — وعندها يكون الإبطال
+            # (حدّ المدى) ملاصقًا للدخول. و«القبول» في اسم هذه الذرّة يعني
+            # امتدادًا لا لمسة: يُقبل الاختراق حين يمتدّ عن حدّه بمقدار
+            # الحدّ الأدنى للإبطال، فتولد الفكرة بمقياسها.
+            accept = price * MIN_INVALIDATION_FRAC
+            direction = (100.0 if price > high + accept
+                         else -100.0 if price < low - accept else 0.0)
             distance = (
                 price - high if direction > 0 else low - price if direction < 0 else 0.0
             )
