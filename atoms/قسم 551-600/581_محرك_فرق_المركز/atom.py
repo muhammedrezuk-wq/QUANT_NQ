@@ -350,6 +350,15 @@ class Atom(AtomBase):
             tv = real(row.get("tick_value"))
             ts = real(row.get("tick_size"))
             scope = key(account, symbol)
+            # ٢٠٢٦-٠٩-٠٧ (قياس، لا تخمين): 230 فكرة ماتت بـ«قيمة_نقطة=None»
+            # بينما 576 يقرأ للرمز نفسه tick_value=0.01 tick_size=0.01.
+            # السعر يصل بنفس المفتاح، فالمفتاح ليس السبب. هذا السطر يقول
+            # ماذا يصل هنا بالضبط — وأيّ شرط يسقط.
+            if symbol == "BTCUSD":
+                self._context.logger.warning(
+                    "581 specs BTCUSD: حساب=%r رمز=%r tv=%r ts=%r مفتاح=%r "
+                    "حقول=%r", account, symbol, tv, ts, scope,
+                    sorted(row.keys())[:12])
             if account and symbol and tv is not None and ts and ts > 0:
                 self._vpu[scope] = tv / ts
                 if scope in self._spread_price: self._spread_cost[scope] = self._spread_price[scope] * self._vpu[scope]
@@ -442,6 +451,15 @@ class Atom(AtomBase):
             return
         self._setups[symbol] = dict(payload)
         self._setup_seen += 1
+        # ٢٠٢٦-٠٩-٠٧ (أمر المالك: القياس قبل أي رقم): عمر الإعداد لحظة
+        # استلامه. الـ120.0s التي ظهرت في السجل كانت سقف TTL لا زمن عبور،
+        # وهذا السطر وحده يفصل بين «عبور بطيء» و«انتظار حتى المهلة».
+        # يُطبع بلا كتم حتى تكتمل العيّنة، ولا يغيّر منطقًا ولا رقمًا.
+        _born = payload.get("created_at")
+        if isinstance(_born, (int, float)):
+            self._context.logger.warning(
+                "581 عمر الإعداد عند الاستلام: %.3fs رمز=%s setup_id=%s",
+                time.time() - float(_born), symbol, payload.get("setup_id"))
         # ٢٠٢٦-٠٩-٠٦ (مقيس — خمسون إعدادًا ولا أمر): الفكرة تولد على
         # التِكّة بينما `recompute` كان يعمل على نبضة القرار وحدها، فحين
         # يُسأل الإعداد يكون قد انتهى أجله أو كسره السعر (SETUP_EXPIRED ·

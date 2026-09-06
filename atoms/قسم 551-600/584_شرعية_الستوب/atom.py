@@ -3,7 +3,11 @@ import math
 from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "1.5.2"
+ATOM_VERSION = "1.6.0"
+# أرضية ضجيج وقف التنفيذ — مقيسة لا مقدَّرة: زمن العبور 410→581 قِيس
+# 0.3–0.83s، وتوزيع الحركة المعاكسة على 257 إعدادًا من 60 ألف تِكّة
+# أعطى P95=10.69 وP99=16.57 عند صفّ الثانية. 0.000225 ≈ 18$ على 80,000.
+EXECUTION_NOISE_FRAC = 0.000225
 EVENT_BUILT = "execution.order.built"
 EVENT_SPECS = "market.symbol_specs"
 EVENT_LEGAL = "execution.order.legal"
@@ -122,6 +126,14 @@ class Atom(AtomBase):
         stops=num(spec.get("stops_level")) or 0.0
         freeze=num(spec.get("freeze_level")) or 0.0
         minimum_distance=max(stops,freeze,self._hard_floor_points)*point+self._buffer*point
+        # ٢٠٢٦-٠٩-٠٧ (قرار المالك المعماريّ): حدّ الوسيط يمنع رفض المنصّة
+        # ولا يقول شيئًا عن ضجيج السوق. الإبطال التحليليّ (≈4.5$) يعبّر عن
+        # صلاحية الفكرة، ووقف التنفيذ يجب أن يتحمّل زمن العبور المقيس
+        # (0.3–0.83s) وحركته المعاكسة — P99 ≈ 16.6$ عند صفّ الثانية.
+        # فالتوسيع هنا وحده: الفكرة تعبر كما نطق بها مالكها، والحماية
+        # تُبنى في طبقة التنفيذ. الرقم رقم اختبار حتى يُقاس P99 مباشرةً
+        # على عيّنة العبور نفسها لا على صفّ الثانية.
+        minimum_distance=max(minimum_distance,abs(ref)*EXECUTION_NOISE_FRAC)
         requested_distance=abs(ref-sl)
         out=dict(payload)
         out["volume"]=volume
