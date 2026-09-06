@@ -623,6 +623,14 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # التداول كلّيًّا — LEVEL_INSIDE_BROKER_MIN على كل تِكّة.)
         # الهدف لا يُزاح أبدًا: يبقى مستوى بنيويًّا حقيقيًّا، وإن لم يبلغ
         # أيُّ مستوى الحدَّ والنسبة معًا فلا صفقة.
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «مو تحطّ سقف يخنق غلطه — لازم من أساس
+        # ما يغلط»). كان الهدف يُختار على نسبة **وقف التحليل**، ثم تُضاف
+        # التكاليف فتهبط النسبة الفعلية، ثم تأتي بوّابة تَرفض ما بُني
+        # خاطئًا. حارسٌ يقصّ خطأً صنعناه نحن.
+        # الأرضية تُحسب الآن على المسافة التي **سترسَل فعلًا** (وقف
+        # التحليل + التكاليف)، فأيّ هدف يُختار يستوفي العقد بالبناء —
+        # والبوّابة أدناه تصير تأكيدًا لا مِقصًّا.
+        cost_pad = spread * (1.0 + SLIPPAGE_SPREAD_MULT)
         shifted = False
         if side == BUY:
             stop_loss = next((s for s in reversed(below) if (price - s) >= min_gap),
@@ -637,7 +645,7 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
             # يُختار **أبعد** مستوى بنيوي متاح، فالصفقة تكمل ما دام
             # الهيكل يحملها، ووقفها المتحرّك هو من يقرّر الخروج لا رقم.
             # الشرط الأدنى يبقى: أن يبلغ الهدف النسبة وحدّ الوسيط.
-            floor_t = max(risk_gap * MIN_RR, min_gap)
+            floor_t = max((risk_gap + cost_pad + spread) * MIN_RR + spread, min_gap)
             reachable = [t for t in above if (t - price) >= floor_t]
             take_profit = reachable[-1] if reachable else None
         else:
@@ -647,7 +655,7 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
                 stop_loss = price + min_gap
                 shifted = True
             risk_gap = (stop_loss - price) if stop_loss else 0.0
-            floor_t = max(risk_gap * MIN_RR, min_gap)
+            floor_t = max((risk_gap + cost_pad + spread) * MIN_RR + spread, min_gap)
             reachable = [t for t in below if (price - t) >= floor_t]
             take_profit = reachable[0] if reachable else None
 
@@ -712,24 +720,19 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # المعاكس والخروج على الآخر، فسبريد كامل يُضاف إلى المخاطرة
         # ويُطرح من العائد. مع سبريد 5.00 على وقف 8 نقاط، النسبة
         # المعلنة 5.8 حقيقتها 3.3 — والفرق ليس تفصيلًا على السكالبينغ.
-        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «فتح صفقة ستوبها لَهدفها 1/1»): كانت
-        # البوّابة تُحسب على وقف **التحليل**، ثم يُزاح الوقف للخارج
-        # بالتكاليف (`cost_pad` أدناه) فتُؤكل النسبة بعد المرور. المقيس
-        # على آخر أربعة عشر أمرًا: **خمسة خرجت دون الحدّ** — 1.18 · 1.19 ·
-        # 1.22 · 1.24 · 1.37 — أي واحد إلى واحد تقريبًا كما رآها المالك،
-        # بينما الحساب التحليليّ كان يقول 1.7 وأكثر.
-        # النسبة تُقاس الآن على المسافة التي **يرسلها** النظام فعلًا:
-        # وقف التحليل + التكاليف. فما يمرّ بالبوّابة هو ما يأخذه الحساب.
-        cost_pad = spread * (1.0 + SLIPPAGE_SPREAD_MULT)
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «مو تحطّ سقف يخنق غلطه — لازم من أساس
+        # ما يغلط»): الأرضية أعلاه صارت تُحسب على المسافة المرسلة، فأيّ
+        # هدف مرّ منها يستوفي النسبة **بالبناء**. هذا السطر لم يعد مِقصًّا
+        # بل تأكيدًا: إن أطلق يومًا فالخلل في اشتقاق الأرضية لا في السوق،
+        # ويُسجَّل بوصفه تناقضًا داخليًّا كي يُصلَح من أصله.
         risk = abs(price - stop_loss) + cost_pad + spread
         reward = max(0.0, abs(take_profit - price) - spread)
         if risk <= 0 or reward / risk < MIN_RR:
-            atom._context.logger.warning(
-                "581 skip %s: RR_BELOW_MIN rr=%.2f risk=%.2f reward=%.2f min=%.2f "
-                "| pad=%.2f price=%.2f below=%s above=%s",
-                symbol, (reward / risk if risk > 0 else 0.0), risk, reward, MIN_RR,
-                cost_pad, price, [round(x, 2) for x in below[-4:]],
-                [round(x, 2) for x in above[:4]])
+            atom._context.logger.error(
+                "581 تناقض داخليّ %s: هدف اجتاز الأرضية ونسبته %.2f < %.2f "
+                "— risk=%.2f reward=%.2f pad=%.2f floor=%.2f",
+                symbol, (reward / risk if risk > 0 else 0.0), MIN_RR,
+                risk, reward, cost_pad, floor_t)
             continue
 
         # ٢٠٢٦-٠٩-٠٦ (حكم المالك): «بدنا الستوب الحقيقي لتحليل الصفقة —

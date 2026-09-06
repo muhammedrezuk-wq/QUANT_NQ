@@ -213,22 +213,26 @@ class Atom(AtomBase):
         # كليهما يقع على المسافة نفسها، والوقفُ سعرٌ ثابت لا مسافة.
         effective = distance + (size.get("spread") or 0.0) \
             + (size.get("slippage_reserve") or 0.0) \
-            + (size.get("execution_allowance") or 0.0)
+            + (size.get("execution_allowance") or 0.0) \
+            + (size.get("tail_slippage") or 0.0)
         denom = effective * tick_value / tick_size + (size.get("commission_per_lot") or 0.0)
         if denom <= 0.0:
             return None
         step = size.get("volume_step") or 0.01
         stepped = math.floor((risk_amount / denom) / step) * step
-        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «ما يتجاوز 100 أبدًا» — وقد انكسر مرّتين:
-        # 125.07$ و108.42$). البدل أعلاه يضبط **الحجم المعتاد**؛ هذا
-        # الحارس يضبط **الحدّ** وحده: يقيس الخسارة عند **أقصى** زيادة
-        # مقيسة (27.88 ⇒ 28.00 على 80,000) ويقصّ اللوت إن تجاوزت السقف
-        # الصلب. فلا يمسّ الحالة العادية، ويمنع الذيل من كسر المئة.
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «مو تحطّ سقف يخنق غلطه — لازم من أساس
+        # ما يغلط»): كان اللوت يُحسب على المسافة المعتادة ثم يُقصّ إن
+        # تجاوز السقف عند الذيل — أي نصنع رقمًا خاطئًا ثم نصلحه. صار
+        # `effective` أعلاه يحمل الذيل المقيس نفسه، فالخسارة القصوى
+        # مقيَّدة **بالبناء** ولا يبقى ما يُقصّ. هذا السطر تأكيد لا مِقصّ:
+        # إن أطلق فالخلل في تركيب `effective` لا في السوق.
         hard_cap = size.get("hard_trade_loss_cap") or 0.0
-        worst = (effective + (size.get("tail_slippage") or 0.0)) * tick_value / tick_size \
-            + (size.get("commission_per_lot") or 0.0)
-        if hard_cap > 0.0 and stepped * worst > hard_cap:
-            stepped = math.floor((hard_cap / worst) / step) * step
+        if hard_cap > 0.0 and stepped * denom > hard_cap:
+            self_log = size.get("logger")
+            if self_log is not None:
+                self_log.error("551 تناقض داخليّ: لوت %.2f × %.2f فوق السقف %.2f",
+                               stepped, denom, hard_cap)
+            stepped = math.floor((hard_cap / denom) / step) * step
         if stepped + _VOLUME_EPSILON < (size.get("volume_min") or 0.0):
             return None
         v_max = size.get("volume_max")
