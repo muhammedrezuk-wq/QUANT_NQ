@@ -6,7 +6,18 @@ from typing import Any
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.financial_scope import account_broker, financial_key, text
 
-ATOM_VERSION = "4.3.1"
+ATOM_VERSION = "4.4.0"
+# ٢٠٢٦-٠٩-٠٦ (حكم المالك حرفيًّا): «لازم يشتغل تحت 100 — يحسب ينزلق،
+# سبريد — يعني 80، 90، 95، ما يتجاوز 100 أبدًا». المدى الذي تعمل فيه
+# الصفقة من سقف المالك: أضعف إعداد عند الأرضية، وأقواه عند السقف الأدنى
+# من المئة. الجودة تحرّك الموضع داخل المدى، ولم تعد تضرب السقف ضربًا
+# فتهبط به إلى الربع (مقيس: exposure 0.50 × step 0.44 = 0.22 ⇒ 27$).
+UTILISATION_FLOOR = 0.80
+UTILISATION_CEILING = 0.95
+# بدل تنفيذ مقيس على ٣٠ صفقة أُغلقت على الوقف: انزلاق الدخول وسيطه 3.08،
+# وانزلاق الوقف مئينه الثمانون 2.60 — مجموعهما ~5.7 عند سبريد 5.00.
+# يدخل حساب اللوت كي تكون الخسارة المقيَّدة هي **الواقعة** لا الاسمية.
+EXECUTION_ALLOWANCE_SPREAD_MULT = 1.2
 # v4.3.1 (2026-08-27, item 22/27 of the 27-atom review -- verification
 # only, no code change): _on_validated builds an order via one of two
 # paths -- _direct_order() (already-priced/sized input) or the sized
@@ -169,8 +180,18 @@ class Atom(AtomBase):
         cap = size.get("max_trade_loss")
         if cap:
             risk_amount = min(risk_amount, cap)
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك): «يحسب ينزلق، سبريد». الخسارة التي
+        # تُقيَّد بالميزانية هي **الواقعة**، لا الاسمية. مقيس على التذكرة
+        # 1911332763: طُلب عند 79,923.33 ونُفِّذ عند 79,926.50 (انزلاق
+        # دخول 3.17)، والوقف 79,943.80 وخرج عند 79,961.97 (انزلاق وقف
+        # 18.17) — فخسرت 46.82$ على مخاطرة اسمية 27.0$.
+        # البدل مقيس على ٣٠ صفقة أُغلقت على الوقف: انزلاق الدخول وسيطه
+        # 3.08، وانزلاق الوقف مئينه الثمانون 2.60 — مجموعهما ~5.7 عند
+        # سبريد 5.00، أي سبريد×1.2. (أقصى ما رُصد 48.36 مجتمعًا، وتغطيته
+        # كاملةً تُنزل الحجم الاسميّ إلى ~30 — وهو ما رفضه المالك صراحةً.)
         effective = distance + (size.get("spread") or 0.0) \
-            + (size.get("slippage_reserve") or 0.0)
+            + (size.get("slippage_reserve") or 0.0) \
+            + (size.get("execution_allowance") or 0.0)
         denom = effective * tick_value / tick_size + (size.get("commission_per_lot") or 0.0)
         if denom <= 0.0:
             return None
@@ -259,6 +280,18 @@ class Atom(AtomBase):
         # فالسقف حدٌّ أقصى لا هدف: إعداد ضعيف يأخذ عُشره، وقويّ نصفه،
         # ولا يُلامَس إلا نظريًّا. بلا عامل الجودة كانت كل صفقة تستهلك
         # السقف كاملًا مهما كانت الإشارة — وهو ما رصده المالك ٢٠٢٦-٠٩-٠٦.
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك على لقطة الشارت: «ستوب لسّه ٢٥ دولار»،
+        # ونصّه: «لازم يشتغل تحت 100 — يحسب ينزلق، سبريد — يعني 80، 90،
+        # 95، ما يتجاوز 100 أبدًا»):
+        #
+        # كان العاملان (جودة الإشارة × نسبة الخطوة) يضربان السقف ضربًا،
+        # فينزل ١٠٠ إلى ٢٧ مقيسًا (exposure 0.50 × step 0.44 = 0.22).
+        # الضرب يصلح لترتيب الأولويات، لا لتحديد الرقم — فحاصله يهبط
+        # بلا قاع كلّما تعدّدت الخطوات.
+        #
+        # الحصّة تُخاطَب الآن كما نطق بها المالك: مدىً بين ٨٠٪ و٩٥٪ من
+        # السقف، وجودة الإشارة تحرّك الموضع داخله لا خارجه. فأضعف إعداد
+        # يخاطر بثمانين، وأقواه بخمسة وتسعين، والمئة لا تُبلَغ أبدًا.
         cap = size.get("max_trade_loss") or size.get("risk_amount")
         if cap:
             share = 1.0
@@ -268,17 +301,22 @@ class Atom(AtomBase):
             step_fraction = _to_float(payload.get("step_fraction"))
             if step_fraction is not None and 0.0 < step_fraction <= 1.0:
                 share *= step_fraction
-            if share < 1.0:
-                size["risk_amount"] = cap * share
-                size["max_trade_loss"] = cap * share
+            share = max(0.0, min(1.0, share))
+            util = UTILISATION_FLOOR + share * (UTILISATION_CEILING - UTILISATION_FLOOR)
+            size["risk_amount"] = cap * util
+            size["max_trade_loss"] = cap * util
         if payload.get("costs_in_stop") is True:
             # التكاليف مُضمَّنة في مسافة الوقف المرسل (581 أزاحه للخارج
             # كي يبقى للتحليل مداه). إضافتها هنا ثانيةً تحسبها مرّتين.
             size["spread"] = 0.0
             size["slippage_reserve"] = 0.0
-        else:
-            req_spread = _to_float(payload.get("spread"))
-            if req_spread is not None and req_spread > 0.0:
+        # بدل التنفيذ يبقى خارج هذا الاستثناء: `costs_in_stop` يعني أن
+        # التكاليف داخل **مكان** الوقف، لا أن التنفيذ لن ينزلق عنه.
+        req_spread = _to_float(payload.get("spread")) or 0.0
+        if req_spread > 0.0:
+            size["execution_allowance"] = req_spread * EXECUTION_ALLOWANCE_SPREAD_MULT
+        if payload.get("costs_in_stop") is not True:
+            if req_spread > 0.0:
                 size["spread"] = req_spread
                 req_slip = _to_float(payload.get("slippage_reserve"))
                 if req_slip is not None:

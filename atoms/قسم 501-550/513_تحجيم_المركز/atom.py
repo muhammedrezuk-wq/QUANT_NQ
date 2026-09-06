@@ -56,6 +56,7 @@ class Atom(AtomBase):
         self._context: AtomContext | None = None
         self._running = False
         self._risk_pct = 1.0
+        self._risk_base_equity = 0.0
         self._commission_per_lot = 0.0
         self._stop_pct = 0.5
         self._min_lot = 0.01
@@ -79,6 +80,7 @@ class Atom(AtomBase):
         self._context = context
         cfg = context.config
         self._risk_pct = float(cfg["risk_per_trade_pct"])
+        self._risk_base_equity = float(cfg.get("risk_base_equity", 0.0) or 0.0)
         self._stop_pct = float(cfg["default_stop_pct"])
         self._min_lot = float(cfg["min_lot"])
         self._max_lot = float(cfg["max_lot"])
@@ -185,9 +187,15 @@ class Atom(AtomBase):
 
         حكم المالك ٢٠٢٦-٠٩-٠٥: «أكثر من ١٪ على صفقة ما بصير يخسر».
         العيار قد يُرفع من اللوحة أو من ملف؛ السقف هنا يحكم فوقه.
+
+        ٢٠٢٦-٠٩-٠٦ (حكم المالك): «١٪ مو من حساب أساسي — خلّيها يعني
+        10000. لو ربح أو خسر، هيك ١٪ = 100 دايمًا». فالقاعدة **ثابتة**
+        لا تتبع حقوق الملكية: ميزانية تكبر مع الربح تكبّر الخسارة معها،
+        وتصغر مع الخسارة فتُبطئ التعافي. السقف رقم واحد لا يتحرّك: 100.
         """
         pct = min(self._risk_pct, HARD_RISK_CAP_PCT)
-        return equity * pct / _PERCENT
+        base = self._risk_base_equity if self._risk_base_equity > 0 else equity
+        return base * pct / _PERCENT
 
     def _lot(self, equity: float, distance: float, spec: dict[str, Any],
              spread: float = 0.0) -> tuple[float | None, str]:
