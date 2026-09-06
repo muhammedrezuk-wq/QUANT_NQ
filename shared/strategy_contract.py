@@ -47,13 +47,20 @@ def clip(value: Any, low: float = 0.0, high: float = 100.0) -> float:
     return max(low, min(high, number))
 
 
+# ٢٠٢٦-٠٩-٠٦ (أمر المالك: «وسّع»): كان المخزن 256 تِكّة، ونوافذ أصحاب
+# الإعداد وُسِّعت إلى 240 و320 — فنافذة أوسع من المخزن لا تمتلئ أبدًا،
+# وصاحبها لا يصنع فكرة قطّ (`len(prior) < window` دائمًا). المخزن يتّسع
+# بهامش كي تبقى النافذة قرارَ مالكها لا أسيرةَ حدٍّ خفيّ.
+_HISTORY = 1024
+
+
 @dataclass
 class StrategicTickState:
-    prices: deque[float] = field(default_factory=lambda: deque(maxlen=256))
-    bids: deque[float] = field(default_factory=lambda: deque(maxlen=256))
-    asks: deque[float] = field(default_factory=lambda: deque(maxlen=256))
-    timestamps: deque[float] = field(default_factory=lambda: deque(maxlen=256))
-    returns: deque[float] = field(default_factory=lambda: deque(maxlen=255))
+    prices: deque[float] = field(default_factory=lambda: deque(maxlen=_HISTORY))
+    bids: deque[float] = field(default_factory=lambda: deque(maxlen=_HISTORY))
+    asks: deque[float] = field(default_factory=lambda: deque(maxlen=_HISTORY))
+    timestamps: deque[float] = field(default_factory=lambda: deque(maxlen=_HISTORY))
+    returns: deque[float] = field(default_factory=lambda: deque(maxlen=_HISTORY - 1))
     sequence: int = 0
 
 
