@@ -62,6 +62,11 @@ STATE_APPROVED = "SETUP_APPROVED"
 STATE_REJECTED = "SETUP_REJECTED"
 STATE_INVALIDATED = "SETUP_INVALIDATED"
 STATE_EXPIRED = "SETUP_EXPIRED"
+# ٢٠٢٦-٠٩-٠٦ (حكم المالك): فكرةٌ بلغ السعرُ هدفَها قبل الدخول لم تُخطئ
+# هندستها — **فاتت فرصتها**. الحالتان مختلفتان ولا يجوز خلطهما: الأولى
+# عيبٌ في الإعداد، والثانية مضيُّ وقتٍ. والدخول بعد بلوغ الهدف مطاردة
+# لا فكرة.
+STATE_TARGET_REACHED = "SETUP_TARGET_REACHED"
 LOG_STOP_FROM_SETUP = "STOP_DERIVED_FROM_SETUP"
 LOG_TARGET_FROM_SETUP = "TARGET_DERIVED_FROM_SETUP"
 LOG_EXEC_STOP_ADJUSTED = "EXECUTION_STOP_ADJUSTED"
@@ -226,6 +231,37 @@ def is_alive(setup: dict[str, Any], now: float | None = None) -> bool:
     """هل الإعداد ما زال يصف السوق الحاضر؟"""
     stamp = float(now if now is not None else time.time())
     return stamp < (_real(setup.get("expires_at")) or 0.0)
+
+
+def is_target_reached(setup: dict[str, Any], price: Any) -> bool:
+    """هل بلغ السعرُ هدفَ الفكرة قبل الدخول؟
+
+    سؤالٌ عن **فوات الفرصة**، لا عن صحّة الهندسة. الدخول بعد بلوغ الهدف
+    مطاردةٌ للحركة لا تنفيذٌ لفكرة، ولا عائد يبقى فيها.
+    """
+    current = _real(price)
+    target = _real(setup.get("target_price"))
+    if current is None or target is None:
+        return False
+    return current >= target if _text(setup.get("side")) == BUY else current <= target
+
+
+def geometry_matches_entry(setup: dict[str, Any]) -> bool:
+    """هل الإبطال والهدف متّسقان مع **مرجع الدخول**؟
+
+    حكم المالك ٢٠٢٦-٠٩-٠٦: الهندسة تُقاس على `entry_reference` لا على
+    السعر الحاليّ. السعر الحاليّ يجيب سؤالًا آخر تمامًا — «هل فاتت
+    الفكرة؟» — وخلط السؤالين كان يُصنّف مئةً وواحدًا وعشرين إعدادًا
+    سليمًا بأنه «هندسة مقلوبة» لمجرّد أن السعر تحرّك بعد ولادته.
+    """
+    entry = _real(setup.get("entry_reference"))
+    stop = _real(setup.get("invalidation_price"))
+    target = _real(setup.get("target_price"))
+    if entry is None or stop is None or target is None:
+        return False
+    if _text(setup.get("side")) == BUY:
+        return stop < entry < target
+    return target < entry < stop
 
 
 def is_broken(setup: dict[str, Any], price: Any) -> bool:

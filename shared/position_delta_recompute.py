@@ -3,7 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from shared.trade_setup import is_alive, is_broken
+from shared.trade_setup import (geometry_matches_entry, is_alive, is_broken,
+                                is_target_reached)
 
 # ٢٠٢٦-٠٩-٠٥ (حكم المالك: «مو سكالبينغ عصبي — أخفّ شوي من عصبي»):
 # الكبح كان 60 ثانية فخُفّض إلى 10 للسكالبينغ، فصار القرار يتكرّر كل
@@ -466,6 +467,10 @@ NO_SETUP = "NO_SETUP"
 SETUP_SIDE_MISMATCH = "SETUP_SIDE_MISMATCH"
 SETUP_EXPIRED = "SETUP_EXPIRED"
 SETUP_ALREADY_BROKEN = "SETUP_ALREADY_BROKEN"
+# ٢٠٢٦-٠٩-٠٦ (حكم المالك): ثلاث حالات زمنية مستقلّة لا تُخلط — فكرةٌ
+# فاتت فرصتها ليست فكرةً مقلوبة الهندسة، وليست فكرةً انتهى أجلها.
+SETUP_TARGET_REACHED = "SETUP_TARGET_REACHED"
+SETUP_GEOMETRY_INVALID = "SETUP_GEOMETRY_INVALID"
 
 
 # موقف التصويت من الإعداد — عامل تعرّض لا مصدر اتجاه (ورقة التنفيذ §١١).
@@ -491,6 +496,19 @@ def _direction_from_setup(setup: Any, price: Any, now: float) -> tuple[str, str,
             and real(setup.get("invalidation_price"))
             and real(setup.get("target_price"))):
         return WAIT, STANCE_NEUTRAL, NO_SETUP
+    # ترتيب الفحص بحكم المالك ٢٠٢٦-٠٩-٠٦ — كل حالة تُسمّى باسمها:
+    #   ١) موجود وصالح، وهندسته متّسقة مع **مرجع الدخول**
+    #   ٢) بلغ السعرُ الهدف   ⇒ فاتت الفرصة، والدخول بعدها مطاردة
+    #   ٣) انتهى أجله         ⇒ يصف سوقًا مضى
+    #   ٤) تحقّق الإبطال      ⇒ الفكرة ماتت
+    #
+    # الهندسة تسبق الحالات الزمنية لأنها **صفة الإعداد** لا حادثةً عليه:
+    # كشف الاختبار أن إعدادًا مقلوبًا يُصنَّف خطأً «بلغ هدفه» — وسؤال
+    # «هل فاتت الفرصة؟» لا معنى له على فكرة هندستها فاسدة أصلًا.
+    if not geometry_matches_entry(setup):
+        return WAIT, STANCE_NEUTRAL, SETUP_GEOMETRY_INVALID
+    if price is not None and is_target_reached(setup, price):
+        return WAIT, STANCE_NEUTRAL, SETUP_TARGET_REACHED
     if not is_alive(setup, now):
         return WAIT, STANCE_NEUTRAL, SETUP_EXPIRED
     if price is not None and is_broken(setup, price):
@@ -826,16 +844,23 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
                 getattr(atom, "_level_sources", {}))
             continue
 
-        # الاتجاه لا يُفتح على مستويات مقلوبة (وقف فوق السعر لشراء مثلًا).
-        if side == BUY and not (stop_loss < price < take_profit):
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك — مقيس: 121 رفضًا بـLEVELS_INVERTED):
+        # كان الشرط يُقاس على **السعر الحاليّ**، فإعدادٌ سليم عند ولادته
+        # يصير «مقلوبًا» لمجرّد أن السعر تحرّك بعده. والسؤالان مختلفان:
+        #   هندسة الفكرة  ⇒ تُقاس على `entry_reference` (مرجع مالكها)
+        #   فوات الفرصة   ⇒ تُقاس على السعر الحاليّ، واسمها
+        #                    SETUP_TARGET_REACHED، وقد فُحصت قبل هنا.
+        # فما يبقى هنا حارسُ هندسةٍ خالص على مرجع الدخول.
+        anchor = real(setup.get("entry_reference")) or price
+        if side == BUY and not (stop_loss < anchor < take_profit):
             atom._context.logger.warning(
-                "581 skip BUY %s: LEVELS_INVERTED sl=%s price=%s tp=%s",
-                symbol, stop_loss, price, take_profit)
+                "581 skip BUY %s: LEVELS_INVERTED sl=%s entry_ref=%s tp=%s",
+                symbol, stop_loss, anchor, take_profit)
             continue
-        if side == SELL and not (take_profit < price < stop_loss):
+        if side == SELL and not (take_profit < anchor < stop_loss):
             atom._context.logger.warning(
-                "581 skip SELL %s: LEVELS_INVERTED tp=%s price=%s sl=%s",
-                symbol, take_profit, price, stop_loss)
+                "581 skip SELL %s: LEVELS_INVERTED tp=%s entry_ref=%s sl=%s",
+                symbol, take_profit, anchor, stop_loss)
             continue
 
         # ٢٠٢٦-٠٩-٠٦ (مقيس — LEVEL_INSIDE_BROKER_MIN أربع عشرة مرّة، ولا

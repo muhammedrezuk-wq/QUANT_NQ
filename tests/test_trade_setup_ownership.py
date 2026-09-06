@@ -21,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from shared import position_delta_recompute as pdr  # noqa: E402
 from shared.trade_setup import (  # noqa: E402
     OK, REJECT_GEOMETRY, REJECT_PRICES, REJECT_WHY, SETUP_LIQUIDITY_RAID,
-    build_setup, is_alive, is_broken, setup_ratio, validate_setup)
+    build_setup, geometry_matches_entry, is_alive, is_broken, is_target_reached,
+    setup_ratio, validate_setup)
 
 
 def _setup(side="sell", entry=79986.0, stop=80012.0, target=79850.0, **kw):
@@ -155,6 +156,48 @@ def test_577_respects_the_owned_invalidation() -> None:
     assert "EVENT_SETUP" in source and "_setup_stop" in source, \
         "577 لا يسمع الإعداد"
     assert "_on_setup" in source, "577 بلا مستقبِل للإعداد"
+
+
+def test_missed_opportunity_is_named_by_its_own_name() -> None:
+    """الاختبار الحاسم بأرقام المالك ٢٠٢٦-٠٩-٠٦.
+
+        entry=79693 · invalidation=79699 · target=79682 · current=79680
+        ⇒ SETUP_TARGET_REACHED  (لا LEVELS_INVERTED)
+
+    الفكرة سليمة الهندسة عند ولادتها؛ ما جرى أن السعر بلغ هدفها قبل
+    الدخول — أي **فاتت الفرصة**. وخلط الحالتين كان يصنّف مئةً وواحدًا
+    وعشرين إعدادًا سليمًا بأنه مقلوب الهندسة.
+    """
+    setup = _setup(side="sell", entry=79693.0, stop=79699.0, target=79682.0)
+    assert validate_setup(setup) == OK, "الإعداد سليم عند ولادته"
+    assert geometry_matches_entry(setup), "الهندسة متّسقة مع مرجع الدخول"
+    now = setup["created_at"] + 1.0
+    direction, _, reason = pdr._direction_from_setup(setup, 79680.0, now)
+    assert reason == pdr.SETUP_TARGET_REACHED, reason
+    assert direction == "wait"
+    # وقبل بلوغ الهدف: الفكرة حيّة وتفتح المسار.
+    direction, _, reason = pdr._direction_from_setup(setup, 79690.0, now)
+    assert reason == "" and direction == "sell", (reason, direction)
+
+
+def test_the_three_time_states_stay_separate() -> None:
+    """ثلاث حالات زمنية مستقلّة لا تُخلط، وبالترتيب الذي أمر به المالك."""
+    base = _setup(side="sell", entry=79693.0, stop=79699.0, target=79682.0,
+                  ttl_s=10.0)
+    born = base["created_at"]
+    # بلوغ الهدف يسبق انتهاء الأجل في الترتيب — الفرصة فاتت لا الوقت.
+    assert pdr._direction_from_setup(base, 79680.0, born + 99.0)[2] \
+        == pdr.SETUP_TARGET_REACHED
+    # ولو لم يُبلَغ الهدف، فالأجل هو الحكم.
+    assert pdr._direction_from_setup(base, 79690.0, born + 99.0)[2] \
+        == pdr.SETUP_EXPIRED
+    # ولو كان حيًّا ولم يُبلَغ الهدف، فالإبطال.
+    assert pdr._direction_from_setup(base, 79700.0, born + 1.0)[2] \
+        == pdr.SETUP_ALREADY_BROKEN
+    # وهندسة مقلوبة عند مرجع الدخول تُسمّى باسمها لا بأسمائهم.
+    bad = dict(base, target_price=79800.0)
+    assert pdr._direction_from_setup(bad, 79693.0, born + 1.0)[2] \
+        == pdr.SETUP_GEOMETRY_INVALID
 
 
 def test_setup_opens_even_when_the_vote_is_neutral() -> None:
