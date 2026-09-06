@@ -5,9 +5,18 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_LIQUIDITY_RAID, build_setup,
-                                validate_setup, OK as SETUP_OK)
+                                setup_ratio, validate_setup, OK as SETUP_OK)
 
-ATOM_VERSION = "2.1.0"
+ATOM_VERSION = "2.2.0"
+# ٢٠٢٦-٠٩-٠٦ (مقيس حيًّا بعد أن صار 410 مالكًا): من اثنين وأربعين إعدادًا
+# في أربع دقائق، جاءت أفكارٌ إبطالها 0.86 و2.24 والسبريد المقيس 5.00 —
+# أي فكرة تموت داخل تكلفة العبور نفسها، وأخرى نسبتها 0.09.
+# حكم المالك «لازم من أساس ما يغلط»: المالك لا يقترح فكرة لا تُطاق
+# تكاليفها، ولا ينتظر حارسًا يقصّها. الشرطان خاصّيتان للفكرة:
+#   · إبطالها أبعد من سبريد كامل — وإلّا فهي ضجيج لا رأي.
+#   · نسبتها تبلغ الحدّ — وإلّا فهي رهان خاسر بالبناء.
+MIN_RISK_SPREADS = 1.0
+MIN_SETUP_RATIO = 1.5
 EVENT_TICK = VALIDATED_TICK_EVENT
 EVENT_OUT = "strategy.liquidity.state"
 STRATEGY_ID = "liquidity_raid"
@@ -142,6 +151,16 @@ class Atom(AtomBase):
                       "raid_distance": raid, "signal": card.get("signal")},
         )
         reason = validate_setup(setup)
+        if reason == SETUP_OK:
+            # صلاحية الفكرة نفسها — لا حارس لاحق: إبطالٌ داخل السبريد
+            # ليس رأيًا في السوق بل ضجيج، ونسبةٌ دون الحدّ رهانٌ خاسر
+            # بالبناء. المالك يصمت بدل أن يقترح ما لا يُطاق.
+            spread = abs(float(tick.get("ask") or 0.0) - float(tick.get("bid") or 0.0))
+            risk = abs(float(entry) - float(sweep_edge))
+            if spread > 0 and risk < spread * MIN_RISK_SPREADS:
+                reason = "RISK_INSIDE_SPREAD"
+            elif setup_ratio(setup) < MIN_SETUP_RATIO:
+                reason = "RATIO_BELOW_MIN"
         if reason != SETUP_OK:
             # الرفض يُعلن ولا يُبتلع (§٢٦): النظام يقول لماذا لم يتداول.
             self._rejected += 1

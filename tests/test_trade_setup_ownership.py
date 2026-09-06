@@ -157,6 +157,36 @@ def test_577_respects_the_owned_invalidation() -> None:
     assert "_on_setup" in source, "577 بلا مستقبِل للإعداد"
 
 
+def test_owners_refuse_ideas_they_cannot_afford() -> None:
+    """المالك يصمت بدل أن يقترح فكرة داخل تكلفة العبور.
+
+    مقيس حيًّا بعد أن صار 410 مالكًا: من اثنين وأربعين إعدادًا في أربع
+    دقائق جاءت أفكارٌ إبطالها 0.86 و2.24 والسبريد 5.00 — أي تموت داخل
+    التكلفة — وأخرى نسبتها 0.09. الشرطان خاصّيتان للفكرة عند صاحبها،
+    لا حارسًا لاحقًا يقصّها (حكم المالك: «لازم من أساس ما يغلط»).
+    """
+    root = Path(__file__).resolve().parents[1]
+    for rel in ("atoms/قسم 401-450/410_استراتيجية_السيولة/atom.py",
+                "atoms/قسم 401-450/406_استراتيجية_الاختراق/atom.py"):
+        source = (root / rel).read_text(encoding="utf-8")
+        assert "RISK_INSIDE_SPREAD" in source, f"{rel}: يقترح إبطالًا داخل السبريد"
+        assert "RATIO_BELOW_MIN" in source, f"{rel}: يقترح نسبةً دون الحدّ"
+        assert "setup_ratio" in source, f"{rel}: لا يقيس نسبة فكرته"
+
+
+def test_406_is_the_second_owner() -> None:
+    """§١٢: 406 لا يكتفي بـ«bearish_breakout» بل يقول أين يموت وإلى أين."""
+    root = Path(__file__).resolve().parents[1]
+    atom = (root / "atoms/قسم 401-450/406_استراتيجية_الاختراق/atom.py").read_text(
+        encoding="utf-8")
+    manifest = (root / "atoms/قسم 401-450/406_استراتيجية_الاختراق/manifest.yaml").read_text(
+        encoding="utf-8")
+    assert "SETUP_BREAKOUT" in atom and "build_setup" in atom
+    assert "406:range_edge" in atom, "الإبطال ليس حدّ المدى"
+    assert "406:measured_move" in atom, "الهدف ليس حركة مقيسة"
+    assert "strategy.setup.proposed" in manifest
+
+
 def test_410_owns_a_real_setup_contract() -> None:
     """§١٣: 410 هو أوّل مالك — يعلن الإعداد ويصفه في مانيفستِه."""
     root = Path(__file__).resolve().parents[1]

@@ -4,8 +4,14 @@ from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
+from shared.trade_setup import (EVENT_SETUP, SETUP_BREAKOUT, build_setup,
+                                setup_ratio, validate_setup, OK as SETUP_OK)
 
-ATOM_VERSION = "2.0.0"
+ATOM_VERSION = "2.1.0"
+# صلاحية الفكرة — كما في 410: إبطالٌ داخل السبريد ضجيج، ونسبةٌ دون
+# الحدّ رهانٌ خاسر بالبناء. المالك يصمت بدل أن يقترح ما لا يُطاق.
+MIN_RISK_SPREADS = 1.0
+MIN_SETUP_RATIO = 1.5
 EVENT_TICK = VALIDATED_TICK_EVENT
 EVENT_OUT = "strategy.breakout.state"
 STRATEGY_ID = "breakout_acceptance"
@@ -22,6 +28,7 @@ class Atom(AtomBase):
         self._rt = StrategyRuntime(STRATEGY_ID)
         self._window = 32
         self._seen = self._emitted = 0
+        self._setups = self._rejected = 0
 
     async def initialize(self, c):
         self._context = c
@@ -88,6 +95,68 @@ class Atom(AtomBase):
             )
         await self._context.publish(EVENT_OUT, card)
         self._emitted += 1
+        await self._propose_setup(tick, card)
+
+    async def _propose_setup(self, tick: dict[str, Any], card: dict[str, Any]) -> None:
+        """ينشر إعداد اختراق مملوكًا — المالك الثاني بعد 410.
+
+        ورقة التنفيذ ٢٠٢٦-٠٩-٠٦ (§١٢): لا يكفي أن يقول 406
+        «bearish_breakout»؛ عليه أن يقول أين تموت فكرته وإلى أين تقصد.
+        وكلاهما من بنيته هو: الاختراق يُبطله **العودة داخل المدى**،
+        وهدفه حركة مقيسة بعرض المدى نفسه مسقطة من نقطة الكسر.
+        """
+        meta = card.get("metadata") or {}
+        high, low = meta.get("range_high"), meta.get("range_low")
+        direction = card.get("direction") or 0.0
+        entry = card.get("price") or tick.get("price")
+        if not direction or high is None or low is None or not entry:
+            return
+        buy = direction > 0
+        width = float(high) - float(low)
+        break_level = float(high) if buy else float(low)
+        setup = build_setup(
+            owner="406",
+            setup_type=SETUP_BREAKOUT,
+            side="buy" if buy else "sell",
+            entry_reference=entry,
+            invalidation_price=break_level,
+            invalidation_source="406:range_edge",
+            invalidation_reason=("عودة السعر داخل المدى تُبطل قبول الاختراق"),
+            target_price=(break_level + width) if buy else (break_level - width),
+            target_source="406:measured_move",
+            target_reason="حركة مقيسة بعرض المدى مسقطة من نقطة الكسر",
+            account_id=tick.get("account_id") or "",
+            broker=tick.get("broker") or "",
+            symbol=tick.get("symbol") or "",
+            cycle_id=tick.get("cycle_id") or "",
+            period_start=tick.get("period_start"),
+            structure_id="range:%s:%s" % (round(float(low), 8), round(float(high), 8)),
+            strength=card.get("strength") or 0.0,
+            confidence=card.get("confidence") or 0.0,
+            evidence={"range_high": high, "range_low": low,
+                      "distance": meta.get("distance"), "signal": card.get("signal")},
+        )
+        reason = validate_setup(setup)
+        if reason == SETUP_OK:
+            spread = abs(float(tick.get("ask") or 0.0) - float(tick.get("bid") or 0.0))
+            if spread > 0 and abs(float(entry) - break_level) < spread * MIN_RISK_SPREADS:
+                reason = "RISK_INSIDE_SPREAD"
+            elif setup_ratio(setup) < MIN_SETUP_RATIO:
+                reason = "RATIO_BELOW_MIN"
+        if reason != SETUP_OK:
+            self._rejected += 1
+            if self._rejected <= 20:
+                self._context.logger.warning(
+                    "406 إعداد مرفوض %s: %s (دخول=%s إبطال=%s هدف=%s)",
+                    setup.get("symbol"), reason, setup.get("entry_reference"),
+                    setup.get("invalidation_price"), setup.get("target_price"))
+            return
+        self._setups += 1
+        self._context.logger.warning(
+            "406 إعداد %s %s: دخول=%.2f إبطال=%.2f هدف=%.2f setup_id=%s",
+            setup["symbol"], setup["side"], setup["entry_reference"],
+            setup["invalidation_price"], setup["target_price"], setup["setup_id"])
+        await self._context.publish(EVENT_SETUP, setup)
 
     async def snapshot(self):
         return {
