@@ -163,10 +163,16 @@ async def publish_live_decision(atom: Any, scope: tuple[str, str, str]) -> None:
             section_states[section_id] = state
     agg_states = [section_states[sid] for sid in STATE_AGG_SECTIONS if sid in section_states]
     state_missing_sections = [sid for sid in STATE_AGG_SECTIONS if sid not in section_states]
+    # ٢٠٢٦-٠٩-٠٦ (كشفه تدقيق طرف ثالث عبر اختبار عقد ساقط): سطر التشخيص
+    # هذا كان ينادي `atom._context.logger` بلا حارس، فيرفع AttributeError
+    # على أيّ سياق بلا مسجِّل — وأسقط
+    # `test_decision_consumer_accepts_only_ready_live_analysis`. سطرُ
+    # تشخيصٍ لا يجوز أن يُسقط مجمّع القرار مهما كان السياق.
     _n = getattr(atom, "_agg_trace_n", 0) + 1
     atom._agg_trace_n = _n
-    if _n <= 10:
-        atom._context.logger.warning(
+    _log = getattr(getattr(atom, "_context", None), "logger", None)
+    if _n <= 10 and _log is not None:
+        _log.warning(
             "451 agg sections=%s | needed=%s | missing=%s | room=%s",
             section_states, list(STATE_AGG_SECTIONS), state_missing_sections,
             {k: v.get("state") for k, v in atom._room.get(scope, {}).items()})

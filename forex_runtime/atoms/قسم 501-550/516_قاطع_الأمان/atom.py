@@ -284,6 +284,15 @@ class Atom(AtomBase):
         self._processed_result_ids.add(event_id)
         if loss is None:self._incomplete_ignored+=1;await self._publish_state(a,"LOSS_UNKNOWN_IGNORED");return
         await self._flush_outbox()
+        # المسار الثاني للكسر (حدّ الخسارة اليومية أو المتتاليات) يمرّ
+        # بالمخفِّض لا بـ_trip، فيُنطق هنا بالمقارنة قبل/بعد.
+        if not initial.get("kill") and self.book(a).get("kill"):
+            bk=self.book(a)
+            self._context.logger.error(
+                "516 KILL SWITCH حساب=%s سبب=%s خسارة_يومية=%.4f%% متتاليات=%s "
+                "صفقات_اليوم=%s — التداول متوقّف حتى إعادة تعيين صريحة",
+                a,bk.get("reason"),bk.get("daily_loss_pct",0.0),
+                bk.get("consecutive_losses"),bk.get("daily_trade_count"))
         await self._changed(a,"COMPLETE_TRADE_RESULT" if completeness=="COMPLETE" else "TRADE_RESULT_COSTS_INCOMPLETE",before)
     async def _trip(self,a,reason,origin="516"):
         if not a or self._context is None:return
@@ -294,6 +303,14 @@ class Atom(AtomBase):
             b["kill"]=True
             b["reason"]=reason
             await self._persist_financial_state(a,"administrative-halt:"+reason)
+        # ٢٠٢٦-٠٩-٠٦ (مقيس — ثلاث ساعات صمت): كسر المفتاح كان بلا سطر
+        # واحد في السجلّ. توقّف التداول كلّه بلا سبب معلن، ولا يُفكّ
+        # المزلاج إلا بإعادة تعيين صريحة — فيُقاس السبب بالحفر في
+        # اللقطات بدل أن يُقرأ. الحارس يتكلّم الآن حين يقطع.
+        self._context.logger.error(
+            "516 KILL SWITCH حساب=%s سبب=%s مصدر=%s خسارة_يومية=%.4f%% "
+            "متتاليات=%s — التداول متوقّف حتى إعادة تعيين صريحة",
+            a,reason,origin,b["daily_loss_pct"],b["consecutive_losses"])
         await self._context.publish(EVENT_HALT,{"account_id":a,"broker":b.get("broker"),"reason":reason,"origin":origin,"daily_loss_pct":round(b["daily_loss_pct"],4),"consecutive_losses":b["consecutive_losses"]})
         await self._changed(a,"HARD_STOP",before)
     async def _on_halt_request(self,p):
@@ -317,14 +334,57 @@ class Atom(AtomBase):
         # button -- unlocks every book currently killed.
         targets=[a] if a else [x for x in list(self._books) if self.book(x).get("kill")]
         if not targets:return
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «لازم يصير أوتوماتيك»): إفراجٌ موسوم
+        # بمصدر رقميّ (ذرّة) وسبب = إعادة تسليح آليّة، لا زرّ مالك. يُفكّ
+        # المفتاح **فقط** إن كان السبب الممسوك هو هذا السبب بعينه —
+        # فخرق عدّ الجلسة يزول ذاتيًّا عند تبدّل الجلسة، بينما يبقى
+        # مفتاحٌ رُفع لخسارة يومية أو متتاليات مكسورًا حتى يد المالك.
+        # ولا تُمسح المتتاليات في الإفراج الآليّ: عدّاد خطر حقيقيّ لا
+        # علاقة له بالخرق الزائل. الإفراج بلا مصدر رقميّ = زرّ المالك
+        # العامّ، ويبقى غير مشروط كما كان.
+        # ٢٠٢٦-٠٩-٠٦ (عطب مقيس ٥:٤٦:٥٨): كان التمييز «مصدر رقميّ ⇒ آليّ»،
+        # وأمر المالك يمرّ من البوّابة 901 — رقم أيضًا — ويحمل
+        # reason=OWNER_COMMAND، فرُفض زرّه أمام مفتاح رُفع لسبب آخر.
+        # حارس بلا مفتاح، وهو ما نهى عنه المالك نصًّا. العلامة صريحة:
+        # `auto_rearm` يضعها من يسحب خرقه وحده؛ وما لا يحملها فهو يد
+        # المالك — غير مشروطة أبدًا.
+        scoped=text(p.get("reason")) if p.get("auto_rearm") is True else ""
         for account in targets:
+            held=self.book(account).get("reason") or ""
+            if scoped and held!=scoped:
+                # مفتاح غير مرفوع أصلًا: سحبٌ لا يخصّ أحدًا، لا إنذار فيه.
+                # (يقع طبيعيًّا حين يسحب حارس أسبابه الثلاثة معًا وقد فُكّ
+                # المفتاح بأوّلها.) الإنذار للحالة الحقيقية وحدها: مفتاح
+                # مرفوع لسبب، وإفراج وارد بسبب آخر.
+                if self.book(account).get("kill"):
+                    self._context.logger.warning(
+                        "516 إفراج آليّ مرفوض حساب=%s وارد=%s ممسوك=%r — "
+                        "المفتاح مرفوع لسبب آخر",account,scoped,held)
+                continue
             async with self._lock(account):
                 before=copy.deepcopy(self.book(account))
                 b=self.book(account)
-                b.update({"kill":False,"reason":"","consecutive_losses":0})
-                await self._persist_financial_state(account,"owner-release:"+str(p.get("request_id") or self._official_time or ""))
-            await self._changed(account,"EXPLICIT_OWNER_RELEASE",before)
-            if self._context is not None:await self._context.publish(EVENT_RESET,{"account_id":account,"broker":b.get("broker"),"reason":"OWNER_RELEASE","origin":"516"})
+                b.update({"kill":False,"reason":""})
+                # ٢٠٢٦-٠٩-٠٦ (مقيس — زرّ المالك دام صفقة واحدة):
+                #   15:49:33 فُكّ المفتاح — زرّ المالك
+                #   16:07:57 صفقة واحدة (رابحة +35.87$)
+                #   16:12:13 KILL SWITCH — RISK_DAILY_LIMIT 5.0690%
+                # التصفير كان يمسح المفتاح ولا يمسح **العدّاد** الذي
+                # رفعه، والعدّاد ما زال فوق السقف — فأوّل نتيجة صفقة
+                # تُعيد رفعه فورًا. زرٌّ يدوم صفقة واحدة ليس زرًّا.
+                # الشيفرة كانت تصفّر المتتاليات عند أمر المالك بالمنطق
+                # نفسه؛ العدّاد اليوميّ نُسي وحده. أمر المالك يعني:
+                # «قبلتُ خسارة اليوم، أكمل» — فيُصفَّر ما رفع المفتاح.
+                # والإفراج الآليّ لا يمسّ عدّادًا البتّة.
+                if not scoped:
+                    b["consecutive_losses"]=0
+                    b["daily_loss_pct"]=0.0
+                await self._persist_financial_state(account,("auto-rearm:"+scoped) if scoped else ("owner-release:"+str(p.get("request_id") or self._official_time or "")))
+            self._context.logger.warning(
+                "516 فُكّ المفتاح حساب=%s نوع=%s سبب=%s — التداول مستأنف",
+                account,"آليّ" if scoped else "زرّ المالك",scoped or held or "-")
+            await self._changed(account,"AUTO_REARM" if scoped else "EXPLICIT_OWNER_RELEASE",before)
+            if self._context is not None:await self._context.publish(EVENT_RESET,{"account_id":account,"broker":b.get("broker"),"reason":("AUTO_REARM:"+scoped) if scoped else "OWNER_RELEASE","origin":"516"})
     async def _on_positions(self,p):
         if not self._running or not isinstance(p,dict):return
         rows=p.get("positions")

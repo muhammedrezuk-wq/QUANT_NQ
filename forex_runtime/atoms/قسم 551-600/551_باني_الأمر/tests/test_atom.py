@@ -25,6 +25,41 @@ EVENT_SKIPPED = _mod.EVENT_SKIPPED
 CFG = {"reward_risk": 2.0, "magic": 20260801}
 
 
+async def test_realised_loss_never_passes_the_cap():
+    """حكم المالك ٢٠٢٦-٠٩-٠٦: «ما يتجاوز 100 أبدًا».
+
+    القاعدة تصير حارسًا لا وعدًا: عند **أقصى** زيادة مقيسة على المسافة
+    المخطَّطة (27.88 ⇒ 0.00035 من السعر) تبقى الخسارة تحت السقف الصلب.
+    سقط هذا مرّتين حيًّا قبل الحارس: 125.07$ و108.42$.
+    """
+    print("\n--- الخسارة الواقعة لا تتجاوز السقف ---")
+    price = 80000.0
+    cap = 100.0
+    tail = price * _mod.TAIL_SLIPPAGE_FRAC
+    allowance = price * _mod.EXCESS_ALLOWANCE_FRAC
+    for distance in (20.0, 25.0, 30.0, 40.0, 60.0):
+        size = {"risk_amount": cap * _mod.UTILISATION_CEILING,
+                "max_trade_loss": cap * _mod.UTILISATION_CEILING,
+                "hard_trade_loss_cap": cap,
+                "tick_value": 0.01, "tick_size": 0.01,
+                "volume_step": 0.01, "volume_min": 0.01, "volume_max": 10.0,
+                "spread": 0.0, "slippage_reserve": 0.0,
+                "execution_allowance": allowance, "tail_slippage": tail}
+        lot = _mod.Atom._lot_for_stop(size, distance)
+        assert lot is not None, distance
+        worst = lot * (distance + allowance + tail)
+        usual = lot * (distance + allowance)
+        assert worst <= cap + 1e-9, f"مسافة {distance}: أسوأ {worst:.2f} فوق السقف"
+        print(f"  وقف={distance:5.1f}  لوت={lot:5.2f}  معتادة={usual:6.2f}$  أسوأ={worst:6.2f}$ ✓")
+    # وبلا بدل ذيل معلن، الحارس لا يخترع رقمًا ولا يقصّ.
+    size = {"risk_amount": 80.0, "max_trade_loss": 80.0, "hard_trade_loss_cap": 100.0,
+            "tick_value": 0.01, "tick_size": 0.01, "volume_step": 0.01,
+            "volume_min": 0.01, "volume_max": 10.0, "spread": 0.0,
+            "slippage_reserve": 0.0, "execution_allowance": 0.0}
+    assert _mod.Atom._lot_for_stop(size, 40.0) == 2.0, "الحارس تدخّل بلا بدل مقيس"
+    print("  بلا بدل ذيل: لا تقليص ✓")
+
+
 class _NullLogger:
     def debug(self, *a): pass
     def info(self, *a): pass
@@ -327,7 +362,8 @@ async def test_direct_path_unguarded_stop_is_caught_by_584_downstream():
 
 
 async def main():
-    tests = [test_build_buy, test_build_sell, test_skip_not_approved,
+    tests = [test_realised_loss_never_passes_the_cap,
+             test_build_buy, test_build_sell, test_skip_not_approved,
              test_skip_no_size, test_skip_bad_stop_side, test_health,
              test_skip_bad_symbol_or_side, test_skip_invalid_risk_distance,
              test_skip_reasons_breakdown_in_health,

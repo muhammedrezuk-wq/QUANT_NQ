@@ -87,6 +87,7 @@ _RISK_TOLERANCE = 1.02
 
 _PRICE_DP = 6
 _VOLUME_DP = 2
+_VOLUME_EPSILON = 1e-12   # هامش عائم عند مقارنة الحجم بحدّ الوسيط الأدنى
 
 _DIRECT_FIELDS = (
     "request_id", "account_id", "action", "symbol", "side", "volume",
@@ -223,20 +224,15 @@ class Atom(AtomBase):
         # الحارس يضبط **الحدّ** وحده: يقيس الخسارة عند **أقصى** زيادة
         # مقيسة (27.88 ⇒ 28.00 على 80,000) ويقصّ اللوت إن تجاوزت السقف
         # الصلب. فلا يمسّ الحالة العادية، ويمنع الذيل من كسر المئة.
-        hard_cap = size.get("hard_trade_loss_cap")
-        tail = size.get("tail_slippage") or 0.0
-        if hard_cap and tail > 0.0 and stepped > 0.0:
-            worst = (effective + tail) * tick_value / tick_size \
-                + (size.get("commission_per_lot") or 0.0)
-            if worst > 0.0 and stepped * worst > hard_cap:
-                stepped = math.floor((hard_cap / worst) / step) * step
-        v_min = size.get("volume_min") or 0.0
-        v_max = size.get("volume_max")
-        if stepped + 1e-12 < v_min:
+        hard_cap = size.get("hard_trade_loss_cap") or 0.0
+        worst = (effective + (size.get("tail_slippage") or 0.0)) * tick_value / tick_size \
+            + (size.get("commission_per_lot") or 0.0)
+        if hard_cap > 0.0 and stepped * worst > hard_cap:
+            stepped = math.floor((hard_cap / worst) / step) * step
+        if stepped + _VOLUME_EPSILON < (size.get("volume_min") or 0.0):
             return None
-        if v_max:
-            stepped = min(stepped, v_max)
-        return round(stepped, _VOLUME_DP)
+        v_max = size.get("volume_max")
+        return round(min(stepped, v_max) if v_max else stepped, _VOLUME_DP)
 
     async def _on_size_rejected(self, payload: dict[str, Any]) -> None:
         """T2: remember 513's real sizing-rejection reason per scope, so a
@@ -326,26 +322,21 @@ class Atom(AtomBase):
         # السقف، وجودة الإشارة تحرّك الموضع داخله لا خارجه. فأضعف إعداد
         # يخاطر بثمانين، وأقواه بخمسة وتسعين، والمئة لا تُبلَغ أبدًا.
         cap = size.get("max_trade_loss") or size.get("risk_amount")
-        # السقف الصلب قبل أي حصّة — الحارس أدناه يقيس عليه لا على الحصّة.
         if cap:
+            # السقف الصلب يُحفظ قبل أي حصّة — الحارس يقيس عليه لا عليها.
             size["hard_trade_loss_cap"] = float(cap)
-        if cap:
             share = 1.0
-            exposure = _to_float(payload.get("exposure_fraction"))
-            if exposure is not None and 0.0 < exposure <= 1.0:
-                share *= exposure
-            step_fraction = _to_float(payload.get("step_fraction"))
-            if step_fraction is not None and 0.0 < step_fraction <= 1.0:
-                share *= step_fraction
-            share = max(0.0, min(1.0, share))
-            util = UTILISATION_FLOOR + share * (UTILISATION_CEILING - UTILISATION_FLOOR)
-            size["risk_amount"] = cap * util
-            size["max_trade_loss"] = cap * util
+            for key in ("exposure_fraction", "step_fraction"):
+                value = _to_float(payload.get(key))
+                if value is not None and 0.0 < value <= 1.0:
+                    share *= value
+            util = UTILISATION_FLOOR + max(0.0, min(1.0, share)) * (
+                UTILISATION_CEILING - UTILISATION_FLOOR)
+            size["risk_amount"] = size["max_trade_loss"] = cap * util
         if payload.get("costs_in_stop") is True:
             # التكاليف مُضمَّنة في مسافة الوقف المرسل (581 أزاحه للخارج
             # كي يبقى للتحليل مداه). إضافتها هنا ثانيةً تحسبها مرّتين.
-            size["spread"] = 0.0
-            size["slippage_reserve"] = 0.0
+            size["spread"] = size["slippage_reserve"] = 0.0
         # بدل التنفيذ يبقى خارج هذا الاستثناء: `costs_in_stop` يعني أن
         # التكاليف داخل **مكان** الوقف، لا أن التنفيذ لن ينزلق عنه.
         req_spread = _to_float(payload.get("spread")) or 0.0
@@ -353,12 +344,11 @@ class Atom(AtomBase):
         if ref_price > 0.0:
             size["execution_allowance"] = ref_price * EXCESS_ALLOWANCE_FRAC
             size["tail_slippage"] = ref_price * TAIL_SLIPPAGE_FRAC
-        if payload.get("costs_in_stop") is not True:
-            if req_spread > 0.0:
-                size["spread"] = req_spread
-                req_slip = _to_float(payload.get("slippage_reserve"))
-                if req_slip is not None:
-                    size["slippage_reserve"] = req_slip
+        if payload.get("costs_in_stop") is not True and req_spread > 0.0:
+            size["spread"] = req_spread
+            req_slip = _to_float(payload.get("slippage_reserve"))
+            if req_slip is not None:
+                size["slippage_reserve"] = req_slip
         sized = self._lot_for_stop(size, distance)
         if sized is None:
             self._context.logger.warning(

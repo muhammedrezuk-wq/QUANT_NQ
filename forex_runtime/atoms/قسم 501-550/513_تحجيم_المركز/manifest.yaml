@@ -50,6 +50,9 @@ config_schema:
     specs_max_age_s:
       type: number
       minimum: 1
+    risk_base_equity:
+      type: number
+      minimum: 0
   required:
     - risk_per_trade_pct
     - default_stop_pct
@@ -61,6 +64,11 @@ config_schema:
 
 config:
   risk_per_trade_pct: 1.0
+  # ٢٠٢٦-٠٩-٠٦ (حكم المالك): «١٪ مو من حساب أساسي — خلّيها يعني 10000.
+  # لو ربح أو خسر، هيك ١٪ = 100 دايمًا». قاعدة ثابتة لا تتبع الرصيد:
+  # ميزانية تكبر مع الربح تكبّر الخسارة، وتصغر مع الخسارة فتُبطئ التعافي.
+  # صفر = ارجع إلى حقوق الملكية الحيّة (السلوك القديم).
+  risk_base_equity: 10000.0
   default_stop_pct: 0.5
   min_lot: 0.01
   max_lot: 20.0

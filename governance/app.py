@@ -39,7 +39,18 @@ _FOREX_RUNTIME = ROOT / "forex_runtime"
 if _FOREX_RUNTIME.is_dir():
     os.environ.setdefault("QUANT_RUNTIME_ROOT", str(_FOREX_RUNTIME))
     os.environ.setdefault("QUANT_CORE_STATE_ROOT", str(_FOREX_RUNTIME / "var"))
-    os.environ.setdefault("QUANT_ATOMS_ROOT", str(_FOREX_RUNTIME / "atoms"))
+    # ٢٠٢٦-٠٩-٠٦ (مقيس — تدقيق طرف ثالث قال «نسخة ميتة لا تُحمَّل»، والقياس
+    # يقول العكس): `scripts/run_forex.py` حُدِّث إلى جذر واحد للذرّات بحكم
+    # المالك «لازم يكون في نسخة وحدة بس»، وهذا الملفّ — وهو ما يناديه
+    # `غرفة القيادة.bat` — بقي يشير إلى نسخة الرَنتايم. فالمُطلِقان يحمّلان
+    # شجرتين مختلفتين، والفارق مقيس على أربع ذرّات مخاطر وتنفيذ:
+    #   506: بلا سحب الخرق ولا إعادة الوزن  (المزلاج يبقى أبديًّا)
+    #   513: بلا `risk_base_equity`          (السقف يتبع الرصيد لا 10,000)
+    #   516: بلا `auto_rearm` ولا تصفير العدّاد (زرّ المالك معطّل)
+    #   551: بلا مدى 80–95 ولا بدل الانزلاق ولا حارس المئة
+    # أي أن الإقلاع من غرفة القيادة كان يُلغي إصلاحات اليوم كلّها بصمت.
+    # المصدر واحد الآن في المُطلِقَين معًا.
+    os.environ.setdefault("QUANT_ATOMS_ROOT", str(ROOT / "atoms"))
     os.environ.setdefault("QUANT_CORE_CONFIG", str(ROOT / "config" / "core_forex.yaml"))
     os.environ.setdefault("QUANT_CORE_DOMAIN", "forex")
     os.environ.setdefault("QUANT_ANALYSIS_SETTINGS_DB",

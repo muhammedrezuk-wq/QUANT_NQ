@@ -26,4 +26,13 @@ api:
 secrets:
   enabled: true
   allow_prompt: false
-  dpapi_blob: runtime/crypto.key
+  # ٢٠٢٦-٠٩-٠٤ (ختم NQ · قرار المالك «أ»: الكريبتو يشارك خزنة الفوركس):
+  # كان المسار `runtime/crypto.key` — خطآن معًا. الاسم أوّلًا: الملفّ الموجود
+  # على القرص هو `runtime/device.key`، و`crypto.key` لا وجود له إطلاقًا.
+  # والمسار ثانيًا: `run_crypto.py` يعمل chdir إلى `crypto_runtime/`، فقيمةٌ
+  # بلا `../` تُحلّ إلى `crypto_runtime/runtime/…` — داخل الـruntime لا بجانبه.
+  # فبقيت خزنة الكريبتو LOCKED دائمًا (و`allow_prompt: false` يقطع الاسترجاع).
+  # قارن `core_forex.yaml`: كُتب بـ`../` لأنّه يفترض الـchdir نفسه — وهذا الملفّ
+  # لم يُكتب كذلك. مقيس ٢٠٢٦-٠٩-٠٤.
+  vault_path: ../runtime/secrets.enc
+  dpapi_blob: ../runtime/device.key
