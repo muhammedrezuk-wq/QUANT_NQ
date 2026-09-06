@@ -69,6 +69,44 @@ def _modifies(bus):
     return [p for n, p in bus.published if n == EVENT_MANAGE]
 
 
+async def test_trail_lets_the_winner_run():
+    """حكم المالك ٢٠٢٦-٠٩-٠٦: «آخر صفقة لازم تربح ٢٠٠ لا ٣٠٠، ربحانة ٣٥».
+
+    المقيس الذي أثبت شكواه: الثماني الأخيرة أهدافها 78→142 نقطة (223$
+    إلى 303$) ولا واحدة بلغت هدفها. والسبب رقمان في الزحف: بلا شرط ربح
+    أدنى شُدّ الوقف إلى 1.47 نقطة من الدخول والسعر بعيد 9 فقط
+    (1911362798 ⇒ −0.53$ بدل +303.08$)، ومجال التنفّس كان 7.71 أي
+    بمقدار الضجيج المقيس نفسه (مئين ٨٠ = 7.54).
+    """
+    print("\n--- الزحف يترك الرابح يكمل ---")
+    entry, stop = 80000.0, 79970.0           # شراء بمخاطرة ثلاثين نقطة
+    original = entry - stop                  # 30.0
+    atom, bus = await _new()
+    atom._structure["XAUUSD"] = {"low": 79995.0, "high": 80100.0}
+    pos = {"account_id": "A1", "symbol": "XAUUSD", "ticket": 7, "side": "BUY",
+           "entry_price": entry, "current_price": entry + 9.0, "stop_loss": stop}
+
+    # ربح ٩ نقاط على مخاطرة ٣٠ = 0.3R — دون العتبة، فلا يُمسّ الوقف.
+    await atom._trail_structure(pos)
+    assert not _modifies(bus), "زُحف الوقف قبل بلوغ الربح مخاطرته"
+
+    # عند 1R بالضبط تُفتح البوّابة، لكن المرساة تحتاج مجال تنفّس كاملًا.
+    pos["current_price"] = entry + original * _mod.TRAIL_MIN_PROFIT_R
+    atom._structure["XAUUSD"] = {"low": entry + 5.0, "high": 80100.0}
+    await atom._trail_structure(pos)
+    assert not _modifies(bus), "زحف إلى مرساة داخل مجال التنفّس"
+
+    # مرساة أبعد من مجال التنفّس (0.9 × 30 = 27) ⇒ تُقبل.
+    pos["current_price"] = entry + 60.0
+    atom._structure["XAUUSD"] = {"low": entry + 20.0, "high": 80200.0}
+    await atom._trail_structure(pos)
+    sent = _modifies(bus)
+    assert len(sent) == 1, sent
+    assert sent[0]["stop_loss"] == entry + 20.0, sent[0]
+    print(f"  0.3R: لا زحف ✓ · 1R بمرساة لاصقة: لا زحف ✓ · "
+          f"2R بمرساة على بعد 40: زحف إلى {sent[0]['stop_loss']} ✓")
+
+
 async def test_maintain_sets_sl_on_net_side():
     print("\n--- test_maintain_sets_sl_on_net_side ---")
     atom, bus = await _new()
@@ -148,7 +186,7 @@ async def test_health():
 
 
 async def main():
-    tests = [test_maintain_sets_sl_on_net_side, test_dedup_then_change, test_net_short,
+    tests = [test_trail_lets_the_winner_run, test_maintain_sets_sl_on_net_side, test_dedup_then_change, test_net_short,
              test_no_maintain_no_send, test_ticket_cleanup, test_flat_no_send, test_health]
     failed = []
     for t in tests:
