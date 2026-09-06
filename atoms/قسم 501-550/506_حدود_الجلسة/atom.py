@@ -298,7 +298,13 @@ class Atom(AtomBase):
             account_id, reason, self._session)
         await self._context.publish(EVENT_RELEASE_REQUEST, {
             "account_id": account_id, "broker": book.get("broker", ""),
-            "reason": reason, "origin": ORIGIN, "session": self._session})
+            "reason": reason, "origin": ORIGIN, "session": self._session,
+            # ٢٠٢٦-٠٩-٠٦ (عطب مقيس): كان 516 يميّز الإفراج الآليّ بكون
+            # المصدر رقمًا — وأمر المالك يمرّ من البوّابة 901 وهي رقم
+            # أيضًا، فرُفض زرّه: «516 إفراج آليّ مرفوض وارد=OWNER_COMMAND
+            # ممسوك=RISK_DAILY_LIMIT». العلامة صريحة الآن، ومن لا يحملها
+            # فهو يد المالك ولا يُشترط عليه شيء.
+            "auto_rearm": True})
 
     async def _on_day(self, payload: dict[str, Any]) -> None:
         if not self._running or not self._day_guard.accept(payload):

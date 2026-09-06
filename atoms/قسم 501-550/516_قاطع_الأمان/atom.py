@@ -342,7 +342,13 @@ class Atom(AtomBase):
         # ولا تُمسح المتتاليات في الإفراج الآليّ: عدّاد خطر حقيقيّ لا
         # علاقة له بالخرق الزائل. الإفراج بلا مصدر رقميّ = زرّ المالك
         # العامّ، ويبقى غير مشروط كما كان.
-        scoped=text(p.get("reason")) if str(text(p.get("origin")) or "").isdigit() else ""
+        # ٢٠٢٦-٠٩-٠٦ (عطب مقيس ٥:٤٦:٥٨): كان التمييز «مصدر رقميّ ⇒ آليّ»،
+        # وأمر المالك يمرّ من البوّابة 901 — رقم أيضًا — ويحمل
+        # reason=OWNER_COMMAND، فرُفض زرّه أمام مفتاح رُفع لسبب آخر.
+        # حارس بلا مفتاح، وهو ما نهى عنه المالك نصًّا. العلامة صريحة:
+        # `auto_rearm` يضعها من يسحب خرقه وحده؛ وما لا يحملها فهو يد
+        # المالك — غير مشروطة أبدًا.
+        scoped=text(p.get("reason")) if p.get("auto_rearm") is True else ""
         for account in targets:
             held=self.book(account).get("reason") or ""
             if scoped and held!=scoped:

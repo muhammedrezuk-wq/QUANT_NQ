@@ -92,15 +92,27 @@ async def test_9_auto_rearm_only_clears_its_own_reason(tmp_path):
     assert atom.book("A")["reason"] == "RISK_DAILY_LIMIT", atom.book("A")
 
     # إفراج آليّ من 506 بسبب مختلف — يجب ألّا يفكّ شيئًا.
-    await atom._on_reset({"account_id": "A", "origin": "506",
+    await atom._on_reset({"account_id": "A", "origin": "506", "auto_rearm": True,
                           "reason": "MAX_SESSION_TRADES"})
     assert atom.book("A")["kill"] is True, "إفراج عدّ فكّ مفتاح خسارة"
     assert atom.book("A")["reason"] == "RISK_DAILY_LIMIT", atom.book("A")
 
+    # ٢٠٢٦-٠٩-٠٦ (عطب مقيس): أمر المالك يمرّ من البوّابة 901 — مصدر رقميّ
+    # وreason=OWNER_COMMAND — وكان يُرفض لأن التمييز كان بالمصدر لا بعلامة.
+    # زرّ المالك لا يُشترط عليه شيء مهما كان السبب الممسوك.
+    await atom._on_reset({"account_id": "A", "origin": "901",
+                          "reason": "OWNER_COMMAND", "command_id": 71})
+    assert atom.book("A")["kill"] is False, "رُفض زرّ المالك — حارس بلا مفتاح"
+
+    # ويُعاد رفعه لاختبار المسار الآليّ المطابق.
+    await atom._on_loss({"event_id": "loss:big1b", "account_id": "A", "loss_pct": 99.0,
+                         "completeness": "COMPLETE", "is_loss": True})
+    assert atom.book("A")["kill"] is True and atom.book("A")["reason"] == "RISK_DAILY_LIMIT"
+
     # إفراج آليّ بالسبب نفسه — يفكّ، ولا يمسح عدّاد المتتاليات.
     streak = atom.book("A")["consecutive_losses"]
     assert streak > 0, streak
-    await atom._on_reset({"account_id": "A", "origin": "516",
+    await atom._on_reset({"account_id": "A", "origin": "516", "auto_rearm": True,
                           "reason": "RISK_DAILY_LIMIT"})
     assert atom.book("A")["kill"] is False, atom.book("A")
     assert atom.book("A")["consecutive_losses"] == streak, \
