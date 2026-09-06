@@ -152,6 +152,7 @@ class Atom(AtomBase):
         # إعداد الصفقة لكل رمز — مملوك لمن أنشأه، و581 حافظٌ لا مؤلّف.
         self._setups = {}
         self._setup_seen = self._setup_rejected = 0
+        self._setup_fired = self._setup_no_ledger = 0
         self._trend = {}
         self._sweep = {}
         self._decisions = {}
@@ -446,7 +447,21 @@ class Atom(AtomBase):
         # يُسأل الإعداد يكون قد انتهى أجله أو كسره السعر (SETUP_EXPIRED ·
         # SETUP_ALREADY_BROKEN). والإعداد صار **الفاتح**، فمن حقّه أن
         # يُطلق التقييم لحظة ولادته — أنضر ما تكون الفكرة.
-        for key in [x for x in self._ledgers if x.endswith(SEP + symbol)]:
+        keys = [x for x in self._ledgers if x.endswith(SEP + symbol)]
+        # عدّاد بلا كتم: رسائل الرفض تُكتم بالبصمة فلا تُقاس، وهذا يخفي
+        # أين تنتهي التقييمات التي يُطلقها الإعداد. السطر أدناه يُطبع كل
+        # عشر ولادات بلا كتم — فيُعرف: كم فكرة وُلدت؟ وكم وجدت دفترًا؟
+        self._setup_fired += 1
+        if not keys:
+            self._setup_no_ledger += 1
+        if self._setup_seen % 10 == 1:
+            self._context.logger.warning(
+                "581 عدّاد الإعداد: وُلدت=%d بلا دفتر=%d مفاتيح=%d "
+                "دفاتر=%d محفظة=%s",
+                self._setup_fired, self._setup_no_ledger, len(keys),
+                len(self._ledgers),
+                sorted({k.split(SEP)[-1] for k in self._portfolios})[:4])
+        for key in keys:
             await self._recompute(key)
 
     async def _on_analysis_level(self, payload):

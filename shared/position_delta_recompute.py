@@ -324,6 +324,13 @@ async def recompute(atom: Any, scope_key: str) -> None:
                 current_buy, current_sell, "NO_DIRECTION",
             )
         else:
+            # بلا كتم: هذا هو المكان الذي تموت فيه فكرةٌ لها اتجاه لأن
+            # مدخلًا رقميًّا غائب. الكتم بالبصمة كان يُظهره مرّة واحدة
+            # فيبدو نادرًا وهو دائم. الأرقام الأربعة تقول أيّها الغائب.
+            atom._context.logger.warning(
+                "581 فكرة بلا مدخلات %s %s: ميزانية=%r سعر=%r عيار_وقف=%r "
+                "قيمة_نقطة=%r", symbol, direction, budget, price, stop_frac,
+                value_per_unit)
             out.update(
                 status="WAITING", action=BLOCKED,
                 reason="MISSING_R_PRICE_DIAL_OR_SPECS",
