@@ -106,11 +106,26 @@ def test_active_runtime_code_mirrors_match_canonical_sources() -> None:
             assert (ROOT / runtime / relative).read_bytes() == canonical
 
 
-def test_crypto_2275_manual_result_contract_is_mirrored() -> None:
+def test_crypto_2275_manual_result_contract_ships_in_the_single_source() -> None:
+    """٢٠٢٦-٠٩-٠٦ (أمر المالك: «نسخ بدها حذف — تنقل لأرشيف سطح مكتب»).
+
+    كان العقد يشترط تطابق 2275 بين `atoms_crypto` ومرآتها في
+    `crypto_runtime/atoms`. المرآتان نُقلتا إلى أرشيف سطح المكتب بعد أن
+    قِيس تأخّرهما (الجذر ٨٠ ذرّة · المرآة ٧٧، ومنها 2275 الغائبة)، وصار
+    `run_crypto.py` يقرأ من شجرة المصدر الواحدة كالفوركس.
+
+    الغاية تبقى كما هي — أن تُشحن ذرّة نتيجة اليدويّ كاملة الملفات —
+    لكنها تُقاس على المصدر الواحد لا على مرآة تأخّرت عنه.
+    """
     relative = Path("قسم 2251-2300") / "2275_محرك_المخاطر"
     for filename in ("atom.py", "manifest.yaml", "التاريخ.md", "الشرح.md"):
-        assert (ROOT / "atoms_crypto" / relative / filename).read_bytes() == (
-            ROOT / "crypto_runtime/atoms" / relative / filename).read_bytes()
+        path = ROOT / "atoms_crypto" / relative / filename
+        assert path.is_file(), path
+        assert path.read_bytes().strip(), f"{filename} فارغ"
+    # ولا تعود شجرة ذرّات داخل الـruntime: البيانات وحدها تعيش هناك.
+    for dead in ("crypto_runtime/atoms", "crypto_runtime/atoms_crypto",
+                 "forex_runtime/atoms"):
+        assert not (ROOT / dead).exists(), f"عادت شجرة مكرّرة: {dead}"
 
 
 def test_crypto_data_paths_stay_under_crypto_runtime_var() -> None:

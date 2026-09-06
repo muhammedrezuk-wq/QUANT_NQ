@@ -24,11 +24,12 @@ validate_market("crypto")
 
 os.chdir(CRYPTO_RUNTIME)
 os.environ.setdefault("QUANT_CORE_CONFIG", str(ROOT / "config" / "core_crypto.yaml"))
-_crypto_atoms = CRYPTO_RUNTIME / "atoms_crypto"
-if not _crypto_atoms.is_dir():
-    # نسخة الـmirror تحمل الذرّات تحت atoms/ كما في فوركس
-    _crypto_atoms = CRYPTO_RUNTIME / "atoms"
-os.environ.setdefault("QUANT_ATOMS_ROOT", str(_crypto_atoms))
+# ٢٠٢٦-٠٩-٠٦ (أمر المالك: «نسخ بدها حذف — تنقل لأرشيف سطح مكتب»، وبعد
+# تصحيح المسار نفسه في الفوركس): كانت هنا شجرتان احتياطيّتان داخل الـ
+# runtime — `atoms_crypto` ثم `atoms` — وكلتاهما مرآة متأخّرة عن الجذر:
+# الجذر ٨٠ ذرّة والمرآة ٧٧، ومنها 2275 الغائبة. الذرّات تُقرأ من شجرة
+# المصدر الواحدة كالفوركس، والـruntime يبقى للبيانات وحدها.
+os.environ.setdefault("QUANT_ATOMS_ROOT", str(ROOT / "atoms_crypto"))
 os.environ.setdefault("QUANT_RUNTIME_ROOT", str(CRYPTO_RUNTIME))
 os.environ.setdefault("QUANT_CORE_STATE_ROOT", str(CRYPTO_DATA_ROOT))
 os.environ.setdefault("QUANT_CORE_DOMAIN", "crypto")

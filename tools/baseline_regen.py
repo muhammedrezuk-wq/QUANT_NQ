@@ -50,11 +50,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SCOPES = [
     (ROOT, ROOT / "atoms/قسم 001-050/007_سلامة_الملفات/manifest.yaml",
      ROOT / "integrity_baseline.json"),
+    # ٢٠٢٦-٠٩-٠٦ (أمر المالك: «نسخ بدها حذف — تنقل لأرشيف سطح مكتب»):
+    # شجرتا الذرّات المكرّرتان (`forex_runtime/atoms` و`crypto_runtime/atoms`)
+    # نُقلتا إلى أرشيف سطح المكتب. مانيفست حارس السلامة يُقرأ الآن من شجرة
+    # المصدر الواحدة، ويبقى لكل نطاق **خطّ أساسه** لأنه يحرس بياناته هو.
     (ROOT / "forex_runtime",
-     ROOT / "forex_runtime/atoms/قسم 001-050/007_سلامة_الملفات/manifest.yaml",
+     ROOT / "atoms/قسم 001-050/007_سلامة_الملفات/manifest.yaml",
      ROOT / "forex_runtime/integrity_baseline.json"),
     (ROOT / "crypto_runtime",
-     ROOT / "crypto_runtime/atoms/قسم 2001-2050/2007_سلامة_الملفات/manifest.yaml",
+     ROOT / "atoms_crypto/قسم 2001-2050/2007_سلامة_الملفات/manifest.yaml",
      ROOT / "crypto_runtime/integrity_baseline.json"),
 ]
 

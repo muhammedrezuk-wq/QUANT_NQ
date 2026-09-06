@@ -712,14 +712,23 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # المعاكس والخروج على الآخر، فسبريد كامل يُضاف إلى المخاطرة
         # ويُطرح من العائد. مع سبريد 5.00 على وقف 8 نقاط، النسبة
         # المعلنة 5.8 حقيقتها 3.3 — والفرق ليس تفصيلًا على السكالبينغ.
-        risk = abs(price - stop_loss) + spread
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «فتح صفقة ستوبها لَهدفها 1/1»): كانت
+        # البوّابة تُحسب على وقف **التحليل**، ثم يُزاح الوقف للخارج
+        # بالتكاليف (`cost_pad` أدناه) فتُؤكل النسبة بعد المرور. المقيس
+        # على آخر أربعة عشر أمرًا: **خمسة خرجت دون الحدّ** — 1.18 · 1.19 ·
+        # 1.22 · 1.24 · 1.37 — أي واحد إلى واحد تقريبًا كما رآها المالك،
+        # بينما الحساب التحليليّ كان يقول 1.7 وأكثر.
+        # النسبة تُقاس الآن على المسافة التي **يرسلها** النظام فعلًا:
+        # وقف التحليل + التكاليف. فما يمرّ بالبوّابة هو ما يأخذه الحساب.
+        cost_pad = spread * (1.0 + SLIPPAGE_SPREAD_MULT)
+        risk = abs(price - stop_loss) + cost_pad + spread
         reward = max(0.0, abs(take_profit - price) - spread)
         if risk <= 0 or reward / risk < MIN_RR:
             atom._context.logger.warning(
                 "581 skip %s: RR_BELOW_MIN rr=%.2f risk=%.2f reward=%.2f min=%.2f "
-                "| price=%.2f below=%s above=%s",
+                "| pad=%.2f price=%.2f below=%s above=%s",
                 symbol, (reward / risk if risk > 0 else 0.0), risk, reward, MIN_RR,
-                price, [round(x, 2) for x in below[-4:]],
+                cost_pad, price, [round(x, 2) for x in below[-4:]],
                 [round(x, 2) for x in above[:4]])
             continue
 
@@ -734,7 +743,6 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
         # (سبريد + احتياطي انزلاق)، فيبقى للتحليل مداه كاملًا، والتكلفة
         # تُدفع من فوقه لا منه. والحجم يُحسب على المسافة الموسَّعة —
         # فالخسارة تبقى تحت سقف المالك، ويصغر اللوت كلّما اتّسع الوقف.
-        cost_pad = spread * (1.0 + SLIPPAGE_SPREAD_MULT)
         analysis_stop = stop_loss
         if cost_pad > 0:
             stop_loss = (stop_loss - cost_pad) if side == BUY else (stop_loss + cost_pad)
