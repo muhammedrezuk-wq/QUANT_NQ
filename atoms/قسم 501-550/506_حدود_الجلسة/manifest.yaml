@@ -8,12 +8,15 @@ dependencies: []
 publishes:
 - risk.session_limits.state
 - risk.halt.requested
+- risk.release.requested
 subscribes:
 - analysis.session.state
 - platform.account.state
 - risk.loss_reported
 - platform.trade_event
 - SYS_DAY
+- SYS_SECOND
+- core.atom.started
 - risk.kill_switch.reset_requested
 startup_mode: auto
 health:

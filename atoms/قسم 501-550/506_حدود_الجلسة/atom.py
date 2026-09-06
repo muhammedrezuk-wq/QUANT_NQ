@@ -14,10 +14,28 @@ EVENT_ACCOUNT = "platform.account.state"
 EVENT_LOSS = "risk.loss_reported"
 EVENT_TRADE = "platform.trade_event"
 EVENT_DAY = "SYS_DAY"
+# ٢٠٢٦-٠٩-٠٦ (مقيس): إعادة الوزن كانت معلّقة على `platform.account.state`
+# وهو **لا يصل 506 في التشغيل الحيّ** — لا نبضة دورية عنده أصلًا، فبقي
+# الإفراج لا يُنشر أبدًا. نبضة الثانية مثبتة الجريان (`official_time`
+# عند 516 رقم حيّ)، فتحمل التأجيلة الوحيدة بعد اكتمال الإقلاع.
+EVENT_CLOCK = "SYS_SECOND"
+# ٢٠٢٦-٠٩-٠٦ (مقيس مرّتين): السحب نُشر الساعة 12:32:16 بينما اكتمل
+# الإقلاع 12:32:4x — أي **قبل أن يشترك 516 بثلاثين ثانية**، فضاع في
+# الفراغ. عدد النبضات تخمين لا يعرف متى يجهز السامع؛ الإشارة الدقيقة
+# هي بدء 516 نفسه — حامل المفتاح — والنواة تنشره بعد `start` أي بعد
+# اشتراكاته. النبضة تبقى شبكة أمان متأخّرة إن غاب الحدث.
+EVENT_ATOM_STARTED = "core.atom.started"
+HALT_AUTHORITY_ID = 516
+REVALIDATE_AFTER_PULSES = 120
 EVENT_RESET = "risk.kill_switch.reset_requested"
 
 EVENT_OUT = "risk.session_limits.state"
 EVENT_HALT_REQUEST = "risk.halt.requested"
+# ٢٠٢٦-٠٩-٠٦ (حكم المالك: «لازم يصير أوتوماتيك»): كان 506 يمسح خرقه
+# عند تبدّل الجلسة **بصمت**، فيبقى المفتاح مكسورًا عند 516 والتجميد
+# قائمًا عند 519 بلا أجل — مقيسًا: ثلاث ساعات بلا أمر بعد خرق عدّ
+# أُصلح ذاتيًّا. من رفع الخرق هو من يعلن زواله.
+EVENT_RELEASE_REQUEST = "risk.release.requested"
 ORIGIN = "506"
 
 ID_SESSION = "session_limits"
@@ -55,6 +73,8 @@ class Atom(AtomBase):
         self._max_drawdown_pct = 0.0
         self._session = SESSION_UNKNOWN
         self._books: dict[str, dict[str, Any]] = {}
+        self._pending_revalidation = False
+        self._pulses = 0
         self._restore_error = ""
         self._halts = 0
         self._emitted = 0
@@ -73,10 +93,73 @@ class Atom(AtomBase):
         context.subscribe(EVENT_LOSS, self._on_loss)
         context.subscribe(EVENT_TRADE, self._on_trade)
         context.subscribe(EVENT_DAY, self._on_day)
+        context.subscribe(EVENT_CLOCK, self._on_clock)
+        context.subscribe(EVENT_ATOM_STARTED, self._on_atom_started)
         context.subscribe(EVENT_RESET, self._on_reset)
 
     async def start(self) -> None:
         self._running = True
+        # لا يُفرَج هنا: الإقلاع لكل ذرّة على حدة (initialize → restore →
+        # start)، و506 يسبق 516 بالرقم — فإفراجٌ يُنشر الآن يضيع قبل أن
+        # يشترك من يسمعه. يُؤجَّل إلى أوّل حدث حساب، وقد اكتمل الإقلاع.
+        self._pending_revalidation = True
+
+    async def _on_atom_started(self, payload: dict[str, Any]) -> None:
+        """سلطة الإيقاف صارت تسمع — الآن يُسحب ما لم يعد يُدَّعى."""
+        if not self._running or not isinstance(payload, dict):
+            return
+        try:
+            started = int(payload.get("atom_id"))
+        except (TypeError, ValueError):
+            return
+        if started == HALT_AUTHORITY_ID:
+            await self._maybe_revalidate()
+
+    async def _on_clock(self, payload: dict[str, Any]) -> None:
+        """نبضة الثانية — لا تحمل إلا التأجيلة الواحدة بعد الإقلاع."""
+        if not self._running or not self._pending_revalidation:
+            return
+        self._pulses += 1
+        if self._pulses >= REVALIDATE_AFTER_PULSES:
+            await self._maybe_revalidate()
+
+    async def _maybe_revalidate(self) -> None:
+        if not self._running or not self._pending_revalidation:
+            return
+        self._pending_revalidation = False
+        await self._revalidate_breaches()
+
+    async def _revalidate_breaches(self) -> None:
+        """يُعيد وزن كل خرق مستعاد بالحدّ **الحالي**، ويُفرج عمّا بطل.
+
+        ٢٠٢٦-٠٩-٠٦ (حكم المالك: «لازم يصير أوتوماتيك»): الخرق قولٌ بأن
+        القيمة بلغت الحدّ. فإن تغيّر الحدّ بعد إقلاع — كما رُفع سقف
+        صفقات الجلسة من ١٠ إلى ٦٠ — صار القول كاذبًا، ومع ذلك كان
+        يُستعاد كما هو من اللقطة ويُبقي مفتاح 516 مكسورًا إلى ما لا
+        نهاية. المقيس: عشر صفقات في جلسة آسيا جمّدت الرموز الثمانية،
+        ونجا التجميد إقلاعين كاملين رغم أن الحدّ الجديد لم يُبلَغ.
+        """
+        checks = ((BREACH_TRADES, "session_trades", self._max_trades),
+                  (BREACH_LOSS, "session_loss_pct", self._max_loss_pct),
+                  (BREACH_DRAWDOWN, "drawdown_pct", self._max_drawdown_pct))
+        stale: list[tuple[str, str]] = []
+        for account_id, book in self._books.items():
+            for reason, field, limit in checks:
+                # ٢٠٢٦-٠٩-٠٦ (مقيس — الحالة التي كشفت العطب): زال الخرق
+                # عند تبدّل الجلسة قبل أن تُنشر شيفرة الإفراج، فبقي 516
+                # ممسكًا بمفتاح لسببٍ **لم يعد أحد يدّعيه** — ولا سبيل
+                # آليّ لفكّه أبدًا. فلا يكفي أن يُفرَج عمّا زال للتوّ:
+                # 506 يعلن عند كل إقلاع ما لا يدّعيه من أسبابه الثلاثة،
+                # فمن كفّ عن الادّعاء يسحب طلبه. والإعلان لا ضرر فيه:
+                # 516 لا يفكّ إلا إن طابق السببُ ما يمسكه.
+                if limit > 0 and float(book.get(field) or 0.0) >= limit:
+                    continue
+                book["breaches"].discard(reason)
+                stale.append((account_id, reason))
+        for account_id, reason in stale:
+            await self._release(account_id, reason)
+        for account_id in {a for a, _ in stale}:
+            await self._emit(account_id, None)
 
     async def stop(self) -> None:
         self._running = False
@@ -96,12 +179,17 @@ class Atom(AtomBase):
         if session not in _TIME_SESSIONS or session == self._session:
             return
         self._session = session
-        for book in self._books.values():
+        cleared: list[tuple[str, str]] = []
+        for account_id, book in self._books.items():
+            before = set(book["breaches"])
             book["session_loss_pct"] = 0.0
             book["session_trades"] = 0
             book["breaches"].discard(BREACH_LOSS)
             book["breaches"].discard(BREACH_TRADES)
+            cleared.extend((account_id, name) for name in before - book["breaches"])
         await self._emit_all(_to_float(payload.get("timestamp")))
+        for account_id, reason in cleared:
+            await self._release(account_id, reason)
 
     async def _on_account(self, payload: dict[str, Any]) -> None:
         if not self._running or not isinstance(payload, dict):
@@ -111,6 +199,9 @@ class Atom(AtomBase):
             return
         book = self._book(account_id)
         book["broker"] = str(payload.get("broker") or "") or book.get("broker", "")
+        # لا سحب من هنا: `platform.account.state` يصل **أثناء** الإقلاع
+        # (مقيس: السحب نُشر 12:39:49 و516 لم يبدأ قبل 12:40:2x)، فيضيع
+        # قبل أن يشترك حامل المفتاح. المشغّل الوحيد هو بدء 516 نفسه.
         if not self._truth.has(account_id, "equity") and self._context is not None:
             await self._context.publish(EVENT_SHORTAGE, self._truth.shortage_body(
                 account_id, "equity", broker=book.get("broker", ""),
@@ -191,16 +282,38 @@ class Atom(AtomBase):
             body["timestamp"] = stamp
         await self._context.publish(EVENT_HALT_REQUEST, body)
 
+    async def _release(self, account_id: str, reason: str) -> None:
+        """يعلن زوال خرقٍ رفعه 506 نفسه — لا أكثر.
+
+        الإفراج **موسوم بمصدره وسببه**: 516 لا يفكّ مفتاحه إلا إن كان
+        السبب الممسوك هو هذا السبب بعينه. فخرق عدّ الجلسة يزول من تلقاء
+        نفسه عند تبدّل الجلسة، بينما يبقى مفتاح رُفع لخسارة يومية أو
+        متتاليات مكسورًا حتى يد المالك. زر المالك العامّ لا يتغيّر.
+        """
+        if self._context is None:
+            return
+        book = self._book(account_id)
+        self._context.logger.warning(
+            "506 سحب طلبه حساب=%s سبب=%s جلسة=%s — لم يعد يدّعيه",
+            account_id, reason, self._session)
+        await self._context.publish(EVENT_RELEASE_REQUEST, {
+            "account_id": account_id, "broker": book.get("broker", ""),
+            "reason": reason, "origin": ORIGIN, "session": self._session})
+
     async def _on_day(self, payload: dict[str, Any]) -> None:
         if not self._running or not self._day_guard.accept(payload):
             return
-        for book in self._books.values():
+        cleared: list[tuple[str, str]] = []
+        for account_id, book in self._books.items():
+            cleared.extend((account_id, name) for name in book["breaches"])
             book["session_loss_pct"] = 0.0
             book["session_trades"] = 0
             book["drawdown_pct"] = 0.0
             book["peak_equity"] = book["equity"]
             book["breaches"] = set()
         await self._emit_all(_to_float(payload.get("timestamp")))
+        for account_id, reason in cleared:
+            await self._release(account_id, reason)
 
     async def _on_reset(self, payload: dict[str, Any]) -> None:
         if not self._running or not isinstance(payload, dict):

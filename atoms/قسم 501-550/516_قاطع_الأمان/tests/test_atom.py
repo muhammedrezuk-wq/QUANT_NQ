@@ -73,6 +73,49 @@ def _events(bus, name):
     return [p for n, p in bus.published if n == name]
 
 
+async def test_9_auto_rearm_only_clears_its_own_reason(tmp_path):
+    """(٩) إعادة التسليح الآليّة لا تفكّ إلا الخرق الذي رفعها.
+
+    ٢٠٢٦-٠٩-٠٦ (حكم المالك: «لازم يصير أوتوماتيك»). الخطر الذي يحرسه
+    هذا الاختبار: إفراج آليّ من حارس عدّ يمسح مفتاحًا رُفع لخسارة
+    حقيقية. الإفراج الموسوم بمصدر رقميّ يُطابَق بالسبب؛ وزرّ المالك
+    (بلا مصدر رقميّ) يبقى غير مشروط.
+    """
+    print("\n--- (٩) إعادة التسليح الآليّة موسومة بالسبب ---")
+    atom, bus = await _new(tmp_path / "t9.db")
+    await _seed_account(atom)
+
+    # مفتاح مكسور لخسارة يومية حقيقية.
+    await atom._on_loss({"event_id": "loss:big", "account_id": "A", "loss_pct": 99.0,
+                         "completeness": "COMPLETE", "is_loss": True})
+    assert atom.book("A")["kill"] is True, atom.book("A")
+    assert atom.book("A")["reason"] == "RISK_DAILY_LIMIT", atom.book("A")
+
+    # إفراج آليّ من 506 بسبب مختلف — يجب ألّا يفكّ شيئًا.
+    await atom._on_reset({"account_id": "A", "origin": "506",
+                          "reason": "MAX_SESSION_TRADES"})
+    assert atom.book("A")["kill"] is True, "إفراج عدّ فكّ مفتاح خسارة"
+    assert atom.book("A")["reason"] == "RISK_DAILY_LIMIT", atom.book("A")
+
+    # إفراج آليّ بالسبب نفسه — يفكّ، ولا يمسح عدّاد المتتاليات.
+    streak = atom.book("A")["consecutive_losses"]
+    assert streak > 0, streak
+    await atom._on_reset({"account_id": "A", "origin": "516",
+                          "reason": "RISK_DAILY_LIMIT"})
+    assert atom.book("A")["kill"] is False, atom.book("A")
+    assert atom.book("A")["consecutive_losses"] == streak, \
+        "الإفراج الآليّ مسح عدّاد المتتاليات"
+
+    # زرّ المالك: بلا مصدر رقميّ — غير مشروط، ويصفّر المتتاليات.
+    await atom._on_loss({"event_id": "loss:big2", "account_id": "A", "loss_pct": 99.0,
+                         "completeness": "COMPLETE", "is_loss": True})
+    assert atom.book("A")["kill"] is True, atom.book("A")
+    await atom._on_reset({"account_id": "A", "request_id": "owner-1"})
+    assert atom.book("A")["kill"] is False, atom.book("A")
+    assert atom.book("A")["consecutive_losses"] == 0, atom.book("A")
+    print("OK — الآليّ يطابق سببه ولا يمسّ المتتاليات؛ زرّ المالك غير مشروط")
+
+
 async def test_1_validation_reserves_and_rejects_budget_excess(tmp_path):
     print("\n--- (١) الحجز يتراكم والتحقّق يرفض تجاوز الميزانية ---")
     atom, bus = await _new(tmp_path / "t1.db")
@@ -217,7 +260,8 @@ async def test_8_persist_write_off_loop_thread(tmp_path):
 
 
 async def main():
-    tests = [test_1_validation_reserves_and_rejects_budget_excess,
+    tests = [test_9_auto_rearm_only_clears_its_own_reason,
+             test_1_validation_reserves_and_rejects_budget_excess,
              test_2_incomplete_loss_still_counts_and_can_trip,
              test_3_loss_with_no_number_at_all_is_ignored,
              test_4_day_roll_resets_counters_not_kill,
