@@ -216,6 +216,9 @@ async def recompute(atom: Any, scope_key: str) -> None:
     }
     account_mode = str((portfolio or {}).get("account_mode") or "UNKNOWN").upper()
     system_alive = (portfolio or {}).get("system_alive") is True
+    # يعبران في المخرَج كي يقرأهما تشخيص الحجب أدناه بلا تخمين.
+    out["account_mode"] = account_mode
+    out["system_alive"] = system_alive
 
     if portfolio is None:
         out.update(status="BLOCKED", action=BLOCKED, reason="PORTFOLIO_STATE_MISSING")
@@ -386,6 +389,22 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
     عقدًا بالتذكرة ويبقيان خارج هذه الوصلة.
     """
     if out.get("status") != "READY":
+        # ٢٠٢٦-٠٩-٠٦ (حكم المالك: «ولا صفقة» — ثلاث ساعات بلا أمر): هذا
+        # كان الخروج **الصامت الوحيد** في المسار كلّه. كل رفض آخر يترك
+        # سطرًا، أمّا حالة غير READY فتخرج بلا أثر — فيبدو النظام واقفًا
+        # بلا سبب، ويُقاس بالظنّ. تُسجَّل الآن مرّة عند كل تغيّر.
+        stamp = (out.get("status"), out.get("reason"), out.get("state"))
+        seen_block = getattr(atom, "_last_block_stamp", None)
+        if seen_block is None:
+            seen_block = atom._last_block_stamp = {}
+        if seen_block.get(scope_key) != stamp:
+            seen_block[scope_key] = stamp
+            atom._context.logger.warning(
+                "581 blocked %s: status=%r reason=%r state=%r filter=%r "
+                "mode=%r alive=%r",
+                out.get("symbol"), out.get("status"), out.get("reason"),
+                out.get("state"), out.get("filter_verdict"),
+                out.get("account_mode"), out.get("system_alive"))
         return
     decision_id = out.get("decision_id")
     if not decision_id:
@@ -761,7 +780,14 @@ async def request_orders(atom: Any, scope_key: str, out: dict[str, Any]) -> None
             "exposure=%s pos_in_range=%s trend=%r decision=%s",
             side, body["volume"], body["reference_price"],
             abs(price - stop_loss), abs(take_profit - price), shifted,
-            len(below), len(above), strength, out.get("exposure_fraction"),
+            # ٢٠٢٦-٠٩-٠٦ (مقيس — ثلاث ساعات بلا أمر): كان هنا `strength`
+            # وهو محلّي في `recompute` لا في هذه الدالّة، فرفع NameError
+            # **على مسار النجاح وحده** — بعد نشر الأمر مباشرة. فلا اختبار
+            # يلتقطه (كلّها تنتهي قبل النشر) ولا رفض يسبقه: انفجر عند أوّل
+            # أمر ينجح، فسقط `published = True` ومعه تسجيل القرار المخدوم.
+            # القوّة تُقرأ من المخرَج نفسه حيث تعبر فعلًا.
+            len(below), len(above), real(out.get("strength")) or 0.0,
+            out.get("exposure_fraction"),
             round(pos_in_range, 3) if pos_in_range is not None else None,
             trend or None, decision_id)
         published = True

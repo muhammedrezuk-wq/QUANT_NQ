@@ -284,6 +284,15 @@ class Atom(AtomBase):
         self._processed_result_ids.add(event_id)
         if loss is None:self._incomplete_ignored+=1;await self._publish_state(a,"LOSS_UNKNOWN_IGNORED");return
         await self._flush_outbox()
+        # المسار الثاني للكسر (حدّ الخسارة اليومية أو المتتاليات) يمرّ
+        # بالمخفِّض لا بـ_trip، فيُنطق هنا بالمقارنة قبل/بعد.
+        if not initial.get("kill") and self.book(a).get("kill"):
+            bk=self.book(a)
+            self._context.logger.error(
+                "516 KILL SWITCH حساب=%s سبب=%s خسارة_يومية=%.4f%% متتاليات=%s "
+                "صفقات_اليوم=%s — التداول متوقّف حتى إعادة تعيين صريحة",
+                a,bk.get("reason"),bk.get("daily_loss_pct",0.0),
+                bk.get("consecutive_losses"),bk.get("daily_trade_count"))
         await self._changed(a,"COMPLETE_TRADE_RESULT" if completeness=="COMPLETE" else "TRADE_RESULT_COSTS_INCOMPLETE",before)
     async def _trip(self,a,reason,origin="516"):
         if not a or self._context is None:return
@@ -294,6 +303,14 @@ class Atom(AtomBase):
             b["kill"]=True
             b["reason"]=reason
             await self._persist_financial_state(a,"administrative-halt:"+reason)
+        # ٢٠٢٦-٠٩-٠٦ (مقيس — ثلاث ساعات صمت): كسر المفتاح كان بلا سطر
+        # واحد في السجلّ. توقّف التداول كلّه بلا سبب معلن، ولا يُفكّ
+        # المزلاج إلا بإعادة تعيين صريحة — فيُقاس السبب بالحفر في
+        # اللقطات بدل أن يُقرأ. الحارس يتكلّم الآن حين يقطع.
+        self._context.logger.error(
+            "516 KILL SWITCH حساب=%s سبب=%s مصدر=%s خسارة_يومية=%.4f%% "
+            "متتاليات=%s — التداول متوقّف حتى إعادة تعيين صريحة",
+            a,reason,origin,b["daily_loss_pct"],b["consecutive_losses"])
         await self._context.publish(EVENT_HALT,{"account_id":a,"broker":b.get("broker"),"reason":reason,"origin":origin,"daily_loss_pct":round(b["daily_loss_pct"],4),"consecutive_losses":b["consecutive_losses"]})
         await self._changed(a,"HARD_STOP",before)
     async def _on_halt_request(self,p):
