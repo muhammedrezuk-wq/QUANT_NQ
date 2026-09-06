@@ -5,10 +5,10 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_BREAKOUT, build_setup,
-                                net_ratio, round_trip_cost, validate_setup,
+                                meets_scale, net_ratio, round_trip_cost, validate_setup,
                                 OK as SETUP_OK)
 
-ATOM_VERSION = "2.2.0"
+ATOM_VERSION = "2.3.0"
 # الحدّ يبقى 1.5 بلا تغيير، كي يُقاس أثر رفع شرط السبريد وحده.
 MIN_SETUP_RATIO = 1.5
 EVENT_TICK = VALIDATED_TICK_EVENT
@@ -144,6 +144,8 @@ class Atom(AtomBase):
             cost = round_trip_cost(tick.get("bid"), tick.get("ask"))
             if width <= 0.0 or abs(float(entry) - break_level) <= 0.0:
                 reason = "INVALIDATION_NOT_STRUCTURAL"
+            elif not meets_scale(setup):
+                reason = "SCALE_TOO_SMALL"
             elif net_ratio(setup, cost) < MIN_SETUP_RATIO:
                 reason = "NET_RR_REJECTED"
         if reason != SETUP_OK:

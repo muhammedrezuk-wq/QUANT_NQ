@@ -227,6 +227,27 @@ def setup_ratio(setup: dict[str, Any]) -> float:
     return (setup_reward(setup) / risk) if risk > 0 else 0.0
 
 
+# ٢٠٢٦-٠٩-٠٦ (حكم المالك، مقيس على سبريد 38.54): «لازم صفقات لا تقلّ
+# عن هدف 300 أو 500، ستوب لا يقلّ عن 100». فكرةٌ أصغر من هذا المقياس
+# لا تغطّي تكلفة عبورها مهما بدت نسبتها جميلة على الورق. النسبتان من
+# السعر كي تصحّا على أيّ مستوى للرمز: 100 ÷ 80,000 و300 ÷ 80,000.
+MIN_INVALIDATION_FRAC = 0.00125
+MIN_TARGET_FRAC = 0.00375
+
+
+def meets_scale(setup: dict[str, Any]) -> bool:
+    """هل الفكرة بحجمٍ يستحقّ التنفيذ أصلًا؟
+
+    سؤالٌ يسبق الاقتصاد: صفقةٌ هدفها تسع وثلاثون نقطة على رمزٍ سبريده
+    ثمانٍ وثلاثون ليست فكرةً ضعيفة الاقتصاد بل فكرةٌ في غير مقياسها.
+    """
+    entry = _real(setup.get("entry_reference"))
+    if entry is None or entry <= 0:
+        return False
+    return (setup_risk(setup) >= entry * MIN_INVALIDATION_FRAC
+            and setup_reward(setup) >= entry * MIN_TARGET_FRAC)
+
+
 def round_trip_cost(bid: Any, ask: Any) -> float:
     """تكلفة العبور الاقتصادية للجهتين — لا نصفها ولا ضعفها.
 

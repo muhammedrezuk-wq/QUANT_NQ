@@ -5,10 +5,10 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_LIQUIDITY_RAID, build_setup,
-                                net_ratio, round_trip_cost, validate_setup,
+                                meets_scale, net_ratio, round_trip_cost, validate_setup,
                                 OK as SETUP_OK)
 
-ATOM_VERSION = "2.3.0"
+ATOM_VERSION = "2.4.0"
 # ٢٠٢٦-٠٩-٠٦: المالك لا يقترح فكرة لا يُطاق اقتصادها، ولا ينتظر حارسًا
 # يقصّها. والحدّ يبقى كما هو (1.5) كي يُقاس أثر رفع شرط السبريد وحده.
 MIN_SETUP_RATIO = 1.5
@@ -164,6 +164,8 @@ class Atom(AtomBase):
             cost = round_trip_cost(tick.get("bid"), tick.get("ask"))
             if raid_distance <= 0.0 or gap <= 0.0:
                 reason = "INVALIDATION_NOT_STRUCTURAL"
+            elif not meets_scale(setup):
+                reason = "SCALE_TOO_SMALL"
             elif net_ratio(setup, cost) < MIN_SETUP_RATIO:
                 reason = "NET_RR_REJECTED"
         if reason != SETUP_OK:
