@@ -30,7 +30,16 @@ _CURSOR_SCHEMA = ("CREATE TABLE IF NOT EXISTS cursor ("
 # ignores keys it does not look for. Reading params_json back from our own
 # rows lets the result events carry the same identity after any reboot.
 IDENTITY_FIELDS = ("decision_id", "gate_request_id",
-                   "parent_decision_id", "owner_command_id")
+                   "parent_decision_id", "owner_command_id",
+                   # ٢٠٢٦-٠٩-٠٦ — ورقة ملكية الصفقة (§٢٢): هوية الفكرة
+                   # تعبر الجسر مع هوية القرار، فتصير كل صفقة قابلة
+                   # لإعادة البناء من صفّها وحده: من أنشأ الفكرة؟ ولماذا؟
+                   # وأين إبطالها؟ وهل بدّله أحد بعد المالك؟
+                   "setup_id", "setup_owner", "setup_type",
+                   "analysis_invalidation", "analysis_target",
+                   "invalidation_source", "invalidation_reason",
+                   "target_source", "target_reason",
+                   "execution_stop", "execution_stop_reason")
 
 SUBSECOND_CLOCK_REASON = "bridge row write time must be real wall time, not a one-second pulse"
 EVENT_FINAL_DECISION = "trading.final_decision"
