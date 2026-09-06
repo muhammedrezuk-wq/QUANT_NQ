@@ -1,6 +1,6 @@
 {
- "round": 1,
- "at": "2026-09-06 03:59:49",
+ "round": 8,
+ "at": "2026-09-06 11:01:03",
  "dead_code": {
   "candidates": [
    {
@@ -648,25 +648,34 @@
   "syntax_errors": []
  },
  "parity": {
-  "identical": 533,
-  "different": []
+  "identical": 531,
+  "different": [
+   {
+    "file": "atoms\\قسم 501-550\\516_قاطع_الأمان\\atom.py",
+    "why": "محتوى مختلف"
+   },
+   {
+    "file": "shared\\position_delta_recompute.py",
+    "why": "محتوى مختلف"
+   }
+  ]
  },
  "disk": {
   "dirs": [
    {
     "path": "forex_runtime/var",
-    "mb": 4409.9,
-    "files": 214
+    "mb": 5162.1,
+    "files": 236
    },
    {
     "path": ".git",
-    "mb": 32.0,
-    "files": 191
+    "mb": 32.1,
+    "files": 221
    },
    {
     "path": "atoms",
     "mb": 12.2,
-    "files": 1700
+    "files": 1701
    },
    {
     "path": "crypto_runtime",
@@ -686,341 +695,421 @@
   ]
  },
  "live": {
-  "running": false,
+  "running": true,
   "account": {
-   "balance": 10241.26,
-   "equity": 10241.26
+   "balance": 10251.63,
+   "equity": 10251.63
   },
   "positions": 0,
-  "orders_24h": 62,
+  "orders_24h": 64,
   "failed_24h": 10
  },
  "governance": {
   "check_166_contract": {
    "ok": false,
-   "tail": "الاختلافات = 3"
+   "tail": "الاختلافات = 3",
+   "needs_live": false
   },
   "check_405_contract": {
    "ok": false,
-   "tail": "الاختلافات = 3"
+   "tail": "الاختلافات = 3",
+   "needs_live": false
   },
   "check_409_contract": {
    "ok": false,
-   "tail": "الاختلافات = 3"
+   "tail": "الاختلافات = 3",
+   "needs_live": false
   },
   "check_account_freshness_contract": {
    "ok": false,
-   "tail": "الاختلافات = 5"
+   "tail": "الاختلافات = 5",
+   "needs_live": false
   },
   "check_account_stamp_contract": {
    "ok": false,
-   "tail": "ساقط: الختم لا يتجدّد — `585` يرفض على بيانات صحيحة."
+   "tail": "ساقط: الختم لا يتجدّد — `585` يرفض على بيانات صحيحة.",
+   "needs_live": false
   },
   "check_analysis_dials_contract": {
    "ok": true,
-   "tail": "سليم: الحرّاس الأربعة على قائمة واحدة · المساران مستقلّان · العيار يحجب فعلًا."
+   "tail": "سليم: الحرّاس الأربعة على قائمة واحدة · المساران مستقلّان · العيار يحجب فعلًا.",
+   "needs_live": false
   },
   "check_arabic_ui": {
    "ok": true,
-   "tail": "OK كل اسم يُعرض للمالك عربيّ، والخام في تلميح الفأرة وحده"
+   "tail": "OK كل اسم يُعرض للمالك عربيّ، والخام في تلميح الفأرة وحده",
+   "needs_live": false
   },
   "check_archive_catchup_contract": {
    "ok": true,
-   "tail": "سليم: اللحاق يقع عند الحاجة، ولا يُسجَّل نجاح لم يُتحقَّق."
+   "tail": "سليم: اللحاق يقع عند الحاجة، ولا يُسجَّل نجاح لم يُتحقَّق.",
+   "needs_live": false
   },
   "check_boot": {
-   "ok": false,
-   "tail": "❌ اختلاف الإقلاع: missing=[516] unexpected=لا شيء"
+   "ok": true,
+   "tail": "✅ Atom Boot يطابق auto المكتشفة + التوقع المستقل 233/80 + أوضاع الذرّات الحرجة مثبّتة (م-44).",
+   "needs_live": false
   },
   "check_broker_clock_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1"
+   "tail": "الاختلافات = 1",
+   "needs_live": false
   },
   "check_budget_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1 (تقادم عقد — ترحيل لاحق)"
+   "tail": "الاختلافات = 1 (تقادم عقد — ترحيل لاحق)",
+   "needs_live": false
   },
   "check_canonical_scripts_contract": {
    "ok": false,
-   "tail": "FileNotFoundError: [WinError 2] The system cannot find the file specified"
+   "tail": "FileNotFoundError: [WinError 2] The system cannot find the file specified",
+   "needs_live": false
   },
   "check_concurrency_contract": {
    "ok": false,
-   "tail": "الاختلافات = 4"
+   "tail": "الاختلافات = 4",
+   "needs_live": false
   },
   "check_config_rebase": {
    "ok": false,
-   "tail": "🛑 المخالفات: 4"
+   "tail": "🛑 المخالفات: 4",
+   "needs_live": false
   },
   "check_conviction_contract": {
    "ok": false,
-   "tail": "الاختلافات = 20"
+   "tail": "الاختلافات = 20",
+   "needs_live": false
   },
   "check_crash_replay_contract": {
    "ok": false,
-   "tail": "الاختلافات = 5"
+   "tail": "الاختلافات = 5",
+   "needs_live": false
   },
   "check_crypto_ahmad_parity": {
    "ok": true,
-   "tail": "🟠 لا حكم — المرجع غائب. (وغيابه ليس نجاحًا.)"
+   "tail": "🟠 لا حكم — المرجع غائب. (وغيابه ليس نجاحًا.)",
+   "needs_live": false
   },
   "check_crypto_chain": {
    "ok": false,
-   "tail": "نواة الكريبتو (8020) غير قابلة للوصول: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+   "tail": "نواة الكريبتو (8020) غير قابلة للوصول: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+   "needs_live": true
   },
   "check_crypto_feed": {
    "ok": false,
-   "tail": "نواة الكريبتو (8020) غير قابلة للوصول: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>"
+   "tail": "نواة الكريبتو (8020) غير قابلة للوصول: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+   "needs_live": true
   },
   "check_crypto_isolation": {
    "ok": false,
-   "tail": "🛑 العزل مخروق — الفوركس والكريبتو يختلطان."
+   "tail": "🛑 العزل مخروق — الفوركس والكريبتو يختلطان.",
+   "needs_live": true
   },
   "check_crypto_manual_execution": {
    "ok": true,
-   "tail": "🟢 التنفيذ بشريّ محفوظ — النظام يقترح، والزرّ بيد أسمر."
+   "tail": "🟢 التنفيذ بشريّ محفوظ — النظام يقترح، والزرّ بيد أسمر.",
+   "needs_live": false
   },
   "check_delta_visibility_contract": {
    "ok": false,
-   "tail": "  ✗ 578 لم تُصدر أمرًا بعقد السيناريو المتقادم (م-58) — ترحيل لاحق"
+   "tail": "  ✗ 578 لم تُصدر أمرًا بعقد السيناريو المتقادم (م-58) — ترحيل لاحق",
+   "needs_live": false
   },
   "check_disconnect_contract": {
    "ok": false,
-   "tail": "الاختلافات = 5"
+   "tail": "الاختلافات = 5",
+   "needs_live": false
   },
   "check_dispatch_contract": {
    "ok": false,
-   "tail": "      بطاقة 575    لم تُكتب ✓"
+   "tail": "      بطاقة 575    لم تُكتب ✓",
+   "needs_live": false
   },
   "check_dispatch_store_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1"
+   "tail": "الاختلافات = 1",
+   "needs_live": false
   },
   "check_duplicate_event_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1"
+   "tail": "الاختلافات = 1",
+   "needs_live": false
   },
   "check_events": {
    "ok": true,
-   "tail": "✅ الأحداث الأساسية موصولة؛ المصادر الخارجية غير المتاحة معلّمة اختيارية فقط."
+   "tail": "✅ الأحداث الأساسية موصولة؛ المصادر الخارجية غير المتاحة معلّمة اختيارية فقط.",
+   "needs_live": false
   },
   "check_execution_safety": {
    "ok": true,
-   "tail": "✅ أهداف التنفيذ اكتُشفت بالهوية لا بالمسار؛ يمكن متابعة فحوص البيئة فقط."
+   "tail": "✅ أهداف التنفيذ اكتُشفت بالهوية لا بالمسار؛ يمكن متابعة فحوص البيئة فقط.",
+   "needs_live": false
   },
   "check_execution_state_truth_contract": {
    "ok": true,
-   "tail": "EXECUTION_STATE_TRUTH_CONTRACT=PASS"
+   "tail": "EXECUTION_STATE_TRUTH_CONTRACT=PASS",
+   "needs_live": false
   },
   "check_files": {
    "ok": true,
-   "tail": "✅ الفحص البنيوي للملفات والمانيفستات ناجح — والتوثيق العربي حاجب إصدار (م-29)."
+   "tail": "✅ الفحص البنيوي للملفات والمانيفستات ناجح — والتوثيق العربي حاجب إصدار (م-29).",
+   "needs_live": false
   },
   "check_financial_scope_contract": {
    "ok": true,
-   "tail": "FINANCIAL_SCOPE_CONTRACT=PASS (account + broker + symbol; execution account + request)"
+   "tail": "FINANCIAL_SCOPE_CONTRACT=PASS (account + broker + symbol; execution account + request)",
+   "needs_live": false
   },
   "check_governance": {
    "ok": false,
-   "tail": "❌ ملف حوكمة مفقود: governance/ui/built/index.html"
+   "tail": "❌ ملف حوكمة مفقود: governance/ui/built/index.html",
+   "needs_live": false
   },
   "check_halt_authority_contract": {
    "ok": true,
-   "tail": "سليم: سلطة واحدة للإيقاف · طلب موحَّد بأصله · وفكّ بمسار واحد."
+   "tail": "سليم: سلطة واحدة للإيقاف · طلب موحَّد بأصله · وفكّ بمسار واحد.",
+   "needs_live": false
   },
   "check_halt_reset_restart_contract": {
    "ok": false,
-   "tail": "الاختلافات = 6"
+   "tail": "الاختلافات = 6",
+   "needs_live": false
   },
   "check_hard_stop_owner_contract": {
    "ok": true,
-   "tail": "سليم: 525 المالك الوحيد · 512 يحتفظ بحالته · و571 يستهلك الأصل."
+   "tail": "سليم: 525 المالك الوحيد · 512 يحتفظ بحالته · و571 يستهلك الأصل.",
+   "needs_live": false
   },
   "check_hedge_chain": {
    "ok": false,
-   "tail": "stages_missing_or_forbidden=7"
+   "tail": "stages_missing_or_forbidden=7",
+   "needs_live": false
   },
   "check_hedge_contract": {
    "ok": false,
-   "tail": "الحالات=26  ·  الاختلافات=2"
+   "tail": "الحالات=26  ·  الاختلافات=2",
+   "needs_live": false
   },
   "check_held_direction_contract": {
    "ok": false,
-   "tail": "الاختلافات = 2"
+   "tail": "الاختلافات = 2",
+   "needs_live": false
   },
   "check_hot_reload_state_contract": {
    "ok": false,
-   "tail": "task: <Task pending name='Task-7' coro=<EventBus._consume() done, defined at C:\\Users\\NQ\\QUANT_NQ\\core\\event_bus.py:300> wait_for=<Future pending cb=[Task.task_"
+   "tail": "task: <Task pending name='Task-7' coro=<EventBus._consume() done, defined at C:\\Users\\NQ\\QUANT_NQ\\core\\event_bus.py:300> wait_for=<Future pending cb=[Task.task_",
+   "needs_live": false
   },
   "check_killswitch_reset_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1"
+   "tail": "الاختلافات = 1",
+   "needs_live": false
   },
   "check_lifecycle_conflict_contract": {
    "ok": false,
-   "tail": "الاختلافات = 2"
+   "tail": "الاختلافات = 2",
+   "needs_live": false
   },
   "check_limits_state_contract": {
    "ok": true,
-   "tail": "سليم: دفاتر الحدود تنجو من الإقلاع، و508 مشتقّة فعلًا، والفساد لا يفتح حدًّا."
+   "tail": "سليم: دفاتر الحدود تنجو من الإقلاع، و508 مشتقّة فعلًا، والفساد لا يفتح حدًّا.",
+   "needs_live": false
   },
   "check_manage_identity_contract": {
    "ok": true,
-   "tail": "سليم: كل أمر إدارة يحمل هويّة حسابه، والمرسل يرفض ما لا يحملها."
+   "tail": "سليم: كل أمر إدارة يحمل هويّة حسابه، والمرسل يرفض ما لا يحملها.",
+   "needs_live": false
   },
   "check_money_path_behaviour": {
    "ok": false,
-   "tail": "ساقط: عقد لا يمسك عطله."
+   "tail": "ساقط: عقد لا يمسك عطله.",
+   "needs_live": false
   },
   "check_no_side_path_contract": {
    "ok": true,
-   "tail": "OK: no side path found around 467 (approval/identity/dup) or 576 (parent/owner authority, gate-verified since unit 1); 581 needs a real gate-pass to take a side"
+   "tail": "OK: no side path found around 467 (approval/identity/dup) or 576 (parent/owner authority, gate-verified since unit 1); 581 needs a real gate-pass to take a side",
+   "needs_live": false
   },
   "check_out_of_order_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1"
+   "tail": "الاختلافات = 1",
+   "needs_live": false
   },
   "check_paper_11_bridge_contract": {
    "ok": false,
-   "tail": "FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\Users\\\\NQ\\\\QUANT_NQ\\\\atoms\\\\617_cTrader_feed\\\\الشرح.md'"
+   "tail": "FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\Users\\\\NQ\\\\QUANT_NQ\\\\atoms\\\\617_cTrader_feed\\\\الشرح.md'",
+   "needs_live": false
   },
   "check_papers_9_10_truth_contract": {
    "ok": true,
-   "tail": "PAPERS_9_10_TRUTH_CONTRACT=PASS"
+   "tail": "PAPERS_9_10_TRUTH_CONTRACT=PASS",
+   "needs_live": false
   },
   "check_parameters_endpoint": {
    "ok": true,
-   "tail": "OK endpoint contract holds; the live database was never opened"
+   "tail": "OK endpoint contract holds; the live database was never opened",
+   "needs_live": false
   },
   "check_path_authority": {
    "ok": true,
-   "tail": "🟢 فحص سلطة المسارات: القارئ والواضع على جذر واحد، والنسخ مطابقة، والحفظ لا يعتمد"
+   "tail": "🟢 فحص سلطة المسارات: القارئ والواضع على جذر واحد، والنسخ مطابقة، والحفظ لا يعتمد",
+   "needs_live": false
   },
   "check_price_decimals_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1"
+   "tail": "الاختلافات = 1",
+   "needs_live": false
   },
   "check_project": {
    "ok": false,
-   "tail": "❌ فحص المشروع توقف: 2 فحص فشل"
+   "tail": "❌ فحص المشروع توقف: 2 فحص فشل",
+   "needs_live": false
   },
   "check_project_freeze": {
    "ok": false,
-   "tail": "FREEZE_MANIFEST_INVALID: governance/freeze/project_freeze.json مفقود"
+   "tail": "FREEZE_MANIFEST_INVALID: governance/freeze/project_freeze.json مفقود",
+   "needs_live": false
   },
   "check_protection_state_contract": {
    "ok": false,
-   "tail": "الاختلافات = 3"
+   "tail": "الاختلافات = 3",
+   "needs_live": false
   },
   "check_reevaluation_contract": {
    "ok": true,
-   "tail": "سليم: الأحدث يفوز · القديم لا يلوّث · إعادة الحسم ثابتة · والتجميد يصمد."
+   "tail": "سليم: الأحدث يفوز · القديم لا يلوّث · إعادة الحسم ثابتة · والتجميد يصمد.",
+   "needs_live": false
   },
   "check_reference_alignment_contract": {
    "ok": false,
-   "tail": "الاختلافات = 15"
+   "tail": "الاختلافات = 15",
+   "needs_live": false
   },
   "check_reference_latch_contract": {
    "ok": true,
-   "tail": "سليم: القفزة تُرفض مرّة واحدة، والمرجع يُعاد بناؤه فورًا."
+   "tail": "سليم: القفزة تُرفض مرّة واحدة، والمرجع يُعاد بناؤه فورًا.",
+   "needs_live": false
   },
   "check_replay_contract": {
    "ok": false,
-   "tail": "الاختلافات = 3"
+   "tail": "الاختلافات = 3",
+   "needs_live": false
   },
   "check_request_id_identity_contract": {
    "ok": false,
-   "tail": "task: <Task pending name='Task-2' coro=<Atom._watchdog() running at C:\\Users\\NQ\\QUANT_NQ\\atoms\\قسم 551-600\\586_بوابة_الرموز\\atom.py:80> wait_for=<Future pending"
+   "tail": "task: <Task pending name='Task-2' coro=<Atom._watchdog() running at C:\\Users\\NQ\\QUANT_NQ\\atoms\\قسم 551-600\\586_بوابة_الرموز\\atom.py:80> wait_for=<Future pending",
+   "needs_live": false
   },
   "check_safety_gate_scope_contract": {
    "ok": true,
-   "tail": "سليم: التخطّي معلَن ومحصور، والبوّابة ترفض فعلًا حين يكون هناك ما تحرسه."
+   "tail": "سليم: التخطّي معلَن ومحصور، والبوّابة ترفض فعلًا حين يكون هناك ما تحرسه.",
+   "needs_live": false
   },
   "check_shutdown_contract": {
    "ok": false,
-   "tail": "الاختلافات = 2"
+   "tail": "الاختلافات = 2",
+   "needs_live": false
   },
   "check_snapshot_button_contract": {
    "ok": false,
-   "tail": "       يُحذف في مسار الخطأ، فلا يبقى أثر يدلّه على السبب."
+   "tail": "       يُحذف في مسار الخطأ، فلا يبقى أثر يدلّه على السبب.",
+   "needs_live": false
   },
   "check_snapshot_state_contract": {
    "ok": true,
-   "tail": "سليم: لا حالة رسميّة بلا تحقّق، ولا فشلٍ يمحو ما قبله."
+   "tail": "سليم: لا حالة رسميّة بلا تحقّق، ولا فشلٍ يمحو ما قبله.",
+   "needs_live": false
   },
   "check_specs_contract": {
    "ok": false,
-   "tail": "الاختلافات = 6"
+   "tail": "الاختلافات = 6",
+   "needs_live": false
   },
   "check_stale_account_contract": {
    "ok": false,
-   "tail": "الاختلافات = 5"
+   "tail": "الاختلافات = 5",
+   "needs_live": false
   },
   "check_stop_contract": {
    "ok": false,
-   "tail": "الاختلافات = 14"
+   "tail": "الاختلافات = 14",
+   "needs_live": false
   },
   "check_stop_path_contract": {
    "ok": true,
-   "tail": "سليم: الإيقاف يجرّب النظيف أوّلًا، ولا يقع القسريّ صامتًا، ولا تعليق أبديّ."
+   "tail": "سليم: الإيقاف يجرّب النظيف أوّلًا، ولا يقع القسريّ صامتًا، ولا تعليق أبديّ.",
+   "needs_live": false
   },
   "check_storage_cap_contract": {
    "ok": false,
-   "tail": "       أخرى تصل في الوقت (المقيس 2026-08-18: 11.87 جيجا/يوم)."
+   "tail": "       أخرى تصل في الوقت (المقيس 2026-08-18: 11.87 جيجا/يوم).",
+   "needs_live": false
   },
   "check_sweep_score_contract": {
    "ok": false,
-   "tail": "الاختلافات = 5"
+   "tail": "الاختلافات = 5",
+   "needs_live": false
   },
   "check_switch_safety_contract": {
    "ok": false,
-   "tail": "الاختلافات = 7"
+   "tail": "الاختلافات = 7",
+   "needs_live": false
   },
   "check_telegram": {
    "ok": false,
-   "tail": "=========================================================="
+   "tail": "==========================================================",
+   "needs_live": false
   },
   "check_tick_jump_contract": {
    "ok": false,
-   "tail": "الاختلافات = 1"
+   "tail": "الاختلافات = 1",
+   "needs_live": false
   },
   "check_tilt_rules_endpoint": {
    "ok": true,
-   "tail": "OK endpoint contract holds; the live store was never opened"
+   "tail": "OK endpoint contract holds; the live store was never opened",
+   "needs_live": false
   },
   "check_trade_chain_contract": {
    "ok": true,
-   "tail": "سليم: كل تنفيذ يُثبَت أو يُعلَن غير مُثبَت — ولا فجوة صامتة."
+   "tail": "سليم: كل تنفيذ يُثبَت أو يُعلَن غير مُثبَت — ولا فجوة صامتة.",
+   "needs_live": false
   },
   "check_trade_lifecycle_contract": {
    "ok": false,
-   "tail": "الاختلافات = 13"
+   "tail": "الاختلافات = 13",
+   "needs_live": false
   },
   "check_transport_contract": {
    "ok": false,
-   "tail": "الاختلافات = 2"
+   "tail": "الاختلافات = 2",
+   "needs_live": false
   },
   "check_unhedge_contract": {
    "ok": true,
-   "tail": "سليم: الفكّ لا يقع إلا بشرط صريح، ولا يكتمل إلا بإثبات تنفيذ."
+   "tail": "سليم: الفكّ لا يقع إلا بشرط صريح، ولا يكتمل إلا بإثبات تنفيذ.",
+   "needs_live": false
   },
   "check_versions": {
    "ok": false,
-   "tail": "checked=233 mismatches=2 atoms_without_code_constant=1 live_core=no"
+   "tail": "checked=233 mismatches=2 atoms_without_code_constant=1 live_core=no",
+   "needs_live": false
   },
   "check_weight_contract": {
    "ok": false,
-   "tail": "الاختلافات = 13"
+   "tail": "الاختلافات = 13",
+   "needs_live": false
   }
  },
  "tests": {
   "ok": false,
-  "summary": "3 failed, 2254 passed, 2 skipped in 212.68s (0:03:32)",
+  "summary": "4 failed, 2253 passed, 2 skipped in 211.33s (0:03:31)",
   "failed": [
    "tests/test_analysis_live_independence.py::test_decision_consumer_accepts_only_ready_live_analysis",
    "tests/test_atom_quality_contract.py::test_validator_json_leaves_only_real_quality_errors",
+   "tests/test_device_contract.py::test_28_full_scan_under_200ms_and_no_false_alerts",
    "tests/test_release_contract.py::test_active_runtime_code_mirrors_match_canonical_sources"
   ]
  },
- "seconds": 737.2
+ "seconds": 664.5
 }
