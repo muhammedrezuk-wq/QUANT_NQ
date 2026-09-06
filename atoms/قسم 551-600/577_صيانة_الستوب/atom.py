@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
+from shared.trade_setup import EVENT_SETUP
 
 ATOM_VERSION = "1.1.0"
 # v1.1.0 (2026-08-25): the manage command carries the leg's magic. Measured
@@ -107,6 +108,8 @@ class Atom(AtomBase):
         self._structure: dict[str, dict[str, float]] = {}
         self._loss_cap: dict[str, float] = {}
         self._trailed = 0
+        # إبطال الإعداد لكل رمز: (setup_id, side, price) — مرجع الملكية.
+        self._setup_stop: dict[str, tuple[str, str, float]] = {}
         self._sent = 0
         self._updates = 0
         self._seen_plan = False
@@ -129,6 +132,25 @@ class Atom(AtomBase):
                       "liquidity.sweep.state", "liquidity.fvg.state",
                       "liquidity.buyside.state", "liquidity.sellside.state"):
             context.subscribe(event, self._on_structure)
+        # ٢٠٢٦-٠٩-٠٦ — ورقة ملكية الصفقة (المرحلة ز · §١٥): الزحف كان
+        # يبدأ من «أقرب قاع» في خريطة عامّة، فيستطيع أن يستبدل إبطال
+        # الإعداد بمنطق لا ينتمي إليه — أي تعود المشكلة نفسها بعد الدخول.
+        # 577 يسمع الإعداد الآن، ويحرس حدًّا لا يتجاوزه: لا يشدّ الوقف
+        # إلى ما هو **أضيق من إبطال الفكرة** إلا إن كان الربح قد تجاوزه،
+        # ولا يوسّعه أبدًا.
+        context.subscribe(EVENT_SETUP, self._on_setup)
+
+    async def _on_setup(self, payload: dict[str, Any]) -> None:
+        """يحفظ إبطال الإعداد لكل رمز — مرجعًا لا يُستبدل بمنطق آخر."""
+        if not self._running or not isinstance(payload, dict):
+            return
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        stop = _to_float(payload.get("invalidation_price"))
+        side = str(payload.get("side") or "").upper()
+        setup_id = str(payload.get("setup_id") or "")
+        if not symbol or stop is None or side not in ("BUY", "SELL") or not setup_id:
+            return
+        self._setup_stop[symbol] = (setup_id, side, stop)
 
     async def _on_structure(self, payload: dict[str, Any]) -> None:
         """يحفظ آخر قاع وآخر قمّة بنيويّين — مرساتا الوقف الزاحف."""
@@ -207,6 +229,17 @@ class Atom(AtomBase):
         breathing = original * TRAIL_BREATHING_FRAC
         if breathing > 0 and abs(current - anchor) < breathing:
             return
+        # ملكية الإبطال (§١٥ و§١٦): المرساة لا تُستبدل بإبطال الإعداد إلا
+        # حين يكون الربح قد تجاوزه فعلًا — عندها الزحف يقفل ربحًا، لا
+        # يستبدل فكرة. وقبل ذلك يبقى إبطال الإعداد هو الحدّ.
+        owned = self._setup_stop.get(symbol.upper())
+        if owned is not None:
+            _, owned_side, owned_stop = owned
+            if owned_side == side:
+                beyond = (current > owned_stop) if side == "BUY" else (current < owned_stop)
+                inside = (anchor < owned_stop) if side == "BUY" else (anchor > owned_stop)
+                if inside and not beyond:
+                    return
         # المرساة يجب أن تقع بين الدخول والسعر: خلف الربح المحقَّق، لا
         # أمامه (فتُضرب فورًا) ولا خلف الدخول (فلا تضيف حماية).
         if side == "BUY":

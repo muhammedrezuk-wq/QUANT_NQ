@@ -126,15 +126,33 @@ class Atom(AtomBase):
         out=dict(payload)
         out["volume"]=volume
         if point>0 and requested_distance<minimum_distance:
+            # ٢٠٢٦-٠٩-٠٦ — ورقة ملكية الصفقة (المرحلة و · §٧): 584 حارس
+            # تنفيذ، يجوز له إزاحة **وقف التنفيذ** ليصير مقبولًا عند
+            # الوسيط، ولا يجوز له أن يمسّ الإبطال التحليليّ ولا أن
+            # يخترع هدفًا. كان يعيد بناء الهدف من نسبة هندسية
+            # (`self._reward × minimum_distance`) فيمحو هدف الإعداد —
+            # أي تعود ملكية الفكرة إلى الضياع من باب الشرعية.
+            # الآن: الوقف يُزاح ويُسجَّل، والهدف المملوك يبقى كما هو،
+            # والإبطال التحليليّ يعبر بلا مساس.
             factor=requested_distance/minimum_distance if minimum_distance>0 else 1.0
             volume=self._round_volume(volume*factor,spec)
             sl=ref-minimum_distance if side==BUY else ref+minimum_distance
-            tp=None if perpetual else (ref+self._reward*minimum_distance if side==BUY else ref-self._reward*minimum_distance)
+            owned_target=num(payload.get("analysis_target"))
+            if owned_target is None:
+                tp=None if perpetual else (ref+self._reward*minimum_distance if side==BUY else ref-self._reward*minimum_distance)
+            else:
+                tp=None if perpetual else owned_target
             if volume<=0:
                 self._rejected+=1
                 await self._context.publish(EVENT_REJECTED,{**payload,"reason":"STOP_LEGALITY_VOLUME_TOO_SMALL","stage":"STOP_LEGALITY"})
                 return
-            out.update({"volume":volume,"stop_loss":round(sl,8),"take_profit":None if perpetual else round(tp,8),"legality_adjusted":True})
+            out.update({"volume":volume,"stop_loss":round(sl,8),"take_profit":None if perpetual else round(tp,8),"legality_adjusted":True,"execution_stop":round(sl,8),"execution_stop_reason":"EXECUTION_STOP_ADJUSTED"})
+            if payload.get("setup_id"):
+                self._context.logger.warning(
+                    "584 EXECUTION_STOP_ADJUSTED setup=%s: إبطال تحليليّ=%s "
+                    "وقف تنفيذ=%s (حدّ الوسيط %.6f) — الفكرة لم تتغيّر",
+                    payload.get("setup_id"),payload.get("analysis_invalidation"),
+                    round(sl,8),minimum_distance)
         out.update({"min_stop_distance":minimum_distance,"freeze_level":spec.get("freeze_level"),"stop_buffer":self._buffer})
         self._legal+=1
         await self._context.publish(EVENT_LEGAL,out)

@@ -121,6 +121,42 @@ def test_no_second_door_to_open() -> None:
         assert f'"{field}"' in source, f"حقل الهوية مفقود من الأمر: {field}"
 
 
+def test_551_carries_ownership_and_never_edits_it() -> None:
+    """اختبار ٤ (المرحلة هـ): 551 يحسب الحجم ولا يبدّل إبطال الإعداد."""
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "atoms/قسم 551-600/551_باني_الأمر/atom.py").read_text(
+        encoding="utf-8")
+    for field in ("setup_id", "setup_owner", "analysis_invalidation",
+                  "analysis_target", "invalidation_source", "target_source"):
+        assert f'"{field}"' in source, f"551 لا يحمل حقل الملكية: {field}"
+    # ولا يُسند إليها قيمة جديدة في أيّ موضع.
+    for field in ("analysis_invalidation", "analysis_target", "setup_id"):
+        assert f'["{field}"] =' not in source, f"551 يعدّل حقلًا مملوكًا: {field}"
+
+
+def test_584_separates_execution_stop_from_the_idea() -> None:
+    """اختبار ٥ (المرحلة و): إزاحة وقف التنفيذ تُسجَّل، والهدف لا يُخترع."""
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "atoms/قسم 551-600/584_شرعية_الستوب/atom.py").read_text(
+        encoding="utf-8")
+    assert "execution_stop" in source, "584 لا يفصل وقف التنفيذ"
+    assert "EXECUTION_STOP_ADJUSTED" in source, "الإزاحة لا تُسجَّل"
+    assert 'num(payload.get("analysis_target"))' in source, \
+        "584 ما زال يخترع هدفًا بدل هدف الإعداد"
+    assert '"analysis_invalidation"' not in source.split("out.update")[-1], \
+        "584 يكتب فوق الإبطال التحليليّ"
+
+
+def test_577_respects_the_owned_invalidation() -> None:
+    """اختبار ٦ (المرحلة ز): الزحف لا يستبدل إبطال الإعداد بمنطق آخر."""
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "atoms/قسم 551-600/577_صيانة_الستوب/atom.py").read_text(
+        encoding="utf-8")
+    assert "EVENT_SETUP" in source and "_setup_stop" in source, \
+        "577 لا يسمع الإعداد"
+    assert "_on_setup" in source, "577 بلا مستقبِل للإعداد"
+
+
 def test_410_owns_a_real_setup_contract() -> None:
     """§١٣: 410 هو أوّل مالك — يعلن الإعداد ويصفه في مانيفستِه."""
     root = Path(__file__).resolve().parents[1]

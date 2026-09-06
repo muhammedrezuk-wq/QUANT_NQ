@@ -104,6 +104,22 @@ _DIRECT_FIELDS = (
     # Absent stays absent (never invented); present crosses untouched.
     "decision_id", "gate_request_id", "parent_decision_id",
     "owner_command_id", "session_epoch",
+    # ٢٠٢٦-٠٩-٠٦ — ورقة ملكية الصفقة (المرحلة هـ · §٦): هوية الفكرة
+    # وهندستها تعبران هذه القفزة **كما هما**. 551 يملك حساب الحجم
+    # وتقريبه وقيود الوسيط، ولا يملك تغيير إبطال الإعداد ولا هدفه.
+    # الحقول تُنقل بلا مساس كي لا تضيع الملكية بين الطبقات (§٢٢).
+    "setup_id", "setup_owner", "setup_type",
+    "analysis_invalidation", "analysis_target",
+    "invalidation_source", "invalidation_reason",
+    "target_source", "target_reason",
+)
+
+# الحقول التي لا يجوز لـ551 أن يمسّها البتّة — يُحرسها اختبار القبول.
+_SETUP_OWNED_FIELDS = (
+    "setup_id", "setup_owner", "setup_type",
+    "analysis_invalidation", "analysis_target",
+    "invalidation_source", "invalidation_reason",
+    "target_source", "target_reason",
 )
 
 
