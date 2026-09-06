@@ -290,6 +290,15 @@ async def recompute(atom: Any, scope_key: str) -> None:
                 "سياقٌ لا يخلق صفقة", symbol, setup_block, vote_direction)
 
     if portfolio is None:
+        # ٢٠٢٦-٠٩-٠٧ (أمر المالك: لا threshold قبل القياس): PORTFOLIO_STATE_MISSING
+        # مرشّح لا سبب مثبَت. هذا السطر يفصل بين احتمالين لا ثالث لهما:
+        #   • المفاتيح الموجودة تحوي الرمز بصيغة أخرى → routing/ownership
+        #   • المخزن فارغ أو بلا هذا الرمز أصلًا → timing/initialization
+        # يُطبع بلا كتم حتى تكتمل العيّنة، ولا يغيّر منطقًا ولا رقمًا.
+        atom._context.logger.warning(
+            "581 محفظة غائبة %s: مفتاح=%r موجود=%s مفاتيح_المخزن=%r "
+            "عددها=%d", symbol, scope_key, scope_key in atom._portfolios,
+            sorted(atom._portfolios.keys())[:6], len(atom._portfolios))
         out.update(status="BLOCKED", action=BLOCKED, reason="PORTFOLIO_STATE_MISSING")
     elif not system_alive:
         out.update(status="BLOCKED", action=BLOCKED, reason="SYSTEM_NOT_ALIVE")
