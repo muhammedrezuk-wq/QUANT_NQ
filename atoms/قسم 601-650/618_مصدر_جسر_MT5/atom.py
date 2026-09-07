@@ -10,7 +10,7 @@ from typing import Any
 import clock
 from core.contracts.atom import AtomBase, AtomContext, HealthState, HealthStatus
 
-ATOM_VERSION = "4.4.0"
+ATOM_VERSION = "4.5.0"
 
 SUBSECOND_CLOCK_REASON = "tick receipt time needs sub-second resolution"
 
@@ -145,8 +145,19 @@ class Atom(AtomBase):
             return
         account = str(payload.get("account_id") or "").strip()
         broker = str(payload.get("broker") or "").strip()
-        if account and broker:
-            self._broker_by_account[account] = broker
+        if not account or not broker:
+            return
+        if self._broker_by_account.get(account) == broker:
+            return
+        # 4.5.0 — قِيس ٢٠٢٦-٠٩-٠٧ بختم NQ: `start()` ينشر المواصفات قبل وصول أوّل
+        # `platform.account.state`، فتخرج بـ broker="" (السطر 222). و`_announce_if_new`
+        # لا يعيد النشر إلا لرمزٍ جديد، والرموز الأربعة معلَنة سلفًا ⇒ الصفوف لا
+        # تُعاد أبدًا، فيبقى 513 على SIZING_UNAVAILABLE_FOR_SYMBOL (مفتاحه
+        # حساب|وسيط|رمز) ولا يُبنى أمر. عند تعلُّم وسيطٍ جديد نُعيد النشر مرّة
+        # واحدة — الشرط أعلاه يمنع التكرار على كل نبضة حساب، و618 لا يشترك في
+        # `market.symbol_specs` فلا حلقة.
+        self._broker_by_account[account] = broker
+        await self._refresh_specs()
 
     async def _on_pulse(self, payload: dict[str, Any]) -> None:
         stamp = _to_float(payload.get("official_time")) if isinstance(payload, dict) else None
