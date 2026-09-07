@@ -11,6 +11,21 @@ REM ---------------------------------------------------------------------
 setlocal
 set PYTHONUTF8=1
 set QUANT_LOCAL_MODE=1
+
+REM ---------------------------------------------------------------------
+REM  Bridge anchor — measured 2026-09-07.  Without these two lines the
+REM  forex atoms 611/618/619 fell back to the RELATIVE default var/bridge.db
+REM  and runtime_paths anchored it on the WRONG runtime, producing
+REM      C:\...\QUANT_NQ\crypto_runtime\var\bridge.db  (does not exist)
+REM  35,485 times in errors-20260907.log alone -> 619 never published the
+REM  account, so 581 logged "فكرة بلا مدخلات ... ميزانية=0.0" and no OPEN
+REM  command was ever written.  Last trade: 09-06 16:57.
+REM  Every other launcher (governance\launchers\*.bat) already sets this;
+REM  this button was the only one that did not.
+REM ---------------------------------------------------------------------
+if not defined NQ_BRIDGE_DB set "NQ_BRIDGE_DB=%APPDATA%\MetaQuotes\Terminal\Common\Files\nq_brain.db"
+if not defined QUANT_CORE_DOMAIN set "QUANT_CORE_DOMAIN=forex"
+
 cd /d "%~dp0"
 
 REM  If the platform is already up, app.py refuses a second instance and
