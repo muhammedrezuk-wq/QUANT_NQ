@@ -54,7 +54,7 @@ config_schema:
 config:
   weight: 0.0
   required_depth: 60.0
-  confidence_threshold: 60.0
+  confidence_threshold: 45.0
   strength_threshold: 0.0
   required_ticks: 24
   tick_window: 20

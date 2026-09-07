@@ -52,7 +52,7 @@ config_schema:
   additionalProperties: false
 
 config:
-  sell_min_direction: 5.0
+  sell_min_direction: 20.0
   min_strength: 1.0
   min_confidence: 1.0
   min_current_depth: 1.0

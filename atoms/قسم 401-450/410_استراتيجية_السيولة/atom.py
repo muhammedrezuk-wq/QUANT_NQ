@@ -5,9 +5,17 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_LIQUIDITY_RAID, build_setup,
-                                meets_scale, net_ratio,
+                                meets_scale, net_ratio, volatility_pad,
                                 round_trip_cost, validate_setup,
                                 OK as SETUP_OK)
+
+
+def _real(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None
 
 ATOM_VERSION = "2.4.0"
 # ٢٠٢٦-٠٩-٠٦: المالك لا يقترح فكرة لا يُطاق اقتصادها، ولا ينتظر حارسًا
@@ -99,6 +107,7 @@ class Atom(AtomBase):
                     "reference_low": low,
                     "reference_high": high,
                     "raid_distance": raid,
+                    "vol_pad": volatility_pad(s.prices),
                 },
             )
         await self._context.publish(EVENT_OUT, card)
@@ -128,6 +137,11 @@ class Atom(AtomBase):
         # طرف الكنس: السعر الذي تجاوز الحدّ قبل الاسترداد. هو نفسه حدّ
         # الإبطال — تجاوزه ثانيةً يعني أن الاسترداد لم يكن استردادًا.
         sweep_edge = (low - raid) if buy else (high + raid)
+        # ٢٠٢٦-٠٩-٠٧: طرف الكنس نقطةٌ لا مستوى. لمسه بضجيج الدقيقة لا
+        # يعني أن الاسترداد بطل، ولذلك ماتت الأفكار في السوق السريع قبل
+        # ربع مهلتها. الهامش يجعل الإبطال يعرف تقلّب سوقه.
+        pad = _real(meta.get("vol_pad")) or 0.0
+        sweep_edge = (sweep_edge - pad) if buy else (sweep_edge + pad)
         setup = build_setup(
             owner="410",
             setup_type=SETUP_LIQUIDITY_RAID,

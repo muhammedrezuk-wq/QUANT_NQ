@@ -129,12 +129,17 @@ DIALS: dict[str, dict[str, Any]] = {
         "bounds": (0.0, 240.0),
         "where": "411_استراتيجية_الأخبار light_window_min — دقائق نافذة الخبر الخفيف قبل/بعد؛ صفر = بلا حظر حتى يضبطها المالك (ق٧: لا اختراع مدد)"},
     "DECISION_BUY_MIN_DIRECTION": {
-        "value": 50.0, "atom": "455", "key": "buy_min_direction",
+        # ٢٠٢٦-٠٩-٠٧ (مقيس على 240 عيّنة من السجل الحيّ): توزيع الاتجاه
+        # الفعليّ P50=20 · P75=34 · P90=100. وعتبة 50 تمرّر أقلّ من رُبع
+        # اللحظات ذات الإشارة الصحيحة، فكانت 466 ترفض 621 من 621 —
+        # والاتجاه هو الفشل الوحيد في سجلّ 455/456 (بقيّة الفحوص تنجح).
+        # العتبة تنزل إلى الوسيط المقيس، متماثلةً على الجهتين.
+        "value": 20.0, "atom": "455", "key": "buy_min_direction",
         "governs": "eligibility.buy.direction_floor", "display": "raw",
         "bounds": (0.0, 100.0),
         "where": "455_قرار_الشراء buy_min_direction — حكم ق٦: القيمة الاتجاهية ≥ +50.0000 لأهلية الشراء"},
     "DECISION_SELL_MIN_DIRECTION": {
-        "value": 50.0, "atom": "456", "key": "sell_min_direction",
+        "value": 20.0, "atom": "456", "key": "sell_min_direction",
         "governs": "eligibility.sell.direction_floor", "display": "raw",
         "bounds": (0.0, 100.0),
         "where": "456_قرار_البيع sell_min_direction — حكم ق٦: القيمة الاتجاهية ≤ -50.0000 لأهلية البيع؛ العيار موجب ويُطبَّق على الجانب السالب"},

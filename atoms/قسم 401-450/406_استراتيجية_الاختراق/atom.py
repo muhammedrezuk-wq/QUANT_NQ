@@ -5,9 +5,17 @@ from shared.section_contract import section_atom
 from shared.strategy_contract import StrategyRuntime, clip
 from shared.tick_contract import VALIDATED_TICK_EVENT
 from shared.trade_setup import (EVENT_SETUP, SETUP_BREAKOUT, build_setup,
-                                meets_scale, net_ratio,
+                                meets_scale, net_ratio, volatility_pad,
                                 round_trip_cost, validate_setup,
                                 OK as SETUP_OK)
+
+
+def _real(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None
 
 ATOM_VERSION = "2.3.0"
 # الحدّ يبقى 1.5 بلا تغيير، كي يُقاس أثر رفع شرط السبريد وحده.
@@ -96,7 +104,8 @@ class Atom(AtomBase):
                         else "inside_reference_range"
                     )
                 ),
-                evidence={"range_high": high, "range_low": low, "distance": distance},
+                evidence={"range_high": high, "range_low": low, "distance": distance,
+                          "vol_pad": volatility_pad(s.prices)},
             )
         await self._context.publish(EVENT_OUT, card)
         self._emitted += 1
@@ -119,12 +128,17 @@ class Atom(AtomBase):
         buy = direction > 0
         width = float(high) - float(low)
         break_level = float(high) if buy else float(low)
+        # ٢٠٢٦-٠٩-٠٧: حدّ المدى مستوًى، لكن لمسه بضجيج الدقيقة ليس عودة
+        # داخل المدى. الإبطال يأخذ هامش تقلّب السوق الحاليّ؛ الهدف يبقى
+        # مقيسًا من حدّ الكسر نفسه فلا تتغيّر الفكرة.
+        pad = _real(meta.get("vol_pad")) or 0.0
+        invalidation = (break_level - pad) if buy else (break_level + pad)
         setup = build_setup(
             owner="406",
             setup_type=SETUP_BREAKOUT,
             side="buy" if buy else "sell",
             entry_reference=entry,
-            invalidation_price=break_level,
+            invalidation_price=invalidation,
             invalidation_source="406:range_edge",
             invalidation_reason=("عودة السعر داخل المدى تُبطل قبول الاختراق"),
             target_price=(break_level + width) if buy else (break_level - width),
